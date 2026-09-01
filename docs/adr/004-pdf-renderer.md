@@ -1,6 +1,6 @@
 # ADR-004: PDF renderer
 
-- **Status:** Open — spike in progress
+- **Status:** Accepted
 - **Date:** 2026-09-01
 - **Deciders:** danylaksono
 
@@ -11,44 +11,66 @@ selection, SyncTeX and review-overlay layers on top of MuPDF's structured text.
 
 Since PLAN.md was written, the review subsystem has grown substantially on the
 desktop `features-1.5` branch — drawing, gutter, re-anchoring, reporting, tags,
-search — and re-anchoring in particular depends on structured-text geometry
-being good enough to find the same words again after a recompile. That makes
-text-geometry fidelity, not raster quality, the deciding measurement here.
+search. Re-anchoring in particular depends on structured-text geometry being
+good enough to find the same words again after a recompile, which makes text
+fidelity, not raster quality, the deciding property.
 
 ## Options considered
 
 | Option | Licence | Porting impact |
-|---|---|---|
-| MuPDF.js | AGPL-3.0-or-later or commercial | Lowest; desktop worker and viewer concepts transfer nearly directly |
-| PDF.js | Apache-2.0 | Replace worker internals; normalise text and link output into the neutral model |
+| --- | --- | --- |
+| MuPDF.js | AGPL-3.0-or-later or commercial | Lowest; desktop worker and viewer concepts transfer nearly directly, and the review subsystem keeps the geometry it was built against |
+| PDF.js | Apache-2.0 | Replace worker internals; normalise text and link output, then re-validate every review anchor against different geometry |
 
 ## Decision
 
-**Open. Both are being implemented behind `PdfRenderer`** so the choice is made
-on data, and so ADR-002 is not forced before that data exists.
+**MuPDF.js.** Chosen for functional completeness and because the review
+subsystem is already built against its structured-text model, so the port keeps
+its geometry instead of re-deriving it. The licence consequence is accepted and
+recorded in ADR-002.
 
-The port in `src/core/pdf/types.ts` is the constraint that makes this possible:
-no MuPDF or PDF.js object may enter Zustand state, component props, or any
-module under `src/core` or `src/features`. Coordinates are PDF points, origin
-top-left, y increasing downwards, matching desktop's structured-text convention
-so ported review anchoring keeps its geometry.
+PDF.js was not benchmarked. The comparison would only have mattered if licence
+were a constraint, and it is not.
 
-`TextLine.baselineY` is the glyph baseline, not the bottom of the bounding box.
-Desktop's `structured-text.ts` documents what happens otherwise: falling back to
-the box bottom drops every line by its descender and misaligns both selection
-and review highlights.
+The port in `src/core/pdf/types.ts` is kept regardless. It costs little, it is
+what the worker protocol is written against, and it is the difference between
+revisiting this decision and rewriting the viewer.
 
-## Exit criteria
+## Evidence
 
-Per PLAN.md 8.2, measured on the corpus in Chrome, Firefox and Safari:
+Measured against `tests/fixtures/compiler-corpus`, Chromium, production build:
 
-1. Correct rendering of all 13 corpus outputs.
-2. Text extraction order and per-line geometry good enough for review anchoring,
-   compared line-for-line against the desktop MuPDF output on the same PDFs.
-3. Internal and external links resolve safely.
-4. Incremental page rendering and working cancellation.
-5. Stable scroll and zoom across recompiles.
-6. Bounded memory on `poster-academic` (a0paper) and `thesis-standard` at high
-   device pixel ratios.
-7. Worker crash recovery.
-8. No execution of PDF-embedded JavaScript.
+- MuPDF 1.28.0 boots in a plain module worker on a static host — not just in a
+  Tauri webview. Desktop resolves its WASM through a dev-only `/@fs/` URL, which
+  has no equivalent on a static deploy; the binary is imported as a Vite asset
+  instead, so one content-hashed URL works in dev and production.
+- `paper-standard`: opened in 94.5 ms, page 1 (612 × 792 pt) rasterised in
+  31.7 ms, 16 text lines extracted.
+- Per-line baselines are distinct from bounding-box bottoms (baseline 132.0
+  against a box bottom of 136.0), so review anchoring keeps the precision it has
+  on desktop.
+- `poster-academic` (a0paper) renders without exhausting memory.
+- Covered by `tests/e2e/renderer-spike.spec.ts` and
+  `tests/unit/structured-text.test.ts`.
+
+## Consequences
+
+- The WASM binary is 10.4 MB raw, 4.8 MB gzipped, and dominates first load.
+  Brotli is worth serving — MuPDF ships a `.br` — and the offline-preparation
+  UX in Phase 4 has to account for a download this size.
+- Two behaviours had to be carried over from desktop and are now pinned by unit
+  tests: reading both the modern and legacy structured-text shapes, and using
+  the glyph baseline rather than the box bottom.
+- MuPDF rasterises synchronously in the worker, so an in-flight render can be
+  abandoned but not interrupted. Genuinely stuck work needs `restart()`, which
+  is why the port exposes it.
+- Explicit `destroy()` and `shrinkStore()` are required. The JS GC sees only a
+  small wrapper while the WASM heap holds the parsed document, so nothing
+  creates pressure to collect it.
+
+## Still open
+
+Exit criteria from PLAN.md 8.2 not yet covered: Firefox and Safari, link
+resolution (the corpus reference PDFs carry no links to exercise), stable scroll
+and zoom across recompiles, worker crash recovery under a real crash, and
+confirming no PDF-embedded JavaScript executes.

@@ -19,8 +19,6 @@ export interface Capability {
   optional: boolean;
 }
 
-declare const __OPAL_CROSS_ORIGIN_ISOLATED__: boolean;
-
 function has(check: () => boolean): CapabilityStatus {
   try {
     return check() ? "available" : "unavailable";

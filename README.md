@@ -5,15 +5,16 @@ projects on the user's device, and sends no document content to an Opal server.
 Sibling product to the [Opal desktop editor](https://github.com/danylaksono/opal-editor),
 not a port of it.
 
-**Status: Phase 0 — feasibility gates.** This repository currently contains
-measurement instrumentation, the architectural ports, and the decision records.
-There is no editor, no storage layer and no compiler yet, deliberately: PLAN.md
-gates product work on two questions whose answers change the architecture.
+**Status: Phase 0 — feasibility gates.** This repository contains measurement
+instrumentation, the architectural ports, and the decision records. There is no
+editor, no storage layer and no compiler yet, deliberately: PLAN.md gates product
+work on two questions whose answers change the architecture.
 
-1. Can a browser LaTeX engine compile Opal's real template corpus with
-   acceptable fidelity and performance? (ADR-003)
-2. Can a permissively licensed PDF renderer meet the preview and review-anchoring
-   requirements? (ADR-004, which gates the application licence in ADR-002)
+1. **Renderer — settled.** MuPDF.js, verified booting in a plain browser module
+   worker on a static host, with per-line text geometry good enough for review
+   anchoring (ADR-004). This makes the app AGPL-3.0-or-later (ADR-002).
+2. **LaTeX engine — open.** Can a browser engine compile the real template
+   corpus with acceptable fidelity and performance? (ADR-003)
 
 ## What is here
 
@@ -23,8 +24,10 @@ gates product work on two questions whose answers change the architecture.
 | [docs/adr/](docs/adr/) | Architecture decision records. 001 accepted, 002–004 open. |
 | [docs/licence-inventory.md](docs/licence-inventory.md) | Every third-party artifact with its exact version and terms. |
 | [src/core/](src/core/) | The ports: `LatexCompiler`, `PdfRenderer`, branded project ids and path validation. No browser API touches these. |
-| [src/platform/browser/](src/platform/browser/) | Capability probes behind those ports. |
-| [tests/fixtures/compiler-corpus/](tests/fixtures/compiler-corpus/) | 13 projects pinned from the desktop examples, with a generated manifest. The instrument both spikes are measured against. |
+| [src/platform/browser/](src/platform/browser/) | Capability probes and the MuPDF renderer adapter behind those ports. |
+| [src/workers/pdf/](src/workers/pdf/) | Versioned PDF worker protocol and the MuPDF worker. |
+| [src/spikes/](src/spikes/) | Measurement surfaces. The renderer spike loads a PDF through the port and reports timings, text geometry and links. |
+| [tests/fixtures/compiler-corpus/](tests/fixtures/compiler-corpus/) | 13 projects pinned from the desktop examples, with a generated manifest and desktop Tectonic's reference output. The instrument both spikes are measured against. |
 
 ## Getting started
 
@@ -34,7 +37,13 @@ pnpm spike:corpus   # regenerate the corpus from a sibling tectonic-editor check
 pnpm dev            # capability matrix and corpus overview
 pnpm test
 pnpm typecheck
+pnpm test:e2e       # builds, serves, and drives the renderer spike in Chromium
 ```
+
+The corpus ships with desktop Tectonic's own output for each project as
+`main.reference.pdf`. Those are committed rather than ignored: they cannot be
+regenerated without the desktop repo and a working native toolchain, which makes
+them the comparison baseline rather than a build artifact.
 
 Set `OPAL_COI=1` to serve with cross-origin isolation headers. Whether threaded
 WASM needs them is a Phase 0 measurement, so they are switchable rather than
@@ -59,6 +68,10 @@ sequencing assumption have changed:
 
 ## Licence
 
-Undecided. ADR-002 is open and deliberately blocked on the renderer spike, so
-no `LICENSE` file is present yet and no code has been copied from a copyleft
-project.
+**AGPL-3.0-or-later**, as the consequence of shipping MuPDF.js (ADR-002,
+ADR-004). Because this is a static site, the JavaScript is conveyed directly to
+every visitor, so every visitor is a recipient with a source offer — the app has
+to publish corresponding source and make the offer discoverable in the UI.
+
+The `LICENSE` file is not committed yet: it must be the canonical AGPL-3.0 text
+copied verbatim from gnu.org rather than reproduced from memory.

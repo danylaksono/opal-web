@@ -3,9 +3,8 @@ import {
   buildCapabilityReport,
   type Capability,
 } from "@/platform/browser/capabilities/detect";
+import { RendererSpike } from "@/spikes/renderer/RendererSpike";
 import corpus from "../../tests/fixtures/compiler-corpus/manifest.json";
-
-declare const __OPAL_CROSS_ORIGIN_ISOLATED__: boolean;
 
 interface CorpusEntry {
   id: string;
@@ -128,6 +127,8 @@ export function App() {
           </tbody>
         </table>
       </section>
+
+      <RendererSpike />
 
       <section>
         <h2>Build configuration</h2>

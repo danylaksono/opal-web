@@ -9,8 +9,9 @@ coverage/
 .env.*
 !.env.example
 
-# Spike outputs: large, regenerated, never reviewed as source.
+# Spike outputs. The corpus reference PDFs are NOT ignored: they are desktop
+# Tectonic's output and cannot be regenerated without that repo and a working
+# native toolchain, which makes them a baseline rather than a build artifact.
 spike-results/
-tests/fixtures/compiler-corpus/**/*.reference.pdf
 playwright-report/
 test-results/

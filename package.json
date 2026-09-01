@@ -20,6 +20,7 @@
     "spike:corpus": "tsx scripts/build-corpus-manifest.ts"
   },
   "dependencies": {
+    "mupdf": "^1.28.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "zustand": "^5.0.10"

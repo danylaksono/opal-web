@@ -7,6 +7,7 @@ export default defineConfig({
   },
   define: {
     __OPAL_CROSS_ORIGIN_ISOLATED__: "false",
+    __MUPDF_VERSION__: '"test"',
   },
   test: {
     environment: "node",

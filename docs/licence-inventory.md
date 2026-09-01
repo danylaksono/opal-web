@@ -13,6 +13,7 @@ Repeat this audit against pinned versions before any distribution.
 |---|---|---|---|
 | react, react-dom | 19.2.3 | MIT | |
 | zustand | 5.0.15 | MIT | Not yet used; reserved for Phase 1 domain state. |
+| mupdf | 1.28.0 | AGPL-3.0-or-later | Selected in ADR-004. Sets the application licence via ADR-002. WASM binary is 10.4 MB raw, 4.8 MB gzipped; a `.br` variant ships alongside it. |
 
 ## Build and test only — not distributed
 
@@ -27,15 +28,13 @@ Repeat this audit against pinned versions before any distribution.
 | tsx | 4.23.13 | MIT | |
 | esbuild (transitive) | 0.25.12, 0.28.2 | MIT | |
 
-## Pending evaluation — blocked on ADR-003 and ADR-004
+## Pending evaluation — blocked on ADR-003
 
 Nothing below is installed yet. Each must be entered here with its exact
 version and terms *before* it is added to `package.json`.
 
 | Candidate | Expected licence | Blocking question |
 |---|---|---|
-| pdfjs-dist | Apache-2.0 | Confirm the shipped worker build and any bundled CMap/standard-font assets carry the same terms. |
-| mupdf | AGPL-3.0-or-later or commercial | Cannot be installed until ADR-002 accepts AGPL or a commercial licence is obtained. |
 | SwiftLaTeX engine artifacts | Mixed; must be read per file | Engine WASM, generated JS glue, and the package-server component may differ from the repository's headline licence. |
 | TeX packages and fonts | Per package (LPPL, GPL, OFL, …) | Whether the intended redistribution and caching model is permitted, and whether they may be hosted under an Opal domain. |
 
