@@ -1,0 +1,16 @@
+node_modules/
+dist/
+dist-ssr/
+coverage/
+.vite/
+*.local
+.DS_Store
+.env
+.env.*
+!.env.example
+
+# Spike outputs: large, regenerated, never reviewed as source.
+spike-results/
+tests/fixtures/compiler-corpus/**/*.reference.pdf
+playwright-report/
+test-results/

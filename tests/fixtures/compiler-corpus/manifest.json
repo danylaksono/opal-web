@@ -1,0 +1,360 @@
+{
+  "$schema": "./manifest.schema.json",
+  "generatedFrom": "../tectonic-editor",
+  "generatedAt": "2026-09-01",
+  "entryCount": 13,
+  "entries": [
+    {
+      "id": "blank",
+      "mainFile": "main.tex",
+      "files": ["main.tex"],
+      "documentClass": "article",
+      "classOptions": ["12pt"],
+      "packages": ["fontenc", "inputenc"],
+      "heavyPackages": [],
+      "heavyDocumentClass": false,
+      "needsBibliography": false,
+      "bibliographyEngine": "none",
+      "hasReferencePdf": true,
+      "notes": [
+        "inputenc/fontenc pairing is pdfTeX-oriented; check XeTeX behaviour."
+      ]
+    },
+    {
+      "id": "book-standard",
+      "mainFile": "main.tex",
+      "files": ["main.tex"],
+      "documentClass": "book",
+      "classOptions": ["12pt", "a4paper"],
+      "packages": [
+        "amsmath",
+        "amssymb",
+        "fontenc",
+        "geometry",
+        "graphicx",
+        "hyperref",
+        "inputenc"
+      ],
+      "heavyPackages": [],
+      "heavyDocumentClass": false,
+      "needsBibliography": false,
+      "bibliographyEngine": "none",
+      "hasReferencePdf": true,
+      "notes": [
+        "inputenc/fontenc pairing is pdfTeX-oriented; check XeTeX behaviour."
+      ]
+    },
+    {
+      "id": "cv-modern",
+      "mainFile": "main.tex",
+      "files": ["main.tex"],
+      "documentClass": "article",
+      "classOptions": ["11pt", "a4paper"],
+      "packages": [
+        "enumitem",
+        "fontawesome5",
+        "fontenc",
+        "geometry",
+        "hyperref",
+        "inputenc",
+        "lmodern",
+        "microtype",
+        "multicol",
+        "tabularx",
+        "titlesec",
+        "xcolor"
+      ],
+      "heavyPackages": ["fontawesome5", "microtype"],
+      "heavyDocumentClass": false,
+      "needsBibliography": false,
+      "bibliographyEngine": "none",
+      "hasReferencePdf": true,
+      "notes": [
+        "Needs a non-core font package shipped with the distribution.",
+        "inputenc/fontenc pairing is pdfTeX-oriented; check XeTeX behaviour."
+      ]
+    },
+    {
+      "id": "letter-formal",
+      "mainFile": "main.tex",
+      "files": ["main.tex"],
+      "documentClass": "article",
+      "classOptions": ["12pt", "a4paper"],
+      "packages": [
+        "enumitem",
+        "fancyhdr",
+        "fontenc",
+        "geometry",
+        "graphicx",
+        "hyperref",
+        "inputenc",
+        "lastpage",
+        "lmodern",
+        "microtype",
+        "parskip",
+        "xcolor"
+      ],
+      "heavyPackages": ["microtype"],
+      "heavyDocumentClass": false,
+      "needsBibliography": false,
+      "bibliographyEngine": "none",
+      "hasReferencePdf": true,
+      "notes": [
+        "inputenc/fontenc pairing is pdfTeX-oriented; check XeTeX behaviour."
+      ]
+    },
+    {
+      "id": "newsletter",
+      "mainFile": "main.tex",
+      "files": ["main.tex"],
+      "documentClass": "article",
+      "classOptions": ["10pt", "a4paper"],
+      "packages": [
+        "booktabs",
+        "enumitem",
+        "fancyhdr",
+        "fontenc",
+        "geometry",
+        "graphicx",
+        "hyperref",
+        "inputenc",
+        "lmodern",
+        "microtype",
+        "multicol",
+        "tabularx",
+        "tikz",
+        "titlesec",
+        "xcolor"
+      ],
+      "heavyPackages": ["microtype", "tikz"],
+      "heavyDocumentClass": false,
+      "needsBibliography": false,
+      "bibliographyEngine": "none",
+      "hasReferencePdf": true,
+      "notes": [
+        "TikZ drawing; a common browser-engine failure point.",
+        "inputenc/fontenc pairing is pdfTeX-oriented; check XeTeX behaviour."
+      ]
+    },
+    {
+      "id": "paper-acm",
+      "mainFile": "main.tex",
+      "files": ["main.tex", "references.bib"],
+      "documentClass": "acmart",
+      "classOptions": ["sigconf", "nonacm"],
+      "packages": ["booktabs", "lipsum", "listings", "xcolor"],
+      "heavyPackages": ["listings"],
+      "heavyDocumentClass": true,
+      "needsBibliography": true,
+      "bibliographyEngine": "acmart",
+      "hasReferencePdf": true,
+      "notes": ["Third-party document class acmart must be resolvable."]
+    },
+    {
+      "id": "paper-ieee",
+      "mainFile": "main.tex",
+      "files": ["main.tex", "references.bib"],
+      "documentClass": "IEEEtran",
+      "classOptions": ["conference"],
+      "packages": [
+        "algorithm",
+        "algorithmic",
+        "amsmath",
+        "amssymb",
+        "booktabs",
+        "cite",
+        "fontenc",
+        "graphicx",
+        "hyperref",
+        "inputenc",
+        "lipsum",
+        "microtype",
+        "xcolor"
+      ],
+      "heavyPackages": ["algorithm", "algorithmic", "microtype"],
+      "heavyDocumentClass": true,
+      "needsBibliography": false,
+      "bibliographyEngine": "cite",
+      "hasReferencePdf": true,
+      "notes": [
+        "Third-party document class IEEEtran must be resolvable.",
+        "inputenc/fontenc pairing is pdfTeX-oriented; check XeTeX behaviour."
+      ]
+    },
+    {
+      "id": "paper-standard",
+      "mainFile": "main.tex",
+      "files": ["main.tex", "references.bib"],
+      "documentClass": "article",
+      "classOptions": ["12pt"],
+      "packages": [
+        "amsmath",
+        "amssymb",
+        "booktabs",
+        "fontenc",
+        "geometry",
+        "graphicx",
+        "hyperref",
+        "inputenc",
+        "natbib"
+      ],
+      "heavyPackages": [],
+      "heavyDocumentClass": false,
+      "needsBibliography": true,
+      "bibliographyEngine": "natbib",
+      "hasReferencePdf": true,
+      "notes": [
+        "inputenc/fontenc pairing is pdfTeX-oriented; check XeTeX behaviour."
+      ]
+    },
+    {
+      "id": "poster-academic",
+      "mainFile": "main.tex",
+      "files": ["main.tex"],
+      "documentClass": "article",
+      "classOptions": ["a0paper", "portrait"],
+      "packages": [
+        "amsmath",
+        "amssymb",
+        "booktabs",
+        "enumitem",
+        "fontenc",
+        "geometry",
+        "graphicx",
+        "inputenc",
+        "lmodern",
+        "microtype",
+        "multicol",
+        "tikz",
+        "xcolor"
+      ],
+      "heavyPackages": ["microtype", "tikz"],
+      "heavyDocumentClass": false,
+      "needsBibliography": false,
+      "bibliographyEngine": "none",
+      "hasReferencePdf": true,
+      "notes": [
+        "Very large page geometry; stresses renderer memory budget.",
+        "TikZ drawing; a common browser-engine failure point.",
+        "inputenc/fontenc pairing is pdfTeX-oriented; check XeTeX behaviour."
+      ]
+    },
+    {
+      "id": "presentation-beamer",
+      "mainFile": "main.tex",
+      "files": ["main.tex"],
+      "documentClass": "beamer",
+      "classOptions": [],
+      "packages": ["amsmath", "amssymb", "fontenc", "graphicx", "inputenc"],
+      "heavyPackages": [],
+      "heavyDocumentClass": true,
+      "needsBibliography": false,
+      "bibliographyEngine": "none",
+      "hasReferencePdf": true,
+      "notes": [
+        "Third-party document class beamer must be resolvable.",
+        "inputenc/fontenc pairing is pdfTeX-oriented; check XeTeX behaviour."
+      ]
+    },
+    {
+      "id": "report-scientific",
+      "mainFile": "main.tex",
+      "files": ["main.tex", "references.bib"],
+      "documentClass": "report",
+      "classOptions": ["11pt"],
+      "packages": [
+        "amsmath",
+        "amssymb",
+        "booktabs",
+        "float",
+        "fontenc",
+        "geometry",
+        "graphicx",
+        "hyperref",
+        "inputenc",
+        "lmodern",
+        "natbib",
+        "siunitx",
+        "tcolorbox",
+        "xcolor"
+      ],
+      "heavyPackages": ["siunitx", "tcolorbox"],
+      "heavyDocumentClass": false,
+      "needsBibliography": true,
+      "bibliographyEngine": "natbib",
+      "hasReferencePdf": true,
+      "notes": [
+        "inputenc/fontenc pairing is pdfTeX-oriented; check XeTeX behaviour."
+      ]
+    },
+    {
+      "id": "report-technical",
+      "mainFile": "main.tex",
+      "files": ["main.tex"],
+      "documentClass": "report",
+      "classOptions": ["12pt", "a4paper"],
+      "packages": [
+        "amsmath",
+        "booktabs",
+        "caption",
+        "enumitem",
+        "fancyhdr",
+        "float",
+        "fontenc",
+        "geometry",
+        "graphicx",
+        "hyperref",
+        "inputenc",
+        "listings",
+        "lmodern",
+        "microtype",
+        "tabularx",
+        "titlesec",
+        "xcolor"
+      ],
+      "heavyPackages": ["listings", "microtype"],
+      "heavyDocumentClass": false,
+      "needsBibliography": false,
+      "bibliographyEngine": "none",
+      "hasReferencePdf": true,
+      "notes": [
+        "inputenc/fontenc pairing is pdfTeX-oriented; check XeTeX behaviour."
+      ]
+    },
+    {
+      "id": "thesis-standard",
+      "mainFile": "main.tex",
+      "files": ["main.tex", "references.bib"],
+      "documentClass": "report",
+      "classOptions": ["12pt", "a4paper", "oneside"],
+      "packages": [
+        "amsmath",
+        "amssymb",
+        "amsthm",
+        "booktabs",
+        "enumitem",
+        "fancyhdr",
+        "fontenc",
+        "geometry",
+        "graphicx",
+        "hyperref",
+        "inputenc",
+        "lipsum",
+        "lmodern",
+        "microtype",
+        "natbib",
+        "setspace",
+        "titlesec",
+        "xcolor"
+      ],
+      "heavyPackages": ["microtype"],
+      "heavyDocumentClass": false,
+      "needsBibliography": true,
+      "bibliographyEngine": "natbib",
+      "hasReferencePdf": true,
+      "notes": [
+        "inputenc/fontenc pairing is pdfTeX-oriented; check XeTeX behaviour."
+      ]
+    }
+  ]
+}

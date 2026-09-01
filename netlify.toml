@@ -1,0 +1,44 @@
+# Static host configuration for the Phase 0 spike deploy (PLAN.md 11.1).
+#
+# The COOP/COEP block is commented out deliberately: PLAN.md 7.3 treats
+# cross-origin isolation as something to measure, not assume. Enabling it here
+# must happen together with OPAL_COI=1 in the dev/preview server so local and
+# deployed behaviour agree.
+
+[build]
+  command = "pnpm build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+# SPA fallback. Project identity stays out of the URL (PLAN.md 5.3).
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# WASM must be served with the correct type or streaming compilation fails.
+[[headers]]
+  for = "/*.wasm"
+  [headers.values]
+    Content-Type = "application/wasm"
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# Hashed build assets are safe to cache forever.
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# The shell must never be cached, or the app cannot be updated.
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+# [[headers]]
+#   for = "/*"
+#   [headers.values]
+#     Cross-Origin-Opener-Policy = "same-origin"
+#     Cross-Origin-Embedder-Policy = "require-corp"
