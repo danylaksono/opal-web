@@ -19,3 +19,6 @@ test-results/
 # Engine assets: 225 MB of third-party WASM and TeX Live bundles, fetched by
 # scripts/download-siglum-assets.sh. Never committed; see docs/adr/003.
 public/engines/
+
+# Version-pinned CTAN package cache filled by the dev/preview proxy.
+.cache/

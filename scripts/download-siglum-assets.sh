@@ -27,4 +27,14 @@ if [ ! -d bundles ]; then
   rm -rf bundles/node_modules
 fi
 
+# xzwasm is an npm dependency rather than a release asset, but Siglum loads it
+# by URL at runtime, so it has to sit alongside the other engine assets.
+cd - > /dev/null
+XZWASM=$(find node_modules/.pnpm -maxdepth 1 -name "xzwasm@*" | head -1)
+if [ -n "$XZWASM" ]; then
+  cp "$XZWASM/node_modules/xzwasm/dist/package/xzwasm.min.js" "$DEST/xzwasm.js"
+else
+  echo "warning: xzwasm not installed; CTAN package decompression will fail" >&2
+fi
+
 echo "Siglum ${VERSION} assets ready in ${DEST}"

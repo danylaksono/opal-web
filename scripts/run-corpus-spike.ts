@@ -31,7 +31,42 @@ interface ProjectOutcome {
   pages: number | null;
   syncTex: boolean;
   diagnostics: number;
+  /** Page count of desktop Tectonic's output for the same project. */
+  referencePages: number | null;
   detail: string;
+}
+
+/**
+ * Page count of the committed reference PDF, read through the same renderer the
+ * compiled output goes through.
+ *
+ * "It compiled" is not the acceptance test (PLAN.md 7.4). Page count is the
+ * cheapest signal that the output resembles what desktop produces, and using
+ * one renderer for both sides means a difference is a real difference rather
+ * than two parsers disagreeing.
+ */
+async function referencePageCount(
+  page: import("@playwright/test").Page,
+  project: string,
+): Promise<number | null> {
+  const path = resolve(CORPUS_ROOT, project, "main.reference.pdf");
+  if (!existsSync(path)) return null;
+  try {
+    await page.getByTestId("pdf-input").setInputFiles(path);
+    await page.waitForFunction(
+      () =>
+        document
+          .querySelector('[data-testid="spike-status"]')
+          ?.getAttribute("data-status") === "done",
+      undefined,
+      { timeout: 60_000 },
+    );
+    const text = await page.getByTestId("spike-status").innerText();
+    const match = /(\d+) pages, opened/.exec(text);
+    return match?.[1] ? Number(match[1]) : null;
+  } catch {
+    return null;
+  }
 }
 
 function projectFiles(project: string): string[] {
@@ -108,9 +143,12 @@ async function main(): Promise<void> {
       );
       const texError = substantive[substantive.length - 1];
 
+      const referencePages = await referencePageCount(page, project);
+
       outcomes.push({
         project,
         status: "done",
+        referencePages,
         verdict: verdict.trim(),
         engine,
         durationMs: parseNumber(text, /(\d+) ms/),
@@ -124,6 +162,7 @@ async function main(): Promise<void> {
         project,
         status: "timeout-or-error",
         verdict: "—",
+        referencePages: null,
         engine,
         durationMs: null,
         pages: null,
@@ -151,6 +190,20 @@ async function main(): Promise<void> {
   );
   for (const outcome of outcomes.filter((o) => o.verdict !== "Compiled")) {
     console.log(`  ${outcome.project.padEnd(22)} ${outcome.detail}`);
+  }
+
+  // Compiling is not the acceptance test. Page count is the cheapest check that
+  // the output resembles desktop's, and both sides go through the same renderer
+  // so a difference is a real difference rather than two parsers disagreeing.
+  const comparable = compiled.filter((o) => o.referencePages !== null);
+  const matching = comparable.filter((o) => o.pages === o.referencePages);
+  console.log(
+    `\n${matching.length}/${comparable.length} match desktop Tectonic's page count`,
+  );
+  for (const o of comparable.filter((x) => x.pages !== x.referencePages)) {
+    console.log(
+      `  ${o.project.padEnd(22)} ${o.pages} pages vs reference ${o.referencePages}`,
+    );
   }
 
   await mkdir(OUT_DIR, { recursive: true });

@@ -1,6 +1,6 @@
 # ADR-003: LaTeX WASM engine and package distribution
 
-- **Status:** Open — Siglum compiles in-browser; CTAN path untested
+- **Status:** Open — Siglum reaches 9/13 with a self-hosted CTAN proxy
 - **Date:** 2026-09-01
 - **Deciders:** danylaksono
 
@@ -158,17 +158,82 @@ aliased to a stub. DJB2 keys the document and preamble caches and collides far
 more readily than BLAKE3, so this needs resolving before any cache-correctness
 claim.
 
+## Measured: with a self-hosted CTAN proxy
+
+`scripts/ctan-proxy.ts` mounts at `/ctan` as Vite dev/preview middleware. It
+satisfies ADR-001 by construction:
+
+- **Pinned.** Packages come from TeX Live 2025's `tlnet-final` archive, which is
+  frozen, not `tlnet`, which tracks the current release. PLAN.md 7.3 requires
+  this — a mutable package URL makes builds unreproducible and can poison an
+  offline cache.
+- **Cached.** After the first fetch the upstream is never contacted again for
+  that package, so a warm deployment serves entirely from its own origin.
+- **No name leakage.** Package-name resolution uses Siglum's own
+  `file-to-package.json`, already on disk, rather than CTAN's JSON API, so no
+  package name leaves the machine at compile time.
+- Same-origin, so no CORS surface and no cross-origin isolation interaction.
+- Package names from the URL are validated against a conservative pattern
+  before touching the filesystem, not sanitised.
+
+### One missing URL was hiding the whole result
+
+The first CTAN run still scored 2/13, with every package fetching successfully.
+Siglum loads its XZ decompressor through a script tag from `xzwasmUrl`, which
+defaults to `./src/xzwasm.js` — a path that exists only in its own repository
+layout. Unset, every package downloaded and then failed to decompress: the
+packages arrived, and TeX never saw them. `xzwasm` is an npm dependency rather
+than a release asset, so it now ships alongside the other engine assets.
+
+### Result
+
+| | CTAN off | CTAN on |
+|---|---|---|
+| Compiled | 2 / 13 | **9 / 13** |
+| Matching desktop's page count | 2 / 2 | **8 / 9** |
+
+`paper-acm` compiles — the ACM template the bundle analysis had flagged as
+blocked — in 66 s, by far the slowest in the corpus and worth its own look. The
+rest run between 1.4 s and 7.2 s.
+
+Page counts are compared through the same renderer for both sides, so a
+difference is a real difference rather than two parsers disagreeing.
+`paper-acm` produces 3 pages against desktop's 2, which is a fidelity
+discrepancy rather than a pass.
+
+### The four remaining failures are substantive
+
+They are no longer "no bundle ships this". Each is diagnosable:
+
+- `cv-modern` — `FontAwesome5Free-Solid-900.otf` fails to load under xelatex.
+  An OpenType font-loading problem, not a missing package.
+- `letter-formal` — `lastpage` rejects the bundled `hyperref` as too old.
+  **Version skew** between Siglum's TeX Live 2025 bundles and packages fetched
+  from the pinned archive; worth watching, because it is structural rather than
+  incidental.
+- `paper-ieee` — `T1/ptm` (Times) TFM not loadable. A font-metric gap, the same
+  family of problem as the T1 encoding issue in the baseline.
+- `presentation-beamer` — undefined control sequence, still to be diagnosed.
+
+Three of the four are font problems, which is consistent with the T1 finding
+above: this engine's weak spot is font provision, not package resolution.
+
 ## Still to measure
 
-**The CTAN path, which is now the deciding question.** 10 of 13 projects need
-it and it is untested: Siglum's proxy is a Cloudflare Worker run under Bun, and
-ADR-001 requires it self-hosted with version-pinned responses. Until that runs,
-Siglum's honest score is 2/13.
+The CTAN path is answered: 9/13, with 8 of 9 matching desktop's page count.
+What remains is fidelity beyond page count, performance, and the four
+substantive failures.
 
-- [ ] Stand up a self-hosted CTAN proxy and re-run the corpus with `--ctan`.
-- [ ] Compare outcome, page count, extracted text, diagnostics and rendered page
-      images against the committed reference PDFs — not bytes, which carry
-      nondeterministic metadata.
+- [x] Stand up a self-hosted CTAN proxy and re-run the corpus with `--ctan`.
+- [x] Compare page counts against the committed reference PDFs.
+- [ ] Compare extracted text, diagnostics and rendered page images too — not
+      bytes, which carry nondeterministic metadata.
+- [ ] Diagnose the four remaining failures. Three are font problems, which
+      suggests font provision is this engine's weak spot.
+- [ ] Investigate `paper-acm` at 66 s, ten times the next slowest, and its
+      3-versus-2 page discrepancy.
+- [ ] Decide how to handle version skew between bundled TeX Live 2025 packages
+      and pinned-archive fetches, which is what breaks `letter-formal`.
 - [ ] Cold and warm compile time, peak memory, cancellation behaviour.
 - [ ] Multi-pass bibliography orchestration across `natbib`, `cite` and
       `acmart`. No corpus project has reached its bibliography yet.

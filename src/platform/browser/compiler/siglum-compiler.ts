@@ -194,6 +194,11 @@ export class SiglumLatexCompiler implements LatexCompiler {
       bundlesUrl: `${base}/bundles`,
       wasmUrl: `${base}/busytex.wasm`,
       jsUrl: `${base}/busytex.js`,
+      // Siglum loads xzwasm through a script tag and defaults to
+      // "./src/xzwasm.js", a path that only exists in its own repo layout. Left
+      // unset, every CTAN package downloads successfully and then fails to
+      // decompress — the packages arrive, but TeX never sees them.
+      xzwasmUrl: `${base}/xzwasm.js`,
       ...(this.#options.ctanProxyUrl
         ? { ctanProxyUrl: this.#options.ctanProxyUrl, enableCtan: true }
         : { enableCtan: false }),

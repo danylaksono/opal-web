@@ -74,6 +74,10 @@ sequencing assumption have changed:
 - The desktop skills/Python architecture landed after the plan was written. It
   stays out of scope, as PLAN.md 3.4 already specified.
 
+## Author
+
+Dany Laksono ([@danylaksono](https://github.com/danylaksono))
+
 ## Licence
 
 **AGPL-3.0-or-later**, as the consequence of shipping MuPDF.js (ADR-002,

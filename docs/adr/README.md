@@ -11,7 +11,7 @@ whose answers change the architecture rather than the code.
 |---|---|---|
 | [001](001-client-only-boundary.md) | Client-only product boundary and permitted network features | Accepted |
 | [002](002-licence.md) | Application licence and third-party licence policy | Accepted — AGPL-3.0-or-later |
-| [003](003-latex-engine.md) | LaTeX WASM engine and package distribution | Open — Siglum compiles in-browser, 2/13 without CTAN |
+| [003](003-latex-engine.md) | LaTeX WASM engine and package distribution | Open — Siglum 9/13 with a self-hosted CTAN proxy |
 | [004](004-pdf-renderer.md) | PDF renderer | Accepted — MuPDF.js |
 | 005 | OPFS/IndexedDB project schema and migration | Not opened (Phase 1) |
 | 006 | Local directory mirror and conflict semantics | Not opened (Phase 4) |

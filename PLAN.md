@@ -1,6 +1,6 @@
 # Opal Web: architecture investigation and initial plan
 
-Status: Phase 0 in progress — renderer settled, engine open  
+Status: Phase 0 in progress — renderer settled, engine at 9/13  
 Prepared: 2026-07-23  
 Last updated: 2026-09-01  
 Target product: `opal-web`, a separate repository and independently deployable product
@@ -43,16 +43,21 @@ Repository: <https://github.com/danylaksono/opal-web>, AGPL-3.0-or-later.
 - 41 unit tests, 4 browser e2e tests, and three spike scripts
   (`spike:coverage`, `spike:siglum`, `spike:corpus-run`).
 
-### The blocking result
+### Where the corpus stands
 
-**2 of 13 corpus projects compile.** Every other failure is a package no bundle
-ships: `booktabs`, `enumitem`, `titlesec`, `translator`, `acmart`, `IEEEtran`.
-10 of 13 projects depend on on-demand CTAN fetching, and **that path is
-untested** — Siglum's proxy is a Cloudflare Worker run under Bun, and ADR-001
-requires it self-hosted with version-pinned responses.
+**9 of 13 corpus projects compile, and 8 of those 9 match desktop Tectonic's
+page count**, using a self-hosted CTAN proxy pinned to TeX Live 2025's frozen
+`tlnet-final` archive. Without that proxy the score is 2 of 13.
 
-Everything else in Phase 0 is downstream of that number. Until the CTAN path
-runs, there is no honest basis for selecting an engine.
+`paper-acm` compiles — the ACM template the bundle analysis had flagged as
+blocked — though in 66 s against 1.4–7.2 s for the rest, and at 3 pages against
+desktop's 2.
+
+The four remaining failures are substantive rather than missing packages, and
+three of them are font problems: an OpenType load failure under xelatex, a
+missing Times TFM, and a `lastpage`/`hyperref` version skew between bundled and
+fetched packages. Font provision, not package resolution, looks like this
+engine's weak spot.
 
 ### What changed in the plan's assumptions
 
@@ -77,12 +82,13 @@ runs, there is no honest basis for selecting an engine.
 
 ### Next, in order
 
-1. **Stand up a self-hosted, version-pinned CTAN proxy** and re-run the corpus.
-   This decides ADR-003 and therefore Phase 0.
-2. Compare successful output against the committed reference PDFs — outcome,
-   page count, extracted text, diagnostics and rendered images within
-   tolerance, never bytes.
-3. Measure cold and warm compile time, peak memory, and cancellation.
+1. Diagnose the four remaining corpus failures, three of which are font
+   problems, and decide how to handle version skew between bundled TeX Live
+   packages and pinned-archive fetches.
+2. Compare successful output beyond page count — extracted text, diagnostics
+   and rendered images within tolerance, never bytes.
+3. Measure cold and warm compile time, peak memory, and cancellation, and
+   investigate why `paper-acm` takes ten times longer than anything else.
 4. Exercise bibliography reruns across `natbib`, `cite` and `acmart`. No corpus
    project has reached its bibliography yet.
 5. Close the remaining ADR-004 criteria: Firefox and Safari, link resolution,
@@ -91,7 +97,7 @@ runs, there is no honest basis for selecting an engine.
    xelatex baseline alone is 39 MB on top of MuPDF's 10.4 MB.
 7. Build the AGPL section 13 source offer before any public deployment.
 
-Phase 1 does not start until 1–3 are answered.
+Phase 1 does not start until 1-3 are answered and ADR-003 is closed.
 
 
 ## 1. Executive recommendation
