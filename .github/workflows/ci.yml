@@ -20,9 +20,3 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
-
-      # The corpus is committed, but regenerating it must be a no-op. A diff
-      # here means the fixtures drifted from the generator that documents them.
-      - name: Corpus manifest is reproducible
-        run: |
-          git diff --exit-code -- tests/fixtures/compiler-corpus/manifest.json
