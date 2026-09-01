@@ -81,5 +81,7 @@ ADR-004). Because this is a static site, the JavaScript is conveyed directly to
 every visitor, so every visitor is a recipient with a source offer — the app has
 to publish corresponding source and make the offer discoverable in the UI.
 
-The `LICENSE` file is not committed yet: it must be the canonical AGPL-3.0 text
-copied verbatim from gnu.org rather than reproduced from memory.
+`LICENSE` holds the canonical AGPL-3.0 text. The source offer that AGPL section
+13 requires is not built yet: a deployed build must link to the corresponding
+source for *that version*, which means the UI has to know its own commit or tag.
+That is a prerequisite for any public deployment, not for development.

@@ -1,8 +1,98 @@
 # Opal Web: architecture investigation and initial plan
 
-Status: initial investigation  
+Status: Phase 0 in progress — renderer settled, engine open  
 Prepared: 2026-07-23  
+Last updated: 2026-09-01  
 Target product: `opal-web`, a separate repository and independently deployable product
+
+> **Read this first.** Sections 1–19 below are the original investigation,
+> written on 2026-07-23 against desktop v1.4.8. They are kept as written: the
+> architecture has held up, and rewriting them would erase the reasoning that
+> produced it. Where measurement has since contradicted or answered them, the
+> status section immediately below says so and section 17 is annotated inline.
+
+## Progress as of 2026-09-01
+
+Repository: <https://github.com/danylaksono/opal-web>, AGPL-3.0-or-later.
+
+### Decisions closed
+
+| ADR | Decision | Basis |
+|---|---|---|
+| 001 | Client-only boundary; two classes of network call, integrations opt-in | Accepted as written |
+| 002 | **AGPL-3.0-or-later** | Follows from keeping MuPDF; `LICENSE` committed |
+| 004 | **MuPDF.js** as the PDF renderer | Measured; PDF.js not benchmarked, since the comparison only mattered if licence were a constraint |
+
+### Built and verified
+
+- Standalone repository, strict TypeScript, Biome, Vitest, Playwright, CI.
+- **The ports first**: `LatexCompiler`, `PdfRenderer`, branded `ProjectId` /
+  `ProjectPath` with archive-hostile path validation. Nothing above them touches
+  a browser API or an engine type. This has already paid for itself — four
+  engine defects (below) are absorbed entirely inside adapters.
+- **MuPDF running in a plain browser worker**, not a Tauri webview:
+  `paper-standard` opens in 94.5 ms and rasterises 612×792 in 31.7 ms, with
+  per-line baselines distinct from bounding-box bottoms, so review anchoring
+  keeps desktop's precision. WASM is 10.4 MB (4.8 MB gzipped).
+- **Siglum compiling LaTeX in the browser**: `blank` in 747 ms,
+  `book-standard` in 1740 ms to 8 pages, each verified by opening the PDF
+  through the renderer port. SyncTeX is emitted.
+- Compiler acceptance corpus: all 13 desktop examples pinned with desktop
+  Tectonic's reference output, plus a generated manifest — 6 document classes,
+  32 packages, 4 needing bibliography passes.
+- 41 unit tests, 4 browser e2e tests, and three spike scripts
+  (`spike:coverage`, `spike:siglum`, `spike:corpus-run`).
+
+### The blocking result
+
+**2 of 13 corpus projects compile.** Every other failure is a package no bundle
+ships: `booktabs`, `enumitem`, `titlesec`, `translator`, `acmart`, `IEEEtran`.
+10 of 13 projects depend on on-demand CTAN fetching, and **that path is
+untested** — Siglum's proxy is a Cloudflare Worker run under Bun, and ADR-001
+requires it self-hosted with version-pinned responses.
+
+Everything else in Phase 0 is downstream of that number. Until the CTAN path
+runs, there is no honest basis for selecting an engine.
+
+### What changed in the plan's assumptions
+
+- **Section 7.1's candidate set is superseded.** SwiftLaTeX is not published on
+  npm, and every maintained browser TeX distribution — `texlyre-busytex`,
+  `wasmtex`, `@siglum/engine` — wraps the same BusyTeX TeX Live build. The
+  choice is package delivery and API shape, not engine fidelity.
+- **Section 9 under-weights review.** Desktop's review subsystem grew
+  substantially on `features-1.5` (drawing, gutter, re-anchoring, reporting,
+  tags, search). Its dependence on structured-text geometry made renderer text
+  fidelity a Phase 0 deciding measurement rather than a Phase 4 concern.
+- **Section 3.1's audit counts are stale**: 227 → 293 TypeScript/TSX files, and
+  44 → 65 files importing Tauri APIs directly.
+- **Engine defects are the real integration cost, not compile fidelity.** Four
+  were hit by ordinary corpus documents: a xelatex baseline that cannot render
+  T1 encoding, document classes missing from the package index, incomplete
+  bundle dependency lists, and an always-empty result log. See ADR-003.
+- **Static hosting is fussier than section 11.1 suggests.** Pre-compressed
+  engine bundles must be served with no `Content-Encoding`, or the browser
+  decompresses payloads the engine intends to decompress itself — presenting as
+  a fetch failure while every request returns 200.
+
+### Next, in order
+
+1. **Stand up a self-hosted, version-pinned CTAN proxy** and re-run the corpus.
+   This decides ADR-003 and therefore Phase 0.
+2. Compare successful output against the committed reference PDFs — outcome,
+   page count, extracted text, diagnostics and rendered images within
+   tolerance, never bytes.
+3. Measure cold and warm compile time, peak memory, and cancellation.
+4. Exercise bibliography reruns across `natbib`, `cite` and `acmart`. No corpus
+   project has reached its bibliography yet.
+5. Close the remaining ADR-004 criteria: Firefox and Safari, link resolution,
+   scroll and zoom stability across recompiles, crash recovery.
+6. Deploy the Netlify spike with production headers and measure first load. The
+   xelatex baseline alone is 39 MB on top of MuPDF's 10.4 MB.
+7. Build the AGPL section 13 source offer before any public deployment.
+
+Phase 1 does not start until 1–3 are answered.
+
 
 ## 1. Executive recommendation
 
@@ -805,6 +895,9 @@ Phases are ordered by uncertainty and dependency, not calendar estimates.
 
 ### Phase 0 — decisions and feasibility gates
 
+> In progress. See "Progress as of 2026-09-01" at the top of this document for
+> what is built and measured; the CTAN path is the open gate.
+
 Deliverables:
 
 - standalone empty Vite/React/TypeScript test harness;
@@ -979,26 +1072,48 @@ Create these ADRs before implementation crosses each boundary:
 
 ## 17. Open questions
 
-These should remain explicit until evidence resolves them:
+These should remain explicit until evidence resolves them. Annotated
+2026-09-01; unmarked questions are still open as written.
 
-1. Will Opal Web be MIT/permissive, AGPL, source-available, or commercial?
-2. Is XeTeX-level compatibility required for MVP, or can an explicitly
-   pdfTeX-only MVP launch with a narrower template set?
+1. ~~Will Opal Web be MIT/permissive, AGPL, source-available, or commercial?~~
+   **Answered: AGPL-3.0-or-later** (ADR-002), as the consequence of keeping
+   MuPDF.js. `LICENSE` is committed. The AGPL section 13 source offer is not
+   built yet and blocks public deployment.
+2. ~~Is XeTeX-level compatibility required for MVP, or can an explicitly
+   pdfTeX-only MVP launch with a narrower template set?~~ **Moot.** Every
+   candidate wraps the same BusyTeX build and ships `xetex` alongside `pdftex`,
+   so the choice never arises. A related question replaces it: the corpus is
+   written in the pdfTeX-oriented `fontenc[T1]` idiom, and Siglum's xelatex
+   baseline cannot render T1 without an extra bundle, so *which engine the
+   templates target* is now a template decision rather than an engine one.
 3. Which TeX packages and fonts must work offline on first install?
+   **Sharpened, not answered.** Measured against Siglum: the 39 MB xelatex
+   baseline alone covers only `blank`; adding bundles fetched on demand from the
+   same origin reaches 2 of 13; the other 10 need packages no bundle ships at
+   all. So "works offline on first install" and "works at all" are currently the
+   same question.
 4. Is browser-managed storage acceptable as the default mental model, or must
    connected folders be a launch requirement?
 5. Must projects round-trip with desktop Opal including hidden history, or only
    sources, assets, review JSON, and generated PDF?
-6. Is SyncTeX required for MVP or a post-MVP enhancement?
+6. ~~Is SyncTeX required for MVP or a post-MVP enhancement?~~ **Available.**
+   Siglum emits SyncTeX data, so this is now a product decision about whether to
+   surface it, not a feasibility question.
 7. Should AI be absent from the initial product, session-key only, or persistent
    BYOK?
 8. Which browsers and mobile form factors are support commitments rather than
    best-effort targets?
 9. What is the maximum supported project size and compile duration?
 10. Will TeX packages be hosted under the Opal domain, and do their licences
-    allow the intended redistribution/caching model?
-11. Does cross-origin isolation materially improve the selected engine, and is
-    that benefit worth the integration constraints?
+    allow the intended redistribution/caching model? **Now urgent**, not
+    theoretical: ADR-001 requires the CTAN proxy self-hosted with version-pinned
+    responses, and 10 of 13 corpus projects depend on it.
+11. ~~Does cross-origin isolation materially improve the selected engine, and is
+    that benefit worth the integration constraints?~~ **Not required.** Siglum
+    uses `SharedArrayBuffer` opportunistically and falls back to `ArrayBuffer`,
+    so isolation is an optimisation rather than a precondition. The headers stay
+    switchable in `vite.config.ts` and `netlify.toml` so the benefit can be
+    measured once compile timings are meaningful.
 12. How will changes be shared between the independent desktop and web products
     without creating lockstep release coupling?
 

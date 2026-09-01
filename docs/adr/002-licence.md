@@ -43,6 +43,12 @@ commercial licence. No commercial licence has been obtained.
 
 ## Outstanding
 
-`LICENSE` is not yet committed. It must be the canonical AGPL-3.0 text from
-gnu.org, copied verbatim rather than reproduced from memory, together with the
-source-offer notice in the application UI.
+`LICENSE` holds the canonical AGPL-3.0 text, fetched verbatim from gnu.org
+(34,523 bytes).
+
+Still to do: the **source offer itself**. AGPL section 13 requires that users
+interacting with the app over a network can obtain the corresponding source of
+*that running version*. A licence file in the repository does not discharge
+this. Before any public deployment the app needs a discoverable link to the
+source for the deployed build — which means the UI must know its own version
+and point at the matching commit or tag, not just at the repository.
