@@ -17,7 +17,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "spike:corpus": "tsx scripts/build-corpus-manifest.ts"
+    "spike:corpus": "tsx scripts/build-corpus-manifest.ts",
+    "spike:coverage": "tsx scripts/check-bundle-coverage.ts"
   },
   "dependencies": {
     "mupdf": "^1.28.0",

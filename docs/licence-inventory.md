@@ -33,10 +33,20 @@ Repeat this audit against pinned versions before any distribution.
 Nothing below is installed yet. Each must be entered here with its exact
 version and terms *before* it is added to `package.json`.
 
-| Candidate | Expected licence | Blocking question |
+| Candidate | Licence | Blocking question |
 |---|---|---|
-| SwiftLaTeX engine artifacts | Mixed; must be read per file | Engine WASM, generated JS glue, and the package-server component may differ from the repository's headline licence. |
-| TeX packages and fonts | Per package (LPPL, GPL, OFL, …) | Whether the intended redistribution and caching model is permitted, and whether they may be hosted under an Opal domain. |
+| `wasmtex` 0.1.1 | MIT | Ships a machine-checked audit of its 2545 TeX Live packages against an explicit allowlist, 0 failures — see `docs/evidence/wasmtex-0.1.1/licenses.json`, with `SHA256SUMS` and a pinned tlpdb revision. Does not provide `acmart` or `IEEEtran`. |
+| `texlyre-busytex` 1.4.0 | AGPL-3.0-or-later | Compatible with the app licence since ADR-002. No equivalent package-level licence audit located. |
+| `@siglum/engine` 0.1.4 | MIT | On-demand CTAN fetching means packages arrive at compile time; their licences must permit our caching and re-serving from a self-hosted proxy. |
+| TeX packages and fonts | Per package (LPPL, GPL, OFL, …) | Whether the intended redistribution and caching model is permitted, and whether they may be hosted under an Opal domain. Largely answered for wasmtex by the audit above. |
+
+## Evidence held in this repository
+
+`docs/evidence/wasmtex-0.1.1/` holds that release's `manifest.json`,
+`licenses.json` and `SHA256SUMS`, copied verbatim so the ADR-003 coverage
+analysis is reproducible without re-fetching a 435 MB asset archive. They are
+third-party artifacts, retained as evidence rather than distributed as part of
+the app.
 
 ## Content carried from the desktop repository
 

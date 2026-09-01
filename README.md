@@ -13,8 +13,10 @@ work on two questions whose answers change the architecture.
 1. **Renderer — settled.** MuPDF.js, verified booting in a plain browser module
    worker on a static host, with per-line text geometry good enough for review
    anchoring (ADR-004). This makes the app AGPL-3.0-or-later (ADR-002).
-2. **LaTeX engine — open.** Can a browser engine compile the real template
-   corpus with acceptable fidelity and performance? (ADR-003)
+2. **LaTeX engine — open.** Every maintained browser TeX distribution now wraps
+   the same BusyTeX TeX Live build, so the question is package delivery, not
+   engine fidelity. Measured so far: `acmart` and `IEEEtran` are in no shipped
+   bundle, which blocks the ACM and IEEE templates (ADR-003).
 
 ## What is here
 
@@ -23,6 +25,7 @@ work on two questions whose answers change the architecture.
 | [PLAN.md](PLAN.md) | The full architecture investigation. Written 2026-07-23 against desktop v1.4.8; see *Plan drift* below. |
 | [docs/adr/](docs/adr/) | Architecture decision records. 001 accepted, 002–004 open. |
 | [docs/licence-inventory.md](docs/licence-inventory.md) | Every third-party artifact with its exact version and terms. |
+| [docs/evidence/](docs/evidence/) | Third-party manifests kept verbatim so the ADR analyses are reproducible without re-fetching hundreds of megabytes. |
 | [src/core/](src/core/) | The ports: `LatexCompiler`, `PdfRenderer`, branded project ids and path validation. No browser API touches these. |
 | [src/platform/browser/](src/platform/browser/) | Capability probes and the MuPDF renderer adapter behind those ports. |
 | [src/workers/pdf/](src/workers/pdf/) | Versioned PDF worker protocol and the MuPDF worker. |
@@ -34,6 +37,7 @@ work on two questions whose answers change the architecture.
 ```sh
 pnpm install
 pnpm spike:corpus   # regenerate the corpus from a sibling tectonic-editor checkout
+pnpm spike:coverage docs/evidence/wasmtex-0.1.1/manifest.json
 pnpm dev            # capability matrix and corpus overview
 pnpm test
 pnpm typecheck
