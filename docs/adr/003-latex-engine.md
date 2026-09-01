@@ -1,6 +1,6 @@
 # ADR-003: LaTeX WASM engine and package distribution
 
-- **Status:** Open — candidate set revised, package coverage measured
+- **Status:** Open — Siglum compiles in-browser; CTAN path untested
 - **Date:** 2026-09-01
 - **Deciders:** danylaksono
 
@@ -88,24 +88,103 @@ been located for the other two.
 Note the app is now AGPL-3.0-or-later (ADR-002), so `texlyre-busytex`'s AGPL
 licence is no longer a constraint the way it would have been under MIT.
 
+## Measured: Siglum compiling the corpus in a browser
+
+`@siglum/engine` 0.1.4 with the pinned v0.1.0 assets (TeX Live 2025, 225 MB
+unpacked), xelatex, CTAN **off**, Chromium, production build. Reproduce with
+`pnpm spike:corpus-run xelatex` against a running preview.
+
+**The engine works.** `blank` compiles in 747 ms and `book-standard` in 1740 ms
+to 8 pages, both verified by opening the result through the `PdfRenderer` port —
+producing bytes is not the same as producing a readable PDF. **SyncTeX is
+emitted**, which answers PLAN.md open question 6 for this candidate.
+
+**2 of 13 projects compile without CTAN.** Every remaining failure is a
+genuinely unbundled package: `booktabs` (4 projects), `enumitem` (3),
+`titlesec`, `translator`, `acmart`, `IEEEtran`.
+
+### Four defects in Siglum's package resolution
+
+None of these are exotic — all four were hit by ordinary corpus documents, and
+all four are worked around in
+`src/platform/browser/compiler/siglum-compiler.ts`, behind the port, which is
+the point of having one.
+
+1. **The xelatex baseline cannot render T1 encoding.** `core` ships `tulmr.fd`
+   (TU/Unicode) but not `t1lmr.fd`. A document using the pdfTeX-oriented
+   `\usepackage[T1]{fontenc}` idiom — 9 of the 13 corpus projects — dies with
+   "Corrupted NFSS tables", a circular font substitution rather than a missing
+   file. On-demand resolution cannot help, because NFSS looks the file up
+   internally and no `\usepackage` line names the bundle holding it. Fixed by
+   loading `tex-latex-misc` and `fonts-lm-type1` up front.
+
+2. **Document classes are absent from the package index.** Siglum extracts
+   `\documentclass{X}` correctly, but its package-to-bundle map is built from
+   `.sty` files, so `beamer` maps to nothing while `beamerarticle` and every
+   `beamerbase*` file is listed — and the `beamer` bundle sits unused on disk.
+   Fixed by resolving classes through `file-manifest.json`.
+
+3. **Bundle `requires` lists are incomplete.** The `beamer` bundle declares
+   `pgf-tikz` and `graphics` but not `utils`, which holds the `etoolbox.sty` it
+   needs. Fixed with a bounded resolve-and-retry loop: on "File `x' not found",
+   look `x` up in the file manifest, load its bundle, recompile. TeX reports one
+   missing file per run, so beamer needed three passes — `utils`, `pgf-tikz`,
+   `xcolor` — before reaching a genuinely absent package.
+
+4. **`result.log` is always empty**, even with `verbose` on; engine output only
+   reaches the `onLog` callback. Left uncaptured, there is no log to show a
+   user, no diagnostics to parse, and nothing to resolve missing files against,
+   so every failure reads as a bare "Compilation failed". Fixed by capturing the
+   callback stream — which is also what turned the corpus results from
+   `unknown` into `missing-package`.
+
+### Deployment finding
+
+Siglum's `.data.gz` bundles are pre-compressed *payloads* that the engine
+gunzips itself, not files the transport should encode. Vite's static middleware
+sees the extension and sets `Content-Encoding: gzip`, so the browser
+transparently decompresses them and the engine then fails trying to gunzip plain
+bytes — surfacing as a bare "Failed to fetch" while every request returns 200.
+Siglum special-cases `Content-Encoding: br` but not gzip. These files must be
+served as `application/octet-stream` with no `Content-Encoding`; vite.config.ts
+and netlify.toml both carry the rule now.
+
+### Dependency defect
+
+`blake3-wasm` 2.1.5, which Siglum depends on, ships a browser build whose
+`blake3_js.js` re-exports `./blake3_js_bg.js` — a file the package does not
+include, so any bundler resolving it fails. Siglum falls back to DJB2, so it is
+aliased to a stub. DJB2 keys the document and preamble caches and collides far
+more readily than BLAKE3, so this needs resolving before any cache-correctness
+claim.
+
 ## Still to measure
 
-Coverage says what *can* load; none of it says what compiles correctly.
+**The CTAN path, which is now the deciding question.** 10 of 13 projects need
+it and it is untested: Siglum's proxy is a Cloudflare Worker run under Bun, and
+ADR-001 requires it self-hosted with version-pinned responses. Until that runs,
+Siglum's honest score is 2/13.
 
-- [ ] Compile outcome for all 13 corpus projects, per candidate.
-- [ ] Compare outcome, page count, extracted text, diagnostics and rendered
-      page images against the committed reference PDFs — not bytes, which carry
+- [ ] Stand up a self-hosted CTAN proxy and re-run the corpus with `--ctan`.
+- [ ] Compare outcome, page count, extracted text, diagnostics and rendered page
+      images against the committed reference PDFs — not bytes, which carry
       nondeterministic metadata.
 - [ ] Cold and warm compile time, peak memory, cancellation behaviour.
-- [ ] Whether usable SyncTeX is emitted (`texlyre-busytex` claims it).
 - [ ] Multi-pass bibliography orchestration across `natbib`, `cite` and
-      `acmart`.
-- [ ] Whether `acmart` and `IEEEtran` can in fact be resolved on demand.
-- [ ] First-load and offline story: 55 MB is already five times the MuPDF WASM.
+      `acmart`. No corpus project has reached its bibliography yet.
+- [ ] First-load and offline story: the xelatex baseline is 39 MB before any
+      document-specific bundle, on top of MuPDF's 10.4 MB.
+- [ ] Whether the same four resolution defects appear in `wasmtex` and
+      `texlyre-busytex`, which wrap the same BusyTeX build.
 
 ## Consequences so far
 
 `LatexCompiler` in `src/core/compiler/types.ts` remains the only compiler
-surface any other code may depend on. `EngineIdentity` carries the package-set
-version on every result, which the pinned `tlpdbRevision` now makes meaningful:
-a compile can name exactly the TeX Live snapshot that produced it.
+surface any other code may depend on, and it has now earned that: four engine
+defects are absorbed by the adapter without anything above it knowing. Had the
+spike called Siglum directly, those workarounds would be spread through the
+product.
+
+`EngineIdentity` carries the package-set version on every result, which the
+pinned asset release makes meaningful: a compile can name exactly the TeX Live
+snapshot that produced it.

@@ -13,6 +13,9 @@ Repeat this audit against pinned versions before any distribution.
 |---|---|---|---|
 | react, react-dom | 19.2.3 | MIT | |
 | zustand | 5.0.15 | MIT | Not yet used; reserved for Phase 1 domain state. |
+| @siglum/engine | 0.1.4 | MIT | ADR-003 spike. Runtime assets (busytex.wasm plus TeX Live 2025 bundles, 225 MB) are fetched separately and gitignored; they are third-party TeX Live content redistributed under their own per-package terms, which still needs auditing. |
+| blake3-wasm (via @siglum/engine) | 2.1.5 | Apache-2.0 OR MIT | Browser build is broken upstream and is aliased to a stub; see docs/adr/003. |
+| xzwasm (via @siglum/engine) | ^0.1.2 | MIT | Pulled in transitively; only used on the CTAN path, which is not yet enabled. |
 | mupdf | 1.28.0 | AGPL-3.0-or-later | Selected in ADR-004. Sets the application licence via ADR-002. WASM binary is 10.4 MB raw, 4.8 MB gzipped; a `.br` variant ships alongside it. |
 
 ## Build and test only — not distributed
@@ -20,6 +23,7 @@ Repeat this audit against pinned versions before any distribution.
 | Artifact | Version | Licence | Notes |
 |---|---|---|---|
 | vite | 6.4.3 | MIT | |
+| vite-plugin-wasm | latest | MIT | Needed because blake3-wasm uses the ESM-WASM integration proposal. |
 | typescript | 5.9.3 | Apache-2.0 | |
 | vitest | 4.1.11 | MIT | |
 | @playwright/test | 1.62.1 | Apache-2.0 | |

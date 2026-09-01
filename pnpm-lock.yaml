@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@siglum/engine':
+        specifier: ^0.1.4
+        version: 0.1.4
       mupdf:
         specifier: ^1.28.0
         version: 1.28.0
@@ -48,6 +51,9 @@ importers:
       vite:
         specifier: ^6.4.2
         version: 6.4.3(@types/node@25.9.5)(tsx@4.23.13)
+      vite-plugin-wasm:
+        specifier: ^3.6.0
+        version: 3.6.0(vite@6.4.3(@types/node@25.9.5)(tsx@4.23.13))
       vitest:
         specifier: ^4.1.0
         version: 4.1.11(@types/node@25.9.5)(vite@6.4.3(@types/node@25.9.5)(tsx@4.23.13))
@@ -675,6 +681,12 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@siglum/engine@0.1.4':
+    resolution: {integrity: sha512-m7RvhdTie64VWY727Yhz20PUMXTnRLiNkE2Z24hkXkNdX+k5m86krhB/LQXcqyH7C1plWl5vM1mxkiHPuCwXSQ==}
+
+  '@siglum/filesystem@0.2.1':
+    resolution: {integrity: sha512-c06BUHuURbYgUl71lJKeYXViofNDzxiGYeugGSna42NA5h40WAuBZK3j1ArGWzwhXHk8AJ6xsuk55uhE4biW3w==}
+
   '@standard-schema/spec@1.1.0':
     resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
 
@@ -753,6 +765,9 @@ packages:
     resolution: {integrity: sha512-H0ulySigv6icDJ1F7SjtdCD6PrhTpdYCmP0CactWy1+ekh0AFd0o1Wn5T8b+hnTmdBx19u9yhL6wvCylXMY7zw==}
     engines: {node: '>=6.0.0'}
     hasBin: true
+
+  blake3-wasm@2.1.5:
+    resolution: {integrity: sha512-F1+K8EbfOZE49dtoPtmxUQrpXaBIl3ICvasLh+nJta0xkz+9kF/7uet9fLnwKqhDrmj6g+6K3Tw9yQPUg2ka5g==}
 
   browserslist@4.28.8:
     resolution: {integrity: sha512-V2NpofLblG64mfOtSgDhOJESZEGogzDMBv/q+W6oc4LXWP/q75eOXoOaaOu1EOadB9U4Bwx/e0yzbvwKH8zalA==}
@@ -965,6 +980,11 @@ packages:
     peerDependencies:
       browserslist: '>= 4.21.0'
 
+  vite-plugin-wasm@3.6.0:
+    resolution: {integrity: sha512-mL/QPziiIA4RAA6DkaZZzOstdwbW5jO4Vz7Zenj0wieKWBlNvIvX5L5ljum9lcUX0ShNfBgCNLKTjNkRVVqcsw==}
+    peerDependencies:
+      vite: ^2 || ^3 || ^4 || ^5 || ^6 || ^7 || ^8
+
   vite@6.4.3:
     resolution: {integrity: sha512-NTKlcQjlAK7MlQoyb6LgaqHc8sso/pVyUJYWMws3jg21uTJw/LddqIFPcPqP6PzpgbIcZyKI85sFE4HBrQDA8A==}
     engines: {node: ^18.0.0 || ^20.0.0 || >=22.0.0}
@@ -1050,6 +1070,9 @@ packages:
     resolution: {integrity: sha512-hUrmaWBdVDcxvYqnyh09zunKzROWjbZTiNy8dBEjkS7ehEDQibXJ7XvlmtbwuTclUiIyN+CyXQD4Vmko8fNm8w==}
     engines: {node: '>=8'}
     hasBin: true
+
+  xzwasm@0.1.2:
+    resolution: {integrity: sha512-AhkIQcyCRTKQAlI+ENhQBB52AUZF7puNmNleawbpyGAzEyflbMbwIKlU5yN99cgiv5XVlXt0mIeYgQrdQghdsA==}
 
   yallist@3.1.1:
     resolution: {integrity: sha512-a4UGQaWPH59mOXUYnAG2ewncQS4i4F43Tv3JoAM+s2VDAmS9NsK8GpDMLrCHPksFT7h3K6TOoUNn2pb7RoXx4g==}
@@ -1480,6 +1503,14 @@ snapshots:
   '@rollup/rollup-win32-x64-msvc@4.63.1':
     optional: true
 
+  '@siglum/engine@0.1.4':
+    dependencies:
+      '@siglum/filesystem': 0.2.1
+      blake3-wasm: 2.1.5
+      xzwasm: 0.1.2
+
+  '@siglum/filesystem@0.2.1': {}
+
   '@standard-schema/spec@1.1.0': {}
 
   '@types/babel__core@7.20.5':
@@ -1580,6 +1611,8 @@ snapshots:
   assertion-error@2.0.1: {}
 
   baseline-browser-mapping@2.11.20: {}
+
+  blake3-wasm@2.1.5: {}
 
   browserslist@4.28.8:
     dependencies:
@@ -1807,6 +1840,10 @@ snapshots:
       escalade: 3.2.0
       picocolors: 1.1.1
 
+  vite-plugin-wasm@3.6.0(vite@6.4.3(@types/node@25.9.5)(tsx@4.23.13)):
+    dependencies:
+      vite: 6.4.3(@types/node@25.9.5)(tsx@4.23.13)
+
   vite@6.4.3(@types/node@25.9.5)(tsx@4.23.13):
     dependencies:
       esbuild: 0.25.12
@@ -1851,6 +1888,8 @@ snapshots:
     dependencies:
       siginfo: 2.0.0
       stackback: 0.0.2
+
+  xzwasm@0.1.2: {}
 
   yallist@3.1.1: {}
 

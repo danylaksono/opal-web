@@ -3,6 +3,7 @@ import {
   buildCapabilityReport,
   type Capability,
 } from "@/platform/browser/capabilities/detect";
+import { CompilerSpike } from "@/spikes/compiler/CompilerSpike";
 import { RendererSpike } from "@/spikes/renderer/RendererSpike";
 import corpus from "../../tests/fixtures/compiler-corpus/manifest.json";
 
@@ -127,6 +128,8 @@ export function App() {
           </tbody>
         </table>
       </section>
+
+      <CompilerSpike />
 
       <RendererSpike />
 

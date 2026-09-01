@@ -19,9 +19,11 @@
     "test:e2e": "playwright test",
     "spike:corpus": "tsx scripts/build-corpus-manifest.ts",
     "spike:coverage": "tsx scripts/check-bundle-coverage.ts",
-    "spike:siglum": "tsx scripts/check-siglum-coverage.ts"
+    "spike:siglum": "tsx scripts/check-siglum-coverage.ts",
+    "spike:corpus-run": "tsx scripts/run-corpus-spike.ts"
   },
   "dependencies": {
+    "@siglum/engine": "^0.1.4",
     "mupdf": "^1.28.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
@@ -37,6 +39,7 @@
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
     "vite": "^6.4.2",
+    "vite-plugin-wasm": "^3.6.0",
     "vitest": "^4.1.0"
   },
   "packageManager": "pnpm@11.13.1"

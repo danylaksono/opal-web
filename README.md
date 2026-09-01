@@ -13,10 +13,11 @@ work on two questions whose answers change the architecture.
 1. **Renderer — settled.** MuPDF.js, verified booting in a plain browser module
    worker on a static host, with per-line text geometry good enough for review
    anchoring (ADR-004). This makes the app AGPL-3.0-or-later (ADR-002).
-2. **LaTeX engine — open.** Every maintained browser TeX distribution now wraps
-   the same BusyTeX TeX Live build, so the question is package delivery, not
-   engine fidelity. Measured so far: `acmart` and `IEEEtran` are in no shipped
-   bundle, which blocks the ACM and IEEE templates (ADR-003).
+2. **LaTeX engine — open.** Every maintained browser TeX distribution wraps the
+   same BusyTeX TeX Live build, so the question is package delivery, not engine
+   fidelity. `@siglum/engine` compiles and emits SyncTeX in the browser, but
+   only 2 of 13 corpus projects build without on-demand CTAN fetching, and that
+   path is still untested (ADR-003).
 
 ## What is here
 
@@ -29,7 +30,7 @@ work on two questions whose answers change the architecture.
 | [src/core/](src/core/) | The ports: `LatexCompiler`, `PdfRenderer`, branded project ids and path validation. No browser API touches these. |
 | [src/platform/browser/](src/platform/browser/) | Capability probes and the MuPDF renderer adapter behind those ports. |
 | [src/workers/pdf/](src/workers/pdf/) | Versioned PDF worker protocol and the MuPDF worker. |
-| [src/spikes/](src/spikes/) | Measurement surfaces. The renderer spike loads a PDF through the port and reports timings, text geometry and links. |
+| [src/spikes/](src/spikes/) | Measurement surfaces. The renderer spike loads a PDF through the port; the compiler spike builds a project and opens the result through the renderer. |
 | [tests/fixtures/compiler-corpus/](tests/fixtures/compiler-corpus/) | 13 projects pinned from the desktop examples, with a generated manifest and desktop Tectonic's reference output. The instrument both spikes are measured against. |
 
 ## Getting started
@@ -38,6 +39,9 @@ work on two questions whose answers change the architecture.
 pnpm install
 pnpm spike:corpus   # regenerate the corpus from a sibling tectonic-editor checkout
 pnpm spike:coverage docs/evidence/wasmtex-0.1.1/manifest.json
+./scripts/download-siglum-assets.sh   # 225 MB of engine assets, gitignored
+pnpm spike:siglum xelatex             # corpus coverage against those bundles
+pnpm spike:corpus-run xelatex         # compile all 13, needs a running preview
 pnpm dev            # capability matrix and corpus overview
 pnpm test
 pnpm typecheck

@@ -1,7 +1,10 @@
-import { readFileSync } from "node:fs";
+import { createReadStream, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import { type Connect, defineConfig, type Plugin } from "vite";
+// @siglum/engine pulls in blake3-wasm, which uses the ESM-WASM integration
+// proposal that Vite does not implement natively.
+import wasm from "vite-plugin-wasm";
 
 // mupdf's exports map does not expose package.json, and its WASM binary is not
 // an exported subpath either, so both are reached by path rather than by
@@ -33,8 +36,50 @@ const isolationHeaders = crossOriginIsolated
     }
   : {};
 
+/**
+ * Serve Siglum's pre-compressed bundles as opaque bytes.
+ *
+ * The `.data.gz` files are payloads that the engine gunzips itself, not files
+ * the transport should compress. Vite's static middleware sees the extension
+ * and sets `Content-Encoding: gzip`, so the browser transparently decompresses
+ * them; the engine then receives plain bytes, tries to gunzip them again, and
+ * fails with a bare "Failed to fetch". Siglum special-cases `Content-Encoding:
+ * br` but not gzip, so the header has to be absent.
+ *
+ * netlify.toml carries the matching rule. Any host serving these needs it.
+ */
+function serveEngineAssets(): Plugin {
+  const middleware: Connect.NextHandleFunction = (req, res, next) => {
+    const url = req.url?.split("?")[0] ?? "";
+    if (!url.startsWith("/engines/") || !url.endsWith(".data.gz")) {
+      next();
+      return;
+    }
+    const file = fileURLToPath(new URL(`./public${url}`, import.meta.url));
+    res.setHeader("Content-Type", "application/octet-stream");
+    res.setHeader("X-Opal-Engine-Asset", "raw");
+    res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+    createReadStream(file)
+      .on("error", () => next())
+      .pipe(res);
+  };
+
+  return {
+    name: "opal:serve-engine-assets",
+    // "pre" so this runs ahead of Vite's static middleware, which is what sets
+    // the Content-Encoding header we need absent.
+    enforce: "pre",
+    configureServer: (server) => () => {
+      server.middlewares.use(middleware);
+    },
+    configurePreviewServer: (server) => {
+      server.middlewares.use(middleware);
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), wasm(), serveEngineAssets()],
   resolve: {
     alias: [
       {
@@ -45,6 +90,17 @@ export default defineConfig({
       // the worker imports this with a `?url` suffix to have Vite emit the
       // binary as a content-hashed asset.
       { find: /^mupdf-wasm-binary/, replacement: mupdfWasmFile },
+      // blake3-wasm 2.1.5's browser build references a file it does not ship.
+      // See src/platform/browser/compiler/blake3-unavailable.ts.
+      {
+        find: /^blake3-wasm\/browser\.js$/,
+        replacement: fileURLToPath(
+          new URL(
+            "./src/platform/browser/compiler/blake3-unavailable.ts",
+            import.meta.url,
+          ),
+        ),
+      },
     ],
   },
   server: { headers: isolationHeaders },
