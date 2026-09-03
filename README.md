@@ -15,22 +15,29 @@ work on two questions whose answers change the architecture.
    anchoring (ADR-004). This makes the app AGPL-3.0-or-later (ADR-002).
 2. **LaTeX engine — open.** Every maintained browser TeX distribution wraps the
    same BusyTeX TeX Live build, so the question is package delivery, not engine
-   fidelity. `@siglum/engine` compiles and emits SyncTeX in the browser, but
-   only 2 of 13 corpus projects build without on-demand CTAN fetching, and that
-   path is still untested (ADR-003).
+   fidelity. `@siglum/engine` now compiles **11 of 13** corpus projects with a
+   self-hosted, version-pinned CTAN proxy, 10 of those matching desktop
+   Tectonic's page count and 30 of 60 pages reproducing its text word for word.
+   Eleven engine defects were found doing it; ten are absorbed by the adapter
+   (ADR-003).
+3. **Package delivery — proposed.** Bundles are fetched whole, so a first
+   compile transfers 41–135 MB. Tectonic's indexed-archive model, verified
+   against its live bundle, would make that 17–21 MB: `presentation-beamer`
+   reads 2.1 MB of TeX files and currently downloads 118.9 MB to get them
+   (ADR-011).
 
 ## What is here
 
 | Path | Purpose |
 |---|---|
 | [PLAN.md](PLAN.md) | The full architecture investigation. Written 2026-07-23 against desktop v1.4.8; see *Plan drift* below. |
-| [docs/adr/](docs/adr/) | Architecture decision records. 001 accepted, 002–004 open. |
+| [docs/adr/](docs/adr/) | Architecture decision records. 001, 002 and 004 accepted; 003 open; 011 proposed. |
 | [docs/licence-inventory.md](docs/licence-inventory.md) | Every third-party artifact with its exact version and terms. |
 | [docs/evidence/](docs/evidence/) | Third-party manifests kept verbatim so the ADR analyses are reproducible without re-fetching hundreds of megabytes. |
 | [src/core/](src/core/) | The ports: `LatexCompiler`, `PdfRenderer`, branded project ids and path validation. No browser API touches these. |
 | [src/platform/browser/](src/platform/browser/) | Capability probes and the MuPDF renderer adapter behind those ports. |
 | [src/workers/pdf/](src/workers/pdf/) | Versioned PDF worker protocol and the MuPDF worker. |
-| [src/spikes/](src/spikes/) | Measurement surfaces. The renderer spike loads a PDF through the port; the compiler spike builds a project and opens the result through the renderer. |
+| [src/spikes/](src/spikes/) | Measurement surfaces. The renderer spike loads a PDF through the port; the compiler spike builds a project, opens the result through the renderer, and compares it against desktop's reference on words, ink and pixels; the performance spike times init, cold, warm and cancellation, and samples memory. |
 | [tests/fixtures/compiler-corpus/](tests/fixtures/compiler-corpus/) | 13 projects pinned from the desktop examples, with a generated manifest and desktop Tectonic's reference output. The instrument both spikes are measured against. |
 
 ## Getting started
@@ -41,7 +48,9 @@ pnpm spike:corpus   # regenerate the corpus from a sibling tectonic-editor check
 pnpm spike:coverage docs/evidence/wasmtex-0.1.1/manifest.json
 ./scripts/download-siglum-assets.sh   # 225 MB of engine assets, gitignored
 pnpm spike:siglum xelatex             # corpus coverage against those bundles
-pnpm spike:corpus-run xelatex         # compile all 13, needs a running preview
+pnpm spike:corpus-run xelatex --ctan  # compile all 13, needs a running preview
+pnpm spike:perf                       # init, cold, warm, memory, cancellation
+pnpm spike:firstload                  # bytes a cold first compile transfers
 pnpm dev            # capability matrix and corpus overview
 pnpm test
 pnpm typecheck
@@ -56,7 +65,16 @@ them the comparison baseline rather than a build artifact.
 Set `OPAL_COI=1` to serve with cross-origin isolation headers. Whether threaded
 WASM needs them is a Phase 0 measurement, so they are switchable rather than
 baked in — flip `netlify.toml` at the same time or local and deployed behaviour
-will disagree.
+will disagree. `pnpm spike:perf` needs them for its memory column, because
+`measureUserAgentSpecificMemory` is the only API that sees the engine's WASM
+heap and it requires an isolated page; it also needs real Chrome, since
+Playwright's bundled Chromium has that API present but disabled.
+
+Local and deployed behaviour have now disagreed twice, both times on
+`busytex.wasm` and both times invisibly — once serving it with a
+`Content-Encoding` the engine did not expect, once with a content type that
+prevented streaming and compression. `vite.config.ts` is the reference for what
+`netlify.toml` should say.
 
 ## Plan drift
 
