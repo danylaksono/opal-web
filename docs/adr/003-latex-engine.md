@@ -713,6 +713,105 @@ and local have diverged on this one file, in opposite directions. The rule is
 now scoped to `.data.gz`, and the config points at `vite.config.ts` as the
 reference for what it should match.
 
+## Research: making first load smaller
+
+41 MB floor, 135 MB ceiling. A couple of minutes of first load is acceptable if
+the user understands it; 135 MB on mobile data is not. This is what the options
+look like, cheapest first. None involves server-side compilation.
+
+### Free, and already half-done
+
+**Brotli instead of gzip.** Measured on our own binaries:
+
+| | raw | gzip -9 | brotli -11 |
+| --- | --- | --- | --- |
+| `busytex.wasm` | 29.4 MB | 11 MB | **7 MB** |
+| MuPDF WASM | 10.4 MB | 4.7 MB | **3.6 MB** |
+
+That is 4.4 MB off the floor for a build-time setting. It needs the content-type
+fix above to be in place first, since nothing compresses `octet-stream`.
+
+**Streaming compilation.** `WebAssembly.instantiateStreaming` compiles while the
+binary downloads rather than after. It requires `application/wasm`, which the
+same header fix restores.
+
+### The engine ships four engines and we use one
+
+`busytex.wasm` contains pdfTeX, XeTeX, LuaTeX/LuaHBTeX, BibTeX, makeindex and
+dvipdfmx in a single binary — a BusyBox-style multi-call build, which is what
+the name says. Counting symbol references: `luatex` 116, `dvipdfmx` 155,
+`pdftex` 38, `xetex` 12. LuaTeX is by far the largest TeX engine, embedding a
+Lua interpreter and HarfBuzz, and we compile with xelatex only.
+
+A XeTeX-only build would remove most of the 7 MB. It means building BusyTeX
+ourselves, which is real work, but it is the same work as owning the package
+tree and would be done alongside it.
+
+### Bundles are all-or-nothing, and that is a bug not a design
+
+Siglum has a lazy filesystem: a deferred bundle mounts *file markers* rather
+than data, and there is a full HTTP range-request path with request coalescing
+to fetch individual files out of a bundle. It is never used for the case that
+matters. `worker.js`:
+
+```js
+if (deferredBundles.has(bundleName) && !bundleDataMap.has(bundleName)) {
+    // load the whole thing
+}
+// Range requests only for already-loaded bundles, or if the full fetch failed
+```
+
+There is no size threshold. **Any deferred bundle is fetched whole the first
+time any single file in it is wanted**, and the range path only runs for bundles
+already in memory — where it is pointless, because the data is already there.
+One font from `cm-super` costs 57.2 MB.
+
+So the machinery for the obvious fix exists and is wired backwards. We cannot
+reach it: `deferredBundles` and `bundleDataMap` are worker-internal, and the
+adapter's only bundle lever is `eagerBundles`, which points the other way.
+
+What we *can* control is granularity. The engine always fetches a whole bundle,
+so **bundle size is the unit of waste**, and a tree we build ourselves can make
+them small. That turns "own the package tree" from a correctness decision into a
+first-load decision as well.
+
+### The model to copy already exists, in the tool desktop uses
+
+**Tectonic** — the engine desktop compiles with — solves exactly this problem.
+Its `.ttb` bundle is an *indexed* archive served from a plain URL, and it pulls
+down only the files a document actually references, caching them locally. No
+compute on the server: an index and byte ranges over static files. Desktop has
+been relying on this the whole time.
+
+**SwiftLaTeX** does the same from the browser side: on a missing file the engine
+asks a resolver, which tries the local cache, then a bundled subset, then a
+TeX Live mirror, storing every resolved file in Cache Storage so nothing is
+fetched twice. Its `Texlive-Ondemand` component is a Flask app that resolves
+names with kpathsea — that part *is* server processing, but it is resolution,
+not compilation, and resolution can be precomputed into a static index at build
+time. We already have the shape of one in `file-manifest.json`.
+
+**TeXbrain** (MIT) is an existence proof of the whole stack with no server at
+all: SwiftLaTeX's pdfTeX WASM, on-demand packages, deployed as static files to
+GitHub Pages.
+
+Two caveats before treating SwiftLaTeX as a candidate. It is AGPL-3.0, which
+ADR-002 already made a non-issue. And its engine predates TeX Live 2025/2026,
+which is why section 7.1's survey set it aside — but that objection was about
+*package vintage*, and a bundle we build ourselves answers it.
+
+### What this adds up to
+
+The floor is not fixed at 41 MB. Applying only what is measured here — brotli,
+plus per-file rather than per-bundle fetching — the download for a simple
+document is the engine plus the few hundred kilobytes of TeX files it opens,
+which is single-digit megabytes. The 135 MB ceiling is almost entirely bundles
+fetched whole for a handful of files inside them.
+
+None of these options requires a server to compile anything. The one that does
+require a server — SwiftLaTeX's kpathsea resolver — has a static equivalent we
+can generate.
+
 ## Still to measure
 
 The CTAN path is answered: **11/13, with 10 of 11 matching desktop's page
@@ -754,9 +853,15 @@ failures.
       terminated under it.
 - [ ] Multi-pass bibliography orchestration across `natbib`, `cite` and
       `acmart`. No corpus project has reached its bibliography yet.
-- [ ] First-load and offline story: the xelatex baseline is 39 MB before any
-      document-specific bundle, on top of MuPDF's 10.4 MB. Engine *init* is now
-      measured at ~500 ms, so what remains is transfer, not startup.
+- [x] First-load and offline story. 41 MB floor, 135 MB ceiling, engine init
+      ~500 ms — the cost is transfer, not startup.
+- [ ] Serve with brotli and confirm the measured 4.4 MB saving on a real host.
+- [ ] Establish whether Tectonic can be built for the browser. It is the engine
+      desktop already uses, and its `.ttb` bundle is the per-file, statically
+      hosted delivery model this whole section is arguing for. If it can, it
+      answers first load, package vintage and fidelity at once.
+- [ ] Failing that, build a XeTeX-only engine and a fine-grained bundle set,
+      since the engine always fetches a whole bundle.
 - [ ] Whether the same defects appear in `wasmtex` and `texlyre-busytex`, which
       wrap the same BusyTeX build. Defects 7 and 8 are properties of the BusyTeX
       format build and fetcher, so they probably travel.

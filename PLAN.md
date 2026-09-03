@@ -215,6 +215,41 @@ unchanged document costs 0 ms — but only when it succeeded. `letter-formal` an
 `cv-modern`, the two that fail, pay 4.1 s and 3.3 s every time, which is exactly
 the situation where a user recompiles most.
 
+### First load, and what could shrink it
+
+A cold first compile transfers **41 MB for the simplest document and 135 MB for
+beamer**, in production terms. The engine is a constant 29.4 MB (7 MB brotli);
+everything above that is TeX packages. `cm-super` alone is 57.2 MB, pulled by
+nine of thirteen projects.
+
+Researched routes, none needing server-side compilation:
+
+- **Brotli**: `busytex.wasm` 11 MB gzip → 7 MB brotli, MuPDF 4.7 → 3.6 MB.
+  4.4 MB for a build setting, once the content-type fix lands.
+- **The engine ships four engines.** `busytex.wasm` is a BusyBox-style
+  multi-call binary holding pdfTeX, XeTeX, LuaTeX, BibTeX and dvipdfmx; we use
+  xelatex. LuaTeX is the largest of them.
+- **Bundles are fetched whole.** Siglum mounts deferred bundles as file markers
+  and has a working HTTP range-request path — but takes it only for bundles
+  already in memory, so any deferred bundle is downloaded entire the first time
+  one file in it is wanted. No threshold; the machinery is wired backwards, and
+  it is worker-internal so the adapter cannot reach it. Bundle *granularity* is
+  therefore the unit of waste, which makes owning the package tree a first-load
+  decision as well as a correctness one.
+- **The model already exists in Tectonic**, the engine desktop compiles with.
+  Its `.ttb` bundle is an indexed archive on a plain static URL, fetching only
+  the files a document references. Whether it can be built for the browser is
+  now the highest-value unknown: it would answer first load, package vintage
+  and fidelity together.
+- **SwiftLaTeX** does the same from the browser side and has an existence proof
+  in TeXbrain (MIT, static hosting, no server). Its resolver is a Flask app,
+  but it resolves names rather than compiling, and that resolution can be
+  precomputed into a static index — we already have the shape of one in
+  `file-manifest.json`.
+
+Applying only what is measured, a simple document's first load is the engine
+plus the few hundred kilobytes of TeX files it opens: single-digit megabytes.
+
 ### What changed in the plan's assumptions
 
 - **Section 7.1's candidate set is superseded.** SwiftLaTeX is not published on
