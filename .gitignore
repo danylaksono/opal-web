@@ -22,3 +22,7 @@ public/engines/
 
 # Version-pinned CTAN package cache filled by the dev/preview proxy.
 .cache/
+
+# Indexed TeX archive, built from the engine bundles by pnpm spike:tex-archive.
+# A build artifact of assets that are themselves downloaded (ADR-011).
+public/tex/
