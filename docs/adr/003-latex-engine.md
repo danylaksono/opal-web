@@ -1,7 +1,7 @@
 # ADR-003: LaTeX WASM engine and package distribution
 
-- **Status:** Open — Siglum reaches 9/13 with a self-hosted CTAN proxy
-- **Date:** 2026-09-01
+- **Status:** Open — Siglum reaches 11/13 with a self-hosted CTAN proxy
+- **Date:** 2026-09-01, last measured 2026-09-03
 - **Deciders:** danylaksono
 
 ## Context
@@ -108,7 +108,8 @@ genuinely unbundled package: `booktabs` (4 projects), `enumitem` (3),
 None of these are exotic — all four were hit by ordinary corpus documents, and
 all four are worked around in
 `src/platform/browser/compiler/siglum-compiler.ts`, behind the port, which is
-the point of having one.
+the point of having one. Diagnosing the CTAN-era failures later turned up four
+more, numbered 5–8 below.
 
 1. **The xelatex baseline cannot render T1 encoding.** `core` ships `tulmr.fd`
    (TU/Unicode) but not `t1lmr.fd`. A document using the pdfTeX-oriented
@@ -189,66 +190,194 @@ than a release asset, so it now ships alongside the other engine assets.
 
 | | CTAN off | CTAN on |
 |---|---|---|
-| Compiled | 2 / 13 | **9 / 13** |
-| Matching desktop's page count | 2 / 2 | **8 / 9** |
+| Compiled | 2 / 13 | 9 / 13 |
+| Matching desktop's page count | 2 / 2 | 8 / 9 |
+
+After the two fixes in the next section:
+
+| | CTAN on |
+|---|---|
+| Compiled | **11 / 13** |
+| Matching desktop's page count | **10 / 11** |
 
 `paper-acm` compiles — the ACM template the bundle analysis had flagged as
-blocked — in 66 s, by far the slowest in the corpus and worth its own look. The
-rest run between 1.4 s and 7.2 s.
+blocked — but in 51 s, by far the slowest in the corpus and worth its own look.
+Of the rest, `presentation-beamer` takes 19 s and `paper-ieee` 17 s, both
+dominated by repeated full recompiles; everything else runs in 0.8–5 s.
 
 Page counts are compared through the same renderer for both sides, so a
 difference is a real difference rather than two parsers disagreeing.
 `paper-acm` produces 3 pages against desktop's 2, which is a fidelity
 discrepancy rather than a pass.
 
-### The four remaining failures are substantive
+## Measured: the four remaining failures, diagnosed
 
-They are no longer "no bundle ships this". Each is diagnosable:
+Each was read from its full engine log, captured by
+`pnpm spike:corpus-run xelatex --ctan --only <project>` into
+`spike-results/logs/`. The earlier reading — "three of the four are font
+problems" — was wrong: **two are font-asset problems, one is version skew, and
+one is not a package problem at all.**
 
-- `cv-modern` — `FontAwesome5Free-Solid-900.otf` fails to load under xelatex.
-  An OpenType font-loading problem, not a missing package.
-- `letter-formal` — `lastpage` rejects the bundled `hyperref` as too old.
-  **Version skew** between Siglum's TeX Live 2025 bundles and packages fetched
-  from the pinned archive; worth watching, because it is structural rather than
-  incidental.
-- `paper-ieee` — `T1/ptm` (Times) TFM not loadable. A font-metric gap, the same
-  family of problem as the T1 encoding issue in the baseline.
-- `presentation-beamer` — undefined control sequence, still to be diagnosed.
+### `paper-ieee` — the bundle set has no fonts but Computer Modern (fixed)
 
-Three of the four are font problems, which is consistent with the T1 finding
-above: this engine's weak spot is font provision, not package resolution.
+`! Font T1/ptm/m/n/10=ptmr8t at 10.0pt not loadable: Metric (TFM) file or
+installed font not found.`
+
+The bundles ship 1,425 `.tfm` files and every one of them is Latin Modern, EC,
+CM, AMS or `ae`. Nothing from the URW base-35 set is present, so Times,
+Helvetica and Courier have `.fd` files (in `tex-latex-misc`) that resolve and
+then metrics that do not exist. TeX Live's `times` package, in the archive we
+already pin, ships `ptmr8t.tfm`.
+
+**Defect 5: font failures are invisible to both resolution paths.** TeX reports
+this as a font error, not a "File not found", so the missing-file matcher
+never fires. **Defect 6: `file-to-package.json` indexes no font files** — of its
+14,695 entries every one is `.sty`, `.fd`, `.def`, `.cls`, `.tex`, `.cfg`,
+`.clo` or `.ltx` — so a font name maps to nothing even when it is asked.
+
+Fixed in `font-resolution.ts` by matching the font error and mapping the NFSS
+family prefix (`ptm`, `phv`, `pcr`, …) to the TeX Live package that ships its
+metrics, then fetching that package by name through the proxy. `paper-ieee` now
+compiles to 3 pages, matching desktop.
+
+### `presentation-beamer` — the format is built without babel (fixed)
+
+```text
+! Undefined control sequence.
+\trans@languagepath ->\languagename
+                                   ,English
+l.15 \begin{document}
+```
+
+Not a package problem. `\languagename` is defined by babel's `hyphen.cfg`, which
+a stock TeX Live loads when it builds its formats. Siglum's precompiled formats
+are not built that way, so the macro does not exist, and `translator` — which
+beamer loads unconditionally — expands it at `\begin{document}`. This is
+**defect 7**. A document that loads babel never meets it; `presentation-beamer`
+does not, so it could not compile at all.
+
+Confirmed by probe: adding `\usepackage[english]{babel}` compiles it to 5 pages,
+and so does `\providecommand{\languagename}{english}` alone — to a PDF of the
+same size, so the shim is doing exactly the one thing babel was doing here.
+
+Fixed by prepending that `\providecommand` to every source. Prepended without a
+newline, so every line of the user's document keeps its number and SyncTeX and
+diagnostic line mapping stay exact; `\providecommand` yields to babel where a
+document does load it.
+
+### `cv-modern` — the CTAN fetcher discards OpenType fonts (blocked upstream)
+
+`! Font TU/fontawesomefree/solid/n/10.95=[FontAwesome5Free-Solid-900.otf] ... not
+loadable`
+
+Same shape as `paper-ieee` — `fontawesome5.sty` and `tufontawesomefree.fd` are
+bundled, the font binary is not — but it cannot be fixed the same way.
+**Defect 8: Siglum's CTAN fetcher keeps only `.pfb`, `.pfm`, `.afm`, `.tfm`,
+`.vf`, `.map` and `.enc` from a fetched package and discards everything else**,
+so the `FontAwesome5Free-Solid-900.otf` that the pinned `fontawesome5` package
+does ship can never reach the engine. Nothing the adapter can do delivers an
+`.otf`.
+
+The adapter now names the font in the failure summary instead, which is the one
+thing a user can act on.
+
+### `letter-formal` — the bundle set is not one TeX Live vintage (blocked)
+
+`! Package lastpage Error: hyperref package version too old.`
+
+The mechanism, end to end: the precompiled format's `\fmtversion` is at least
+2024/06/01, so `lastpage2e.sty` selects `lastpagemodern`, which requires
+hyperref **≥ 2024-10-30**. The bundled hyperref is **2023-02-07 v7.00v**.
+
+The skew is not between our pin and TeX Live. It is **inside the bundle set**,
+which is not one vintage at all:
+
+| bundled package | version |
+|---|---|
+| `geometry` | 2020/01/02 v5.9 |
+| `graphicx` | 2021/09/16 v1.2d |
+| `xcolor` | 2022/06/12 v2.14 |
+| `hyperref` | 2023-02-07 v7.00v |
+| LaTeX kernel (in the format) | ≥ 2024/06/01 |
+| `microtype` | 2025/07/09 v3.2b |
+| `beamer` | 2025/08/13 v3.76 |
+| `etoolbox` | 2025/10/02 v2.5m |
+
+The bundles are labelled TeX Live 2025 and their build script is named
+`update-bundles-tl2025.ts`, but their contents span five years. **No pinned
+archive can agree with all of it**, so this failure class is structural.
+
+Two things also close off the obvious workaround:
+
+- Force-fetching a newer `hyperref` does not help. Bundles mount first, and
+  `mountCtanFiles` skips any path already mounted unless `forceOverride` is
+  set — which only Siglum's own fallback sets, and only from inside the worker.
+  The adapter cannot make a fetched file shadow a bundled one.
+- Siglum's fallback would not fire anyway: it triggers on undefined control
+  sequences, and it walks *backwards* (2025 → 2024 → 2023). Our problem needs a
+  newer package, not an older one. And our proxy strips the `-20YY` suffix by
+  design, so every year it is asked for returns the same frozen bytes — **the
+  pin required by PLAN.md 7.3 disables the engine's only built-in skew remedy.**
+  That is a deliberate trade, and it is recorded here as one.
+
+### Decision on version skew
+
+**Build the bundle set ourselves, from the single TeX Live tree we already
+pin.** It is the only option that makes `packageSetVersion` mean anything: today
+a compile can name "texlive-2025/siglum-bundles-v0.1.0" while running a 2020
+`geometry` against a 2024 kernel. It also subsumes the two font defects — a tree
+we assemble includes the URW base-35 metrics and whatever OpenType faces we
+choose to ship, so nothing has to survive the fetcher's extension filter.
+
+Rejected: pinning the proxy to the bundles' vintage (they have no single one);
+and shipping the skew as a diagnostic only (necessary as a fallback, but it
+leaves documents uncompilable).
+
+This is scoped for Phase 0's close, not now, and it is the largest single item
+still standing between this engine and a product.
 
 ## Still to measure
 
-The CTAN path is answered: 9/13, with 8 of 9 matching desktop's page count.
-What remains is fidelity beyond page count, performance, and the four
-substantive failures.
+The CTAN path is answered: **11/13, with 10 of 11 matching desktop's page
+count**, up from 9/13 and 8/9 once the two fixable failures above were resolved.
+What remains is fidelity beyond page count, performance, and the two structural
+failures.
 
 - [x] Stand up a self-hosted CTAN proxy and re-run the corpus with `--ctan`.
 - [x] Compare page counts against the committed reference PDFs.
 - [ ] Compare extracted text, diagnostics and rendered page images too — not
       bytes, which carry nondeterministic metadata.
-- [ ] Diagnose the four remaining failures. Three are font problems, which
-      suggests font provision is this engine's weak spot.
-- [ ] Investigate `paper-acm` at 66 s, ten times the next slowest, and its
-      3-versus-2 page discrepancy.
-- [ ] Decide how to handle version skew between bundled TeX Live 2025 packages
-      and pinned-archive fetches, which is what breaks `letter-formal`.
+- [x] Diagnose the four remaining failures. Two were font-asset gaps, one is
+      version skew, one was a format built without babel. Two are fixed.
+- [ ] Investigate `paper-acm` at 51 s, and its 3-versus-2 page discrepancy.
+      `presentation-beamer` at 19 s and `paper-ieee` at 17 s are the next
+      slowest, both spending most of it on repeated full recompiles.
+- [x] Decide how to handle version skew between bundled TeX Live packages and
+      pinned-archive fetches, which is what breaks `letter-formal`: rebuild the
+      bundle set from the single tree we pin.
+- [ ] Carry that decision out, and measure what it costs to host.
 - [ ] Cold and warm compile time, peak memory, cancellation behaviour.
 - [ ] Multi-pass bibliography orchestration across `natbib`, `cite` and
       `acmart`. No corpus project has reached its bibliography yet.
 - [ ] First-load and offline story: the xelatex baseline is 39 MB before any
       document-specific bundle, on top of MuPDF's 10.4 MB.
-- [ ] Whether the same four resolution defects appear in `wasmtex` and
-      `texlyre-busytex`, which wrap the same BusyTeX build.
+- [ ] Whether the same defects appear in `wasmtex` and `texlyre-busytex`, which
+      wrap the same BusyTeX build. Defects 7 and 8 are properties of the BusyTeX
+      format build and fetcher, so they probably travel.
 
 ## Consequences so far
 
 `LatexCompiler` in `src/core/compiler/types.ts` remains the only compiler
-surface any other code may depend on, and it has now earned that: four engine
-defects are absorbed by the adapter without anything above it knowing. Had the
-spike called Siglum directly, those workarounds would be spread through the
-product.
+surface any other code may depend on, and it has now earned that: seven of the
+eight engine defects are absorbed by the adapter without anything above it
+knowing. Had the spike called Siglum directly, those workarounds would be spread
+through the product.
+
+The eighth — the CTAN fetcher discarding OpenType fonts — is the first defect
+the port cannot hide, and it is instructive: the adapter can compensate for what
+an engine *does*, but not for what it will not carry. That is the same
+conclusion the version-skew decision reaches from the other side, and together
+they point at owning the package tree rather than consuming someone else's.
 
 `EngineIdentity` carries the package-set version on every result, which the
 pinned asset release makes meaningful: a compile can name exactly the TeX Live

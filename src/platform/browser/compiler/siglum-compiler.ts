@@ -7,6 +7,11 @@ import type {
   EngineIdentity,
   LatexCompiler,
 } from "@/core/compiler/types";
+import {
+  FORMAT_SHIMS,
+  missingFontPackages,
+  unresolvableFonts,
+} from "./font-resolution";
 import { parseTexLog } from "./log-diagnostics";
 
 /**
@@ -157,6 +162,11 @@ export class SiglumLatexCompiler implements LatexCompiler {
    * against, so every failure looks like a bare "Compilation failed".
    */
   #texLog: string[] = [];
+  /**
+   * Font packages already asked for, so a font that stays unloadable after its
+   * package arrives fails on the next pass instead of refetching forever.
+   */
+  #fetchedFontPackages = new Set<string>();
 
   constructor(options: SiglumCompilerOptions = {}) {
     this.#options = {
@@ -247,7 +257,8 @@ export class SiglumLatexCompiler implements LatexCompiler {
         : file.content;
     }
 
-    const source = this.#decoder.decode(main.content);
+    // Prepended, not inserted, so the user's line numbers are untouched.
+    const source = FORMAT_SHIMS + this.#decoder.decode(main.content);
     this.#texLog = [];
 
     try {
@@ -271,14 +282,14 @@ export class SiglumLatexCompiler implements LatexCompiler {
 
       for (let attempt = 0; attempt < MAX_RESOLUTION_RETRIES; attempt++) {
         if (result.success) break;
-        const loaded = await this.#resolveMissing(
-          compiler,
-          index,
-          result.log || this.#texLog.join("\n"),
-        );
+        const failureLog = result.log || this.#texLog.join("\n");
+        const loaded = [
+          ...(await this.#resolveMissing(compiler, index, failureLog)),
+          ...(await this.#resolveFonts(compiler, failureLog)),
+        ];
         if (loaded.length === 0) break;
         this.#options.onLog?.(
-          `[opal] retrying after loading bundles: ${loaded.join(", ")}`,
+          `[opal] retrying after loading: ${loaded.join(", ")}`,
         );
         this.#texLog = [];
         result = await compiler.compile(source, {
@@ -292,11 +303,17 @@ export class SiglumLatexCompiler implements LatexCompiler {
       const diagnostics = parseTexLog(log);
 
       if (!result.success || !result.pdf) {
+        // A font the engine cannot be given is worth naming: it is the one
+        // failure a user can act on, by choosing a different font.
+        const fonts = unresolvableFonts(log);
         return {
           ok: false,
           revision: request.revision,
           category: categorise(result.error ?? "", log, diagnostics),
-          summary: result.error ?? "Compilation failed",
+          summary:
+            fonts.length > 0
+              ? `This engine cannot load ${fonts.join(", ")}`
+              : (result.error ?? "Compilation failed"),
           log,
           diagnostics,
           engine: this.#identity,
@@ -371,6 +388,31 @@ export class SiglumLatexCompiler implements LatexCompiler {
       if (!bundle || this.#eagerBundles.includes(bundle)) continue;
       await this.#addBundle(compiler, bundle);
       loaded.push(bundle);
+    }
+    return loaded;
+  }
+
+  /**
+   * Fetch the TeX Live packages holding font metrics TeX could not load.
+   *
+   * These go through the CTAN proxy directly, by package name, because the
+   * file index Siglum resolves against holds no font files at all. Without a
+   * proxy configured there is nowhere to fetch from, so this does nothing —
+   * the same policy the rest of the adapter applies to CTAN.
+   */
+  async #resolveFonts(
+    compiler: SiglumCompiler,
+    log: string,
+  ): Promise<string[]> {
+    if (!this.#options.ctanProxyUrl) return [];
+    const wanted = missingFontPackages(log).filter(
+      (name) => !this.#fetchedFontPackages.has(name),
+    );
+    const loaded: string[] = [];
+    for (const name of wanted) {
+      this.#fetchedFontPackages.add(name);
+      const result = await compiler.ctanFetcher.fetchPackage(name);
+      if (result && !result.notFound) loaded.push(name);
     }
     return loaded;
   }

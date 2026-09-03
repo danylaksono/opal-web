@@ -10,7 +10,12 @@
  * vite preview --port 4173`. Results are written to spike-results/, which is
  * gitignored; the summary is what belongs in the ADR.
  *
- * Usage: pnpm spike:corpus-run [engine] [--ctan]
+ * Usage: pnpm spike:corpus-run [engine] [--ctan] [--only a,b,c]
+ *
+ * `--only` narrows the run to named projects and is how a failure gets
+ * diagnosed: the full engine log for each project is written to
+ * spike-results/logs/, because the verdict line names the last TeX error and a
+ * font or version failure is only legible with the lines around it.
  */
 import { existsSync, readdirSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -20,6 +25,7 @@ import { chromium } from "@playwright/test";
 const PREVIEW_URL = process.env.OPAL_PREVIEW_URL ?? "http://localhost:4173";
 const CORPUS_ROOT = resolve("tests/fixtures/compiler-corpus");
 const OUT_DIR = resolve("spike-results");
+const LOG_DIR = resolve(OUT_DIR, "logs");
 const COMPILE_TIMEOUT_MS = 240_000;
 
 interface ProjectOutcome {
@@ -82,8 +88,16 @@ function parseNumber(text: string, pattern: RegExp): number | null {
 }
 
 async function main(): Promise<void> {
-  const engine = process.argv[2] ?? "xelatex";
-  const useCtan = process.argv.includes("--ctan");
+  const flags = process.argv.slice(2).filter((arg) => arg.startsWith("--"));
+  const engine = process.argv[2]?.startsWith("--")
+    ? "xelatex"
+    : (process.argv[2] ?? "xelatex");
+  const useCtan = flags.includes("--ctan");
+  const onlyIndex = process.argv.indexOf("--only");
+  const only =
+    onlyIndex === -1
+      ? null
+      : new Set((process.argv[onlyIndex + 1] ?? "").split(",").filter(Boolean));
 
   if (!existsSync(CORPUS_ROOT)) {
     throw new Error("Corpus missing; run pnpm spike:corpus first");
@@ -92,7 +106,14 @@ async function main(): Promise<void> {
   const projects = readdirSync(CORPUS_ROOT, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
+    .filter((name) => !only || only.has(name))
     .sort();
+
+  if (projects.length === 0) {
+    throw new Error(`No corpus project matched --only ${[...(only ?? [])]}`);
+  }
+
+  await mkdir(LOG_DIR, { recursive: true });
 
   const browser = await chromium.launch();
   const outcomes: ProjectOutcome[] = [];
@@ -103,8 +124,10 @@ async function main(): Promise<void> {
     const page = await browser.newPage();
     const engineLog: string[] = [];
     page.on("console", (message) => {
-      const text = message.text();
-      if (text.startsWith("[siglum]")) engineLog.push(text);
+      engineLog.push(message.text());
+    });
+    page.on("pageerror", (error) => {
+      engineLog.push(`[pageerror] ${error.message}`);
     });
 
     try {
@@ -172,6 +195,11 @@ async function main(): Promise<void> {
       });
     } finally {
       await page.close();
+      await writeFile(
+        resolve(LOG_DIR, `${project}-${engine}${useCtan ? "-ctan" : ""}.log`),
+        `${engineLog.join("\n")}\n`,
+        "utf8",
+      );
     }
 
     const last = outcomes[outcomes.length - 1];
@@ -207,9 +235,11 @@ async function main(): Promise<void> {
   }
 
   await mkdir(OUT_DIR, { recursive: true });
+  // A filtered run gets its own file, so diagnosing one project cannot
+  // overwrite the whole-corpus record the ADR is written from.
   const file = resolve(
     OUT_DIR,
-    `corpus-${engine}${useCtan ? "-ctan" : ""}.json`,
+    `corpus-${engine}${useCtan ? "-ctan" : ""}${only ? "-partial" : ""}.json`,
   );
   await writeFile(
     file,

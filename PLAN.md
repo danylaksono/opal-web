@@ -1,8 +1,8 @@
 # Opal Web: architecture investigation and initial plan
 
-Status: Phase 0 in progress — renderer settled, engine at 9/13  
+Status: Phase 0 in progress — renderer settled, engine at 11/13  
 Prepared: 2026-07-23  
-Last updated: 2026-09-01  
+Last updated: 2026-09-03  
 Target product: `opal-web`, a separate repository and independently deployable product
 
 > **Read this first.** Sections 1–19 below are the original investigation,
@@ -11,7 +11,7 @@ Target product: `opal-web`, a separate repository and independently deployable p
 > produced it. Where measurement has since contradicted or answered them, the
 > status section immediately below says so and section 17 is annotated inline.
 
-## Progress as of 2026-09-01
+## Progress as of 2026-09-03
 
 Repository: <https://github.com/danylaksono/opal-web>, AGPL-3.0-or-later.
 
@@ -40,24 +40,52 @@ Repository: <https://github.com/danylaksono/opal-web>, AGPL-3.0-or-later.
 - Compiler acceptance corpus: all 13 desktop examples pinned with desktop
   Tectonic's reference output, plus a generated manifest — 6 document classes,
   32 packages, 4 needing bibliography passes.
-- 41 unit tests, 4 browser e2e tests, and three spike scripts
-  (`spike:coverage`, `spike:siglum`, `spike:corpus-run`).
+- 52 unit tests, 4 browser e2e tests, and three spike scripts
+  (`spike:coverage`, `spike:siglum`, `spike:corpus-run`). The corpus runner
+  takes `--only a,b` and writes each project's full engine log to
+  `spike-results/logs/`, which is how the four failures above were read.
 
 ### Where the corpus stands
 
-**9 of 13 corpus projects compile, and 8 of those 9 match desktop Tectonic's
+**11 of 13 corpus projects compile, and 10 of those 11 match desktop Tectonic's
 page count**, using a self-hosted CTAN proxy pinned to TeX Live 2025's frozen
 `tlnet-final` archive. Without that proxy the score is 2 of 13.
 
 `paper-acm` compiles — the ACM template the bundle analysis had flagged as
-blocked — though in 66 s against 1.4–7.2 s for the rest, and at 3 pages against
-desktop's 2.
+blocked — though in 51 s against 0.8–5 s for most of the rest, and at 3 pages
+against desktop's 2.
 
-The four remaining failures are substantive rather than missing packages, and
-three of them are font problems: an OpenType load failure under xelatex, a
-missing Times TFM, and a `lastpage`/`hyperref` version skew between bundled and
-fetched packages. Font provision, not package resolution, looks like this
-engine's weak spot.
+The four failures that remained after the proxy landed have now been diagnosed
+from their full engine logs, and the earlier reading of them was wrong: two were
+font-asset gaps, one is version skew, and one had nothing to do with packages.
+
+- **`paper-ieee`** wanted a Times TFM. The bundles ship 1,425 font metrics and
+  every one is Computer Modern, Latin Modern, EC or AMS — the URW base-35 set is
+  absent entirely, so Times, Helvetica and Courier resolve their `.fd` files and
+  then find no metrics. **Fixed**: the adapter now reads font errors and fetches
+  the owning TeX Live package by NFSS family. 3 pages, matching desktop.
+- **`presentation-beamer`** was not a package problem at all. Siglum's
+  precompiled formats are built without babel's `hyphen.cfg`, so `\languagename`
+  does not exist, and `translator` expands it at `egin{document}`. **Fixed**
+  with a one-line `\providecommand` shim prepended without a newline, so line
+  numbers, SyncTeX and diagnostics stay exact. 5 pages, matching desktop.
+- **`cv-modern`** needs an OpenType font that Siglum's CTAN fetcher discards:
+  it keeps only `.pfb`, `.pfm`, `.afm`, `.tfm`, `.vf`, `.map` and `.enc` from a
+  fetched package. The pinned archive ships the font; nothing can deliver it.
+  **Blocked upstream** — the first defect the port cannot hide.
+- **`letter-formal`** is the version skew, and it is worse than "our pin versus
+  TeX Live": the bundle set is not one vintage. `geometry` is 2020, `graphicx`
+  2021, `xcolor` 2022, `hyperref` 2023 — against a LaTeX kernel of 2024 or later
+  and a `beamer`, `microtype` and `etoolbox` from 2025. No pinned archive can
+  agree with all of it. **Blocked.**
+
+**Decision on version skew: build the bundle set ourselves, from the single
+TeX Live tree we already pin.** It is the only option that makes
+`packageSetVersion` mean anything — today a compile can name
+`texlive-2025/siglum-bundles-v0.1.0` while running a 2020 `geometry` against a
+2024 kernel — and it subsumes both font defects, because a tree we assemble
+carries the metrics and faces we choose. See ADR-003 for the rejected
+alternatives; this is now the largest item between this engine and a product.
 
 ### What changed in the plan's assumptions
 
@@ -71,10 +99,16 @@ engine's weak spot.
   fidelity a Phase 0 deciding measurement rather than a Phase 4 concern.
 - **Section 3.1's audit counts are stale**: 227 → 293 TypeScript/TSX files, and
   44 → 65 files importing Tauri APIs directly.
-- **Engine defects are the real integration cost, not compile fidelity.** Four
-  were hit by ordinary corpus documents: a xelatex baseline that cannot render
-  T1 encoding, document classes missing from the package index, incomplete
-  bundle dependency lists, and an always-empty result log. See ADR-003.
+- **Engine defects are the real integration cost, not compile fidelity.**
+  Eight were hit by ordinary corpus documents: a xelatex baseline that cannot
+  render T1 encoding, document classes missing from the package index,
+  incomplete bundle dependency lists, an always-empty result log, font failures
+  invisible to both resolution paths, a file index holding no font names, a
+  format built without babel, and a CTAN fetcher that discards OpenType. Seven
+  are absorbed by the adapter; the eighth cannot be. See ADR-003.
+- **A port hides what an engine does, not what it will not carry.** That is the
+  line the eighth defect crosses, and it is the same conclusion the version-skew
+  decision reaches from the other side: the package tree has to be ours.
 - **Static hosting is fussier than section 11.1 suggests.** Pre-compressed
   engine bundles must be served with no `Content-Encoding`, or the browser
   decompresses payloads the engine intends to decompress itself — presenting as
@@ -82,13 +116,13 @@ engine's weak spot.
 
 ### Next, in order
 
-1. Diagnose the four remaining corpus failures, three of which are font
-   problems, and decide how to handle version skew between bundled TeX Live
-   packages and pinned-archive fetches.
-2. Compare successful output beyond page count — extracted text, diagnostics
+1. Compare successful output beyond page count — extracted text, diagnostics
    and rendered images within tolerance, never bytes.
-3. Measure cold and warm compile time, peak memory, and cancellation, and
+2. Measure cold and warm compile time, peak memory, and cancellation, and
    investigate why `paper-acm` takes ten times longer than anything else.
+3. Build the bundle set from the single pinned TeX Live tree, per the skew
+   decision above, and measure what it costs to host. This is what unblocks
+   `cv-modern` and `letter-formal`.
 4. Exercise bibliography reruns across `natbib`, `cite` and `acmart`. No corpus
    project has reached its bibliography yet.
 5. Close the remaining ADR-004 criteria: Firefox and Safari, link resolution,
@@ -97,7 +131,7 @@ engine's weak spot.
    xelatex baseline alone is 39 MB on top of MuPDF's 10.4 MB.
 7. Build the AGPL section 13 source offer before any public deployment.
 
-Phase 1 does not start until 1-3 are answered and ADR-003 is closed.
+Phase 1 does not start until 1-2 are answered and ADR-003 is closed.
 
 
 ## 1. Executive recommendation

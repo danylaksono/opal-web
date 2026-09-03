@@ -32,7 +32,15 @@ const UNDEFINED_CONTROL = /^! Undefined control sequence/;
 /** TeX wraps log lines at 79 characters, which splits paths mid-token. */
 const WRAP_WIDTH = 79;
 
-function unwrap(lines: string[]): string[] {
+/**
+ * Rejoin lines TeX split at its wrap width.
+ *
+ * Exported because any matcher reading raw engine output needs it: a font
+ * error's "not loadable" can land on the next line from the font it names, so
+ * a pattern written against the logical message finds nothing in the physical
+ * one.
+ */
+export function unwrap(lines: string[]): string[] {
   const out: string[] = [];
   for (const line of lines) {
     const previous = out[out.length - 1];
