@@ -36,10 +36,26 @@
 # gzip makes the browser decompress them transparently, and the engine then
 # fails to gunzip plain bytes — with every request still returning 200. Keep
 # Content-Encoding absent. See docs/adr/003-latex-engine.md.
+#
+# Scoped to the .data.gz payloads, not all of /engines/. A broader rule also
+# caught busytex.wasm — 29.4 MB, the single largest response in a first load —
+# and octet-stream is the one content type that both rules out
+# `WebAssembly.instantiateStreaming` and stops a CDN compressing it. That
+# divergence was invisible locally, where Vite's middleware keys on `.data.gz`
+# and serves the engine as application/wasm. vite.config.ts is the reference
+# for what this rule should match.
+[[headers]]
+  for = "/engines/*.data.gz"
+  [headers.values]
+    Content-Type = "application/octet-stream"
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# Everything else the engine ships — the WASM binary, its JS glue, the bundle
+# manifests — takes its natural type so it can be compressed and, for the WASM,
+# streamed.
 [[headers]]
   for = "/engines/*"
   [headers.values]
-    Content-Type = "application/octet-stream"
     Cache-Control = "public, max-age=31536000, immutable"
 
 # The shell must never be cached, or the app cannot be updated.

@@ -642,6 +642,77 @@ at 4.1 s and 3.3 s — the two documents that fail. Siglum caches successful
 compiles only, so a user iterating on a document with an error gets no cache at
 all, which is precisely when they recompile most often.
 
+## Measured: what a first load costs
+
+`pnpm spike:firstload`, a cold browser context per project — empty HTTP cache,
+empty IndexedDB — compiling once and counting every byte that crossed the wire.
+
+| project | bundles | engine | renderer | total | production-equivalent |
+| --- | --- | --- | --- | --- | --- |
+| `blank` | 25.6 MB | 29.4 MB | 10.0 MB | 65.1 MB | ~41 MB |
+| `book-standard` | 26.9 MB | 29.4 MB | 10.0 MB | 66.4 MB | ~42 MB |
+| `paper-standard` | 26.9 MB | 29.4 MB | 10.0 MB | 66.4 MB | ~42 MB |
+| `thesis-standard` | 40.0 MB | 29.4 MB | 10.0 MB | 79.7 MB | ~56 MB |
+| `report-technical` | 55.2 MB | 29.4 MB | 10.0 MB | 94.9 MB | ~71 MB |
+| `poster-academic` | 65.9 MB | 29.4 MB | 10.0 MB | 105.5 MB | ~82 MB |
+| `report-scientific` | 70.6 MB | 29.4 MB | 10.0 MB | 110.1 MB | ~86 MB |
+| `newsletter` | 82.6 MB | 29.4 MB | 10.0 MB | 122.1 MB | ~98 MB |
+| `paper-ieee` | 92.7 MB | 29.4 MB | 10.0 MB | 132.7 MB | ~109 MB |
+| `paper-acm` | 95.7 MB | 29.4 MB | 10.0 MB | 135.6 MB | ~112 MB |
+| `presentation-beamer` | 118.9 MB | 29.4 MB | 10.0 MB | 158.6 MB | ~135 MB |
+
+The production-equivalent column applies the measured gzip ratios for the two
+WASM binaries, which the preview server sends uncompressed: `busytex.wasm`
+29.4 → 11 MB, MuPDF 10.0 → 4.4 MB. The `.data.gz` bundles are already
+compressed and do not shrink further. `cv-modern` and `letter-formal` are left
+out of the table because they fail to compile and so never open a PDF, which
+makes their renderer column zero rather than comparable.
+
+**41 MB is the floor and 135 MB the ceiling.** On a good 4G connection that is
+38 seconds to two minutes; on slow 3G the floor alone is nearly four minutes. It
+is a one-time, indefinitely cacheable cost, and the product is offline-capable
+afterwards.
+
+### The engine is a constant; the bundles are the problem
+
+The engine is 29.4 MB whatever the document. Everything above that floor is TeX
+packages, and it ranges over 4.6×. Two bundles account for most of it:
+
+- **`cm-super`, 57.2 MB**, loaded by nine of thirteen projects. It is Type 1
+  outlines for the EC fonts, wanted because those documents write
+  `\usepackage[T1]{fontenc}` — the pdfTeX idiom that defect 1 already forced a
+  workaround for. On a XeTeX engine with TU encoding, Latin Modern's OpenType
+  faces cover the same ground in a bundle of 72 files. **This is the largest
+  single recoverable item in the whole first load**, and recovering it is a
+  question of what the bundle set targets, not of compression.
+- **`pgf-tikz`, 31 MB**, which beamer pulls unconditionally.
+
+`blank` also fetches `fmt-pdflatex`, a precompiled pdfTeX format, on a run that
+uses xelatex.
+
+Bundles are also all-or-nothing: `cm-super` arrives as 57.2 MB because the
+engine wanted some of its 409 files. Nothing in this delivery model can fetch
+a font and leave the rest.
+
+None of this is inherent to running TeX in a browser. It is what one
+distribution chose to bundle, and it is the same conclusion the version-skew
+decision reached: **the package tree has to be ours.**
+
+### A deployment defect the measurement found
+
+`netlify.toml` carried `for = "/engines/*"` with
+`Content-Type: application/octet-stream`, a rule written for the `.data.gz`
+payloads that also caught `busytex.wasm` — the single largest response in any
+first load. Octet-stream is the one content type that both rules out
+`WebAssembly.instantiateStreaming` and stops a CDN compressing the response, so
+production would have shipped 29.4 MB where 11 MB would do.
+
+It was invisible locally: Vite's middleware keys on `.data.gz` specifically and
+serves the engine as `application/wasm`. That is the **second** time production
+and local have diverged on this one file, in opposite directions. The rule is
+now scoped to `.data.gz`, and the config points at `vite.config.ts` as the
+reference for what it should match.
+
 ## Still to measure
 
 The CTAN path is answered: **11/13, with 10 of 11 matching desktop's page

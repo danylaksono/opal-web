@@ -21,7 +21,8 @@
     "spike:coverage": "tsx scripts/check-bundle-coverage.ts",
     "spike:siglum": "tsx scripts/check-siglum-coverage.ts",
     "spike:corpus-run": "tsx scripts/run-corpus-spike.ts",
-    "spike:perf": "tsx scripts/run-perf-spike.ts"
+    "spike:perf": "tsx scripts/run-perf-spike.ts",
+    "spike:firstload": "tsx scripts/run-firstload-spike.ts"
   },
   "dependencies": {
     "@siglum/engine": "^0.1.4",
