@@ -585,6 +585,40 @@ from 57 s to 5.1 s, `paper-ieee` from 19 s to 1.6 s. What a user feels while
 writing is the warm figure, and the worst of those is
 `presentation-beamer` at **12.2 s**, which is still too slow for an edit cycle.
 
+### Rejected: resolving the package closure before compiling
+
+The obvious fix for the above is to stop discovering one package per compile.
+Every package in that chain is named in a `\RequirePackage` line inside a file
+already on disk when it is wanted, so reading those lines should turn a chain of
+compiles into a chain of fetches. Implemented and measured, it made `paper-acm`
+**worse**: 129 packages fetched instead of 19, 128 s instead of 57, and the
+compile no longer succeeded at all.
+
+The reason is not over-fetching being slow. It is that **making a package
+available changes what a document does**. `acmart.cls` line 852:
+
+```tex
+\IfFileExists{libertine.sty}{}{\ClassWarning{\@classname}{You do not
+    have the libertine package installed. ...}}
+```
+
+It probes, warns, and carries on with a fallback. Once the closure scan had
+fetched `libertine.sty`, the file existed, so `acmart` took the branch that
+actually loads `libertine` and `newtxmath` — which under xelatex pulls
+`fontspec` and then the OpenType fonts defect 8 discards. A class that degrades
+gracefully when a package is missing is *harmed* by being given it
+speculatively.
+
+So a static closure over-approximates, and over-approximation is not a
+performance trade here — it is a behaviour change. Any version of this has to
+distinguish requirements a document will certainly load from ones it merely
+probes for, which means knowing which conditional branch TeX will take, which
+means running TeX. The reverted work is not in the tree; this note is what it
+produced.
+
+What remains available is narrower: batch only what TeX has *already* named. It
+does not help, because TeX names one file at a time — which is the defect.
+
 ### Cancellation works, and had to be built
 
 The port has always declared `signal` and a `cancelled` category; the adapter
@@ -625,9 +659,12 @@ failures.
       version skew, one was a format built without babel. Two are fixed.
 - [x] Investigate `paper-acm`: 22 full XeTeX passes, one missing package
       discovered per pass. Time tracks pass count across the whole corpus.
-- [ ] Resolve a document's package closure before compiling instead of one full
-      pass at a time. This is the fix for the item above, and it is what turns
-      57 s of first open into something like 5.
+- [x] Resolve a document's package closure before compiling instead of one full
+      pass at a time. Tried and rejected: a static closure over-approximates,
+      and a class that probes with `\IfFileExists` is harmed by being given a
+      package speculatively. See above.
+- [ ] Find a way to shorten the chain that does not change which branch a class
+      takes. Nothing obvious remains at the adapter level.
 - [ ] Its 3-versus-2 page discrepancy, which is separate and still open.
 - [ ] Chase the two-column drift in `paper-ieee` and `paper-acm`, which starts
       as one hyphenation decision on page 1 and compounds.

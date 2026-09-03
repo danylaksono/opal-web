@@ -191,6 +191,19 @@ resolving that closure before compiling is what would collapse it.
 edit cycle. What a user feels while writing is the warm figure, and its worst
 case — 12.2 s — is still too slow.
 
+**Resolving the package closure ahead of time was tried and rejected.** Every
+package in `paper-acm`'s 22-pass chain is named in a `\RequirePackage` line
+inside a file already on disk when it is wanted, so reading those lines should
+turn a chain of compiles into a chain of fetches. Measured, it made things
+worse: 129 packages fetched instead of 19, 128 s instead of 57, and the compile
+stopped succeeding. `acmart.cls` probes with
+`\IfFileExists{libertine.sty}` and falls back gracefully when it is absent —
+so fetching it speculatively made the file exist and sent the class down a font
+branch that pulls `fontspec` and then the OpenType fonts defect 8 discards.
+Making a package available changes what a document does, so a static closure is
+not a performance trade but a behaviour change. Deciding correctly would mean
+knowing which conditional branch TeX takes, which means running TeX.
+
 **Cancellation now works and had to be built.** The port has always declared
 `signal`; the adapter checked it once and never again. Siglum exposes no cancel
 and a WASM TeX run holds its worker's only thread, so the adapter races each
@@ -233,16 +246,16 @@ the situation where a user recompiles most.
 
 ### Next, in order
 
-1. Resolve a document's package closure before compiling instead of one full
-   pass at a time. This is what makes first open take 57 seconds, and with the
-   engine recycle on it now costs the edit cycle too — `paper-acm`'s warm
-   compile is 23 s because every compile re-fetches the closure.
-2. Get the warm-compile cost back by having the engine release WASM instances
-   instead of the adapter terminating workers. Needs an upstream change.
-3. Build the bundle set from the single pinned TeX Live tree, per the skew
+1. Get the warm-compile cost back by having the engine release WASM instances
+   instead of the adapter terminating workers. Needs an upstream change, and it
+   is now the main lever left on compile time: resolving the package closure
+   ahead of time was tried and rejected (below), so `paper-acm`'s 23 s warm
+   compile stands until the recycle is unnecessary.
+2. Build the bundle set from the single pinned TeX Live tree, per the skew
    decision above, and measure what it costs to host. This is what unblocks
-   `cv-modern` and `letter-formal`.
-4. Commit desktop Tectonic's logs alongside the reference PDFs, so diagnostics
+   `cv-modern` and `letter-formal`, and a tree that ships the whole closure
+   removes the discovery chain as a side effect.
+3. Commit desktop Tectonic's logs alongside the reference PDFs, so diagnostics
    can be compared as well as output.
 4. Exercise bibliography reruns across `natbib`, `cite` and `acmart`. No corpus
    project has reached its bibliography yet.
@@ -252,7 +265,7 @@ the situation where a user recompiles most.
    xelatex baseline alone is 39 MB on top of MuPDF's 10.4 MB.
 7. Build the AGPL section 13 source offer before any public deployment.
 
-Phase 1 does not start until 1 and 2 are answered and ADR-003 is closed.
+Phase 1 does not start until 1 is answered and ADR-003 is closed.
 
 
 ## 1. Executive recommendation
