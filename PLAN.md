@@ -236,11 +236,19 @@ Researched routes, none needing server-side compilation:
   it is worker-internal so the adapter cannot reach it. Bundle *granularity* is
   therefore the unit of waste, which makes owning the package tree a first-load
   decision as well as a correctness one.
-- **The model already exists in Tectonic**, the engine desktop compiles with.
-  Its `.ttb` bundle is an indexed archive on a plain static URL, fetching only
-  the files a document references. Whether it can be built for the browser is
-  now the highest-value unknown: it would answer first load, package vintage
-  and fidelity together.
+- **The model already exists in Tectonic**, the engine desktop compiles with,
+  and it is now **ADR-011**. Verified against the live bundle: a 1.28 MB index
+  over a 2.88 GB static archive, HTTP range requests working, every file our
+  corpus needs present. Cross-referencing what TeX actually opens,
+  `presentation-beamer` reads **2.1 MB** of macro files and downloads 118.9 MB
+  to get them; `blank` reads 0.07 MB and downloads 25.6 MB. A first load under
+  that model is roughly 17–21 MB against today's 41–135 MB, and the variance
+  collapses.
+
+  Note what this is *not*: no WebAssembly build of Tectonic exists, and its C
+  dependencies are described upstream as surmountable rather than solved. ADR-011
+  takes the delivery model — a file format and an index — and leaves the engine
+  to ADR-003. The two were entangled only because one project ships both.
 - **SwiftLaTeX** does the same from the browser side and has an existence proof
   in TeXbrain (MIT, static hosting, no server). Its resolver is a Flask app,
   but it resolves names rather than compiling, and that resolution can be
@@ -281,26 +289,32 @@ plus the few hundred kilobytes of TeX files it opens: single-digit megabytes.
 
 ### Next, in order
 
-1. Get the warm-compile cost back by having the engine release WASM instances
+1. Prove ADR-011's delivery model end to end: feed the engine files one at a
+   time from an indexed archive, and measure the round-trip cost of ~145 range
+   requests over HTTP/2. It is the largest measured win available — 118.9 MB to
+   about 2 MB of TeX files for beamer — and it subsumes the bundle rebuild.
+2. Get the warm-compile cost back by having the engine release WASM instances
    instead of the adapter terminating workers. Needs an upstream change, and it
-   is now the main lever left on compile time: resolving the package closure
-   ahead of time was tried and rejected (below), so `paper-acm`'s 23 s warm
-   compile stands until the recycle is unnecessary.
-2. Build the bundle set from the single pinned TeX Live tree, per the skew
-   decision above, and measure what it costs to host. This is what unblocks
-   `cv-modern` and `letter-formal`, and a tree that ships the whole closure
-   removes the discovery chain as a side effect.
-3. Commit desktop Tectonic's logs alongside the reference PDFs, so diagnostics
-   can be compared as well as output.
+   is the main lever left on compile time: resolving the package closure ahead
+   of time was tried and rejected (above), so `paper-acm`'s 23 s warm compile
+   stands until the recycle is unnecessary.
+3. Build that archive from the single pinned TeX Live tree, per the skew
+   decision above. This is what unblocks `cv-modern` and `letter-formal`, and a
+   tree that carries the whole closure removes the discovery chain as a side
+   effect.
 4. Exercise bibliography reruns across `natbib`, `cite` and `acmart`. No corpus
    project has reached its bibliography yet.
 5. Close the remaining ADR-004 criteria: Firefox and Safari, link resolution,
-   scroll and zoom stability across recompiles, crash recovery.
-6. Deploy the Netlify spike with production headers and measure first load. The
-   xelatex baseline alone is 39 MB on top of MuPDF's 10.4 MB.
-7. Build the AGPL section 13 source offer before any public deployment.
+   scroll and zoom stability across recompiles, crash recovery. Nothing has been
+   run outside desktop Chromium, and Safari's WASM limits are untested.
+6. Commit desktop Tectonic's logs alongside the reference PDFs, so diagnostics
+   can be compared as well as output.
+7. Deploy the Netlify spike and confirm the header fix, brotli, and the measured
+   first load on a real host rather than a loopback.
+8. Build the AGPL section 13 source offer before any public deployment.
 
-Phase 1 does not start until 1 is answered and ADR-003 is closed.
+Phase 1 does not start until 1 and 2 are answered, and ADR-003 and ADR-011
+are closed.
 
 
 ## 1. Executive recommendation

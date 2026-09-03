@@ -800,6 +800,18 @@ ADR-002 already made a non-issue. And its engine predates TeX Live 2025/2026,
 which is why section 7.1's survey set it aside — but that objection was about
 *package vintage*, and a bundle we build ourselves answers it.
 
+### Superseded by ADR-011
+
+The delivery half of this section is now its own decision. **ADR-011** takes
+Tectonic's indexed-archive model — verified against the live bundle, where a
+1.28 MB index and one HTTP range request per file replace whole-bundle
+downloads — and measures what our own documents would cost under it:
+`presentation-beamer` reads 2.1 MB of TeX files and currently downloads
+118.9 MB to get them.
+
+It is explicitly *not* a decision to use Tectonic's engine, which has no
+WebAssembly build. The engine question stays here.
+
 ### What this adds up to
 
 The floor is not fixed at 41 MB. Applying only what is measured here — brotli,
