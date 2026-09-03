@@ -28,8 +28,8 @@ Repository: <https://github.com/danylaksono/opal-web>, AGPL-3.0-or-later.
 - Standalone repository, strict TypeScript, Biome, Vitest, Playwright, CI.
 - **The ports first**: `LatexCompiler`, `PdfRenderer`, branded `ProjectId` /
   `ProjectPath` with archive-hostile path validation. Nothing above them touches
-  a browser API or an engine type. This has already paid for itself — four
-  engine defects (below) are absorbed entirely inside adapters.
+  a browser API or an engine type. This has already paid for itself — nine of
+  the ten engine defects found so far are absorbed entirely inside adapters.
 - **MuPDF running in a plain browser worker**, not a Tauri webview:
   `paper-standard` opens in 94.5 ms and rasterises 612×792 in 31.7 ms, with
   per-line baselines distinct from bounding-box bottoms, so review anchoring
@@ -40,9 +40,9 @@ Repository: <https://github.com/danylaksono/opal-web>, AGPL-3.0-or-later.
 - Compiler acceptance corpus: all 13 desktop examples pinned with desktop
   Tectonic's reference output, plus a generated manifest — 6 document classes,
   32 packages, 4 needing bibliography passes.
-- 75 unit tests, 4 browser e2e tests, and three spike scripts
-  (`spike:coverage`, `spike:siglum`, `spike:corpus-run`). The corpus runner
-  takes `--only a,b` and writes each project's full engine log to
+- 82 unit tests, 4 browser e2e tests, and four spike scripts
+  (`spike:coverage`, `spike:siglum`, `spike:corpus-run`, `spike:perf`). The
+  corpus runner takes `--only a,b` and writes each project's full engine log to
   `spike-results/logs/`, which is how the four failures above were read; every
   project that compiles is then compared against desktop's reference PDF on
   words, ink and pixels.
@@ -54,7 +54,7 @@ page count**, using a self-hosted CTAN proxy pinned to TeX Live 2025's frozen
 `tlnet-final` archive. Without that proxy the score is 2 of 13.
 
 `paper-acm` compiles — the ACM template the bundle analysis had flagged as
-blocked — though in 51 s against 0.8–5 s for most of the rest, and at 3 pages
+blocked — though in 57 s against 1–8 s for most of the rest, and at 3 pages
 against desktop's 2.
 
 The four failures that remained after the proxy landed have now been diagnosed
@@ -68,7 +68,7 @@ font-asset gaps, one is version skew, and one had nothing to do with packages.
   the owning TeX Live package by NFSS family. 3 pages, matching desktop.
 - **`presentation-beamer`** was not a package problem at all. Siglum's
   precompiled formats are built without babel's `hyphen.cfg`, so `\languagename`
-  does not exist, and `translator` expands it at `egin{document}`. **Fixed**
+  does not exist, and `translator` expands it at `\begin{document}`. **Fixed**
   with a one-line `\providecommand` shim prepended without a newline, so line
   numbers, SyncTeX and diagnostics stay exact. 5 pages, matching desktop.
 - **`cv-modern`** needs an OpenType font that Siglum's CTAN fetcher discards:
@@ -131,6 +131,56 @@ one hyphenation decision on page 1 and compounds.
 Diagnostics cannot be compared yet: the corpus commits desktop's reference PDFs
 but not its logs.
 
+### What a compile costs
+
+Measured with `pnpm spike:perf` in real Chrome against a cross-origin-isolated
+preview. Both are required: peak memory needs `measureUserAgentSpecificMemory`,
+the only API that sees the WASM heap, and Playwright's bundled Chromium has it
+present but disabled.
+
+| | fastest | slowest |
+|---|---|---|
+| Engine init | 479 ms | 699 ms |
+| Cold compile | 1.4 s (`blank`) | 57.5 s (`paper-acm`) |
+| Warm compile, after an edit | 0.8 s | 12.2 s (`presentation-beamer`) |
+| Peak memory | 907 MB (`blank`) | 1231 MB (`cv-modern`) |
+
+**Memory is the finding, and it is not where it looked.** After init the page
+holds **40 MB**; a single compile takes it to **0.9–1.2 GB**. The cost is not
+the document — `blank` peaks at 907 MB on one pass, within 30% of the largest
+figure in the corpus — so it is what one compile costs, and no amount of
+document-level care will move it. Every pass resets the virtual filesystem and
+remounts ~3,745 files into WASM linear memory, which grows and never returns.
+iOS Safari terminates tabs in this region. **This is now the largest open risk
+to the product running at all on mobile**, and it did not surface earlier
+because nothing was measuring it: without cross-origin isolation the only
+available API counts the JS heap, which here is under 3 MB.
+
+**`paper-acm`'s 57 seconds is one missing file per full recompile.** TeX stops
+at the first file it cannot find, so each pass discovers exactly one package and
+both retry loops recompile from scratch to find the next — 22 full XeTeX passes
+for that document, chaining `xkeyval` through `balance`. Compile time tracks
+pass count across the whole corpus. Every one of those packages is named in a
+`\RequirePackage` line inside a file already on disk when it is needed;
+resolving that closure before compiling is what would collapse it.
+
+**Warm compiles save 42–92%**, so most of the above is first-open cost, not the
+edit cycle. What a user feels while writing is the warm figure, and its worst
+case — 12.2 s — is still too slow.
+
+**Cancellation now works and had to be built.** The port has always declared
+`signal`; the adapter checked it once and never again. Siglum exposes no cancel
+and a WASM TeX run holds its worker's only thread, so the adapter races each
+pass against the signal and terminates the worker. Abort latency is **0–14 ms**
+on all 13 projects, and the next compile succeeds. One caveat:
+`presentation-beamer` recovered cleanly in one run and failed in another, so
+recovery is not yet reliably clean.
+
+**The compile cache helps least when it is most needed.** Recompiling an
+unchanged document costs 0 ms — but only when it succeeded. `letter-formal` and
+`cv-modern`, the two that fail, pay 4.1 s and 3.3 s every time, which is exactly
+the situation where a user recompiles most.
+
 ### What changed in the plan's assumptions
 
 - **Section 7.1's candidate set is superseded.** SwiftLaTeX is not published on
@@ -162,14 +212,14 @@ but not its logs.
 
 ### Next, in order
 
-1. Measure cold and warm compile time, peak memory, and cancellation on a clean
-   run, and investigate why `paper-acm` takes ten times longer than anything
-   else. Every timing recorded so far predates the rerun fix, which adds passes
-   by design.
-2. Build the bundle set from the single pinned TeX Live tree, per the skew
+1. Bring peak memory down from ~1 GB per compile. Nothing else on this list
+   matters if the product cannot run on a phone.
+2. Resolve a document's package closure before compiling instead of one full
+   pass at a time, which is what makes first open take 57 seconds.
+3. Build the bundle set from the single pinned TeX Live tree, per the skew
    decision above, and measure what it costs to host. This is what unblocks
    `cv-modern` and `letter-formal`.
-3. Commit desktop Tectonic's logs alongside the reference PDFs, so diagnostics
+4. Commit desktop Tectonic's logs alongside the reference PDFs, so diagnostics
    can be compared as well as output.
 4. Exercise bibliography reruns across `natbib`, `cite` and `acmart`. No corpus
    project has reached its bibliography yet.
@@ -179,7 +229,7 @@ but not its logs.
    xelatex baseline alone is 39 MB on top of MuPDF's 10.4 MB.
 7. Build the AGPL section 13 source offer before any public deployment.
 
-Phase 1 does not start until 1 is answered and ADR-003 is closed.
+Phase 1 does not start until 1 and 2 are answered and ADR-003 is closed.
 
 
 ## 1. Executive recommendation

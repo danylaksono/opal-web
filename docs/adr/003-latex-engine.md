@@ -457,6 +457,102 @@ corpus commits desktop's reference *PDFs* but not its *logs*, so there is
 nothing to compare a parsed diagnostic against. Committing Tectonic's logs
 alongside the PDFs is what that needs.
 
+## Measured: what a compile costs, and whether one can be stopped
+
+`pnpm spike:perf` against a preview built with `OPAL_COI=1`, in real Chrome.
+Both conditions are load-bearing: peak memory needs
+`measureUserAgentSpecificMemory`, the only API that sees the engine's WASM heap,
+and it needs a cross-origin-isolated page — which Playwright's bundled Chromium
+has present but disabled, so the runner launches `channel: "chrome"` and falls
+back to Chromium with the memory column dropped rather than reporting a
+JS-heap-only figure that would look like an answer.
+
+| project | init | cold | warm | cached | warm saves | peak memory |
+| --- | --- | --- | --- | --- | --- | --- |
+| `paper-acm` | 501 ms | 57.5 s | 5.1 s | 0 ms | 91% | 1024 MB |
+| `presentation-beamer` | 546 ms | 36.1 s | 12.2 s | 0 ms | 66% | 1222 MB |
+| `paper-ieee` | 479 ms | 19.0 s | 1.6 s | 0 ms | 92% | 1033 MB |
+| `report-scientific` | 583 ms | 11.5 s | 2.4 s | 0 ms | 79% | 1164 MB |
+| `report-technical` | 699 ms | 7.8 s | 2.1 s | 0 ms | 73% | 1064 MB |
+| `thesis-standard` | 602 ms | 7.1 s | 2.4 s | 1 ms | 67% | 998 MB |
+| `newsletter` | 553 ms | 6.5 s | 2.3 s | 0 ms | 64% | 1203 MB |
+| `letter-formal` | 565 ms | 5.3 s | 4.1 s | 4077 ms | 22% | 1146 MB |
+| `cv-modern` | 549 ms | 4.9 s | 3.1 s | 3338 ms | 38% | 1231 MB |
+| `poster-academic` | 570 ms | 4.6 s | 2.4 s | 0 ms | 48% | 1132 MB |
+| `paper-standard` | 597 ms | 4.2 s | 1.2 s | 0 ms | 71% | 938 MB |
+| `book-standard` | 527 ms | 4.1 s | 1.1 s | 0 ms | 73% | 929 MB |
+| `blank` | 521 ms | 1.4 s | 0.8 s | 0 ms | 42% | 907 MB |
+
+"Warm" is the document *edited* and recompiled with the engine already up,
+which is what every cycle after the first actually costs. It has to be an edit:
+Siglum keys its PDF cache on a hash of the source, so recompiling an unchanged
+document never reaches the engine — that is the "cached" column, and it is
+measuring the cache rather than the compiler.
+
+### Memory is the finding, and it is not where it looked
+
+**After init the whole page holds 40 MB. Peak during a compile is 0.9–1.2 GB.**
+
+The engine is cheap to load and enormous to run, and the cost is not the
+document: `blank` peaks at 907 MB on a single pass, within 30% of the largest
+figure in the corpus. So this is not complexity, not pass count, and not
+something a user's document controls — it is what one compile costs, and 95% of
+it appears between init and the first PDF.
+
+The likely mechanism is visible in the logs: every pass calls `resetFS` and
+remounts the bundle set — about 3,745 files — into WASM linear memory, which
+grows and never returns. That makes it a fixed cost per compile rather than a
+leak, but a fixed cost of nearly a gigabyte is a product constraint, not a
+tuning note. iOS Safari terminates tabs in this region.
+
+This did not show up until now because nothing was measuring it, and it could
+not have been: without cross-origin isolation the only available API counts the
+JS heap, which here is under 3 MB — three orders of magnitude off.
+
+### `paper-acm` at 57 s: one missing file per full recompile
+
+TeX stops at the first file it cannot find, so each pass discovers exactly one
+missing package, and both retry loops — Siglum's own and the adapter's —
+recompile from scratch to find the next. `paper-acm` runs **22 full XeTeX
+passes** in one `compile()` call, chaining `xkeyval`, `xstring`, `amsart`,
+`amsmath`, `microtype`, `etoolbox`, `ltxcmds`, `totpages`, `trimspaces`,
+`pdfescape`, `hyperxmp`, `ifmtarg`, `manyfoot`, `caption`, `float`, `comment`
+and `balance`. Time tracks pass count across the whole corpus: `blank` 1 pass,
+`thesis-standard` 3, `paper-ieee` 7, `presentation-beamer` 16, `paper-acm` 22.
+
+Every one of those packages is named in a `\RequirePackage` line inside a file
+already on disk by the time it is needed. Resolving that closure before
+compiling, rather than discovering it one full pass at a time, is what would
+collapse this — and it is the same shape of problem as defects 2 and 3: an
+index that could answer the question is not being asked.
+
+The warm column shows how much of this is first-open cost: `paper-acm` drops
+from 57 s to 5.1 s, `paper-ieee` from 19 s to 1.6 s. What a user feels while
+writing is the warm figure, and the worst of those is
+`presentation-beamer` at **12.2 s**, which is still too slow for an edit cycle.
+
+### Cancellation works, and had to be built
+
+The port has always declared `signal` and a `cancelled` category; the adapter
+checked the signal once, before starting, and never again. Siglum exposes no
+cancel and a WASM TeX run holds its worker's only thread, so there is nothing to
+ask politely. The adapter now races each pass against the signal, terminates the
+worker, and returns `cancelled`.
+
+**Abort latency is 0–14 ms** from signalling to control returning, on all 13
+projects. Recovery — a compile after the abort, paying a full engine re-init —
+succeeded on 11 of 13; the two that failed, `cv-modern` and `letter-formal`,
+fail anyway. One caveat worth keeping: `presentation-beamer` recovered cleanly
+in one run and failed in another, so recovery is not yet reliably clean and
+deserves a look before this is called done.
+
+### A cache that helps least when it is needed most
+
+The "cached" column is 0 ms everywhere except `letter-formal` and `cv-modern`,
+at 4.1 s and 3.3 s — the two documents that fail. Siglum caches successful
+compiles only, so a user iterating on a document with an error gets no cache at
+all, which is precisely when they recompile most often.
+
 ## Still to measure
 
 The CTAN path is answered: **11/13, with 10 of 11 matching desktop's page
@@ -472,22 +568,29 @@ failures.
       alongside the reference PDFs. There is nothing to compare against today.
 - [x] Diagnose the four remaining failures. Two were font-asset gaps, one is
       version skew, one was a format built without babel. Two are fixed.
-- [ ] Investigate `paper-acm` at 51 s, and its 3-versus-2 page discrepancy.
-      `presentation-beamer` and `paper-ieee` are the next slowest, both spending
-      most of it on repeated full recompiles. Every timing in this ADR predates
-      the rerun fix, which adds passes by design; performance needs its own
-      clean run rather than numbers taken alongside a fidelity comparison.
+- [x] Investigate `paper-acm`: 22 full XeTeX passes, one missing package
+      discovered per pass. Time tracks pass count across the whole corpus.
+- [ ] Resolve a document's package closure before compiling instead of one full
+      pass at a time. This is the fix for the item above, and it is what turns
+      57 s of first open into something like 5.
+- [ ] Its 3-versus-2 page discrepancy, which is separate and still open.
 - [ ] Chase the two-column drift in `paper-ieee` and `paper-acm`, which starts
       as one hyphenation decision on page 1 and compounds.
 - [x] Decide how to handle version skew between bundled TeX Live packages and
       pinned-archive fetches, which is what breaks `letter-formal`: rebuild the
       bundle set from the single tree we pin.
 - [ ] Carry that decision out, and measure what it costs to host.
-- [ ] Cold and warm compile time, peak memory, cancellation behaviour.
+- [x] Cold and warm compile time, peak memory, cancellation behaviour.
+- [ ] **Bring peak memory down from ~1 GB.** The engine holds 40 MB after init
+      and 0.9–1.2 GB while compiling, on an empty document as much as a thesis.
+      This is now the largest open risk to the product running at all on mobile.
+- [ ] Why recovery after an abort is not reliably clean: `presentation-beamer`
+      recovered in one run and failed in another.
 - [ ] Multi-pass bibliography orchestration across `natbib`, `cite` and
       `acmart`. No corpus project has reached its bibliography yet.
 - [ ] First-load and offline story: the xelatex baseline is 39 MB before any
-      document-specific bundle, on top of MuPDF's 10.4 MB.
+      document-specific bundle, on top of MuPDF's 10.4 MB. Engine *init* is now
+      measured at ~500 ms, so what remains is transfer, not startup.
 - [ ] Whether the same defects appear in `wasmtex` and `texlyre-busytex`, which
       wrap the same BusyTeX build. Defects 7 and 8 are properties of the BusyTeX
       format build and fetcher, so they probably travel.

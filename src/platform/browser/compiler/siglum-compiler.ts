@@ -146,6 +146,36 @@ async function fileBundleIndex(
 const DOCUMENT_CLASS = /\\documentclass(?:\[[^\]]*\])?\{([^}]+)\}/;
 const MISSING_FILE = /File `([^']+)' not found/g;
 
+/**
+ * Run one compile pass, giving up as soon as `signal` aborts.
+ *
+ * A WASM TeX run holds its worker's only thread for its whole duration, and
+ * Siglum exposes no cancel, so there is nothing to ask politely — this races
+ * the pass against the signal and leaves the caller to throw the worker away.
+ * The listener is scoped to the race so a long-lived signal does not
+ * accumulate one per pass.
+ */
+async function racePass<T>(
+  pass: Promise<T>,
+  signal: AbortSignal | undefined,
+): Promise<T> {
+  if (!signal) return pass;
+  const scope = new AbortController();
+  try {
+    return await Promise.race([
+      pass,
+      new Promise<never>((_, reject) => {
+        signal.addEventListener("abort", () => reject(signal.reason), {
+          once: true,
+          signal: scope.signal,
+        });
+      }),
+    ]);
+  } finally {
+    scope.abort();
+  }
+}
+
 /** Files TeX reported missing, in the order it hit them. */
 function missingFiles(log: string): string[] {
   const names = new Set<string>();
@@ -285,13 +315,17 @@ export class SiglumLatexCompiler implements LatexCompiler {
       // resolution miss rather than a failure: load the bundle and try again.
       // Bounded, and only ever retries when a retry loaded something new, so a
       // genuinely absent package still fails on the first pass.
-      let result = await compiler.compile(source, {
-        engine: this.#options.engine,
-        additionalFiles,
-      });
+      let result = await racePass(
+        compiler.compile(source, {
+          engine: this.#options.engine,
+          additionalFiles,
+        }),
+        request.signal,
+      );
 
       for (let attempt = 0; attempt < MAX_RESOLUTION_RETRIES; attempt++) {
         if (result.success) break;
+        request.signal?.throwIfAborted();
         const failureLog = result.log || this.#texLog.join("\n");
         const loaded = [
           ...(await this.#resolveMissing(compiler, index, failureLog)),
@@ -302,10 +336,13 @@ export class SiglumLatexCompiler implements LatexCompiler {
           `[opal] retrying after loading: ${loaded.join(", ")}`,
         );
         this.#texLog = [];
-        result = await compiler.compile(source, {
-          engine: this.#options.engine,
-          additionalFiles,
-        });
+        result = await racePass(
+          compiler.compile(source, {
+            engine: this.#options.engine,
+            additionalFiles,
+          }),
+          request.signal,
+        );
       }
 
       // Then run it again for as long as TeX asks. Siglum caches aux files
@@ -368,6 +405,19 @@ export class SiglumLatexCompiler implements LatexCompiler {
         passes,
       };
     } catch (error) {
+      if (request.signal?.aborted) {
+        // The worker is still inside a TeX run that cannot be interrupted, so
+        // it is thrown away rather than waited for. The next compile pays a
+        // cold start, which is the price of an abort that actually stops.
+        await this.dispose();
+        return this.#failure(
+          request,
+          "cancelled",
+          "Compilation cancelled",
+          this.#texLog.join("\n"),
+          performance.now() - started,
+        );
+      }
       return this.#failure(
         request,
         "engine",

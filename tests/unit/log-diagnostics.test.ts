@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { parseTexLog } from "@/platform/browser/compiler/log-diagnostics";
+import {
+  needsRerun,
+  parseTexLog,
+} from "@/platform/browser/compiler/log-diagnostics";
 
 /**
  * Fixtures are trimmed from real Siglum/BusyTeX output captured during the
@@ -107,5 +110,41 @@ describe("parseTexLog", () => {
     expect(long.length).toBeGreaterThanOrEqual(79);
     const [error] = parseTexLog(`${long}\nlongtail.sty' not found.`);
     expect(error?.message).toContain("longtail.sty");
+  });
+});
+
+/**
+ * The rerun request is read from the log rather than predicted from the source,
+ * because a document can need a second pass without using any of the macros a
+ * prediction would look for — `remember picture` being the corpus's example.
+ */
+describe("needsRerun", () => {
+  it("is false for a log that finished cleanly", () => {
+    expect(
+      needsRerun("(./main.tex) [1] Output written on document.xdv (1 page)"),
+    ).toBe(false);
+  });
+
+  it("is false for an empty log", () => {
+    expect(needsRerun("")).toBe(false);
+  });
+
+  it.each([
+    "LaTeX Warning: Label(s) may have changed. Rerun to get cross-references right.",
+    "LaTeX Warning: There were undefined references.",
+    "Package rerunfilecheck Warning: File `main.out' has changed. Rerun LaTeX.",
+    "Package longtable Warning: Table widths have changed. Rerun LaTeX.",
+  ])("recognises %s", (line) => {
+    expect(
+      needsRerun(`(./main.tex)
+${line}
+[1]`),
+    ).toBe(true);
+  });
+
+  it("does not fire on prose that merely mentions a rerun", () => {
+    // The document's own text, not TeX speaking. A false positive here costs a
+    // whole extra compile pass on every build of that document.
+    expect(needsRerun("The experiment was rerun in triplicate.")).toBe(false);
   });
 });

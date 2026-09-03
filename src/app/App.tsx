@@ -4,6 +4,7 @@ import {
   type Capability,
 } from "@/platform/browser/capabilities/detect";
 import { CompilerSpike } from "@/spikes/compiler/CompilerSpike";
+import { PerformanceSpike } from "@/spikes/performance/PerformanceSpike";
 import { RendererSpike } from "@/spikes/renderer/RendererSpike";
 import corpus from "../../tests/fixtures/compiler-corpus/manifest.json";
 
@@ -130,6 +131,8 @@ export function App() {
       </section>
 
       <CompilerSpike />
+
+      <PerformanceSpike />
 
       <RendererSpike />
 
