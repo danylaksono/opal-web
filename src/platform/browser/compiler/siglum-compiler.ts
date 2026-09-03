@@ -12,7 +12,7 @@ import {
   missingFontPackages,
   unresolvableFonts,
 } from "./font-resolution";
-import { parseTexLog } from "./log-diagnostics";
+import { needsRerun, parseTexLog } from "./log-diagnostics";
 
 /**
  * `LatexCompiler` implemented over @siglum/engine (ADR-003 spike).
@@ -73,6 +73,16 @@ export interface SiglumCompilerOptions {
  * pathological chains, not ordinary resolution.
  */
 const MAX_RESOLUTION_RETRIES = 12;
+
+/**
+ * Total TeX passes, including the first.
+ *
+ * LaTeX conventionally settles in three; a fourth covers the documents that
+ * oscillate one more time, typically a table of contents whose own page number
+ * moved. Past that, a document that still asks is not converging, and running
+ * it forever would be worse than showing what it produced.
+ */
+const MAX_PASSES = 4;
 
 /** Bundles a given engine needs beyond what Siglum declares as its baseline. */
 const BASELINE_SUPPLEMENTS: Record<string, string[]> = {
@@ -298,6 +308,26 @@ export class SiglumLatexCompiler implements LatexCompiler {
         });
       }
 
+      // Then run it again for as long as TeX asks. Siglum caches aux files
+      // between compiles, keyed on the preamble, so a second call reads back
+      // what the first wrote — which is the whole mechanism a rerun needs.
+      let passes = 1;
+      for (; passes < MAX_PASSES; passes++) {
+        if (!result.success) break;
+        if (!needsRerun(result.log || this.#texLog.join("\n"))) break;
+        this.#options.onLog?.("[opal] rerunning: TeX asked for another pass");
+        this.#texLog = [];
+        result = await compiler.compile(source, {
+          engine: this.#options.engine,
+          additionalFiles,
+          // Siglum caches a compiled PDF against a hash of the source alone.
+          // A rerun has the same source by definition and a different `.aux`,
+          // so the cache would hand back the very pass we are trying to
+          // replace — and the rerun would be a no-op that still costs a call.
+          useCache: false,
+        });
+      }
+
       const durationMs = performance.now() - started;
       const log = result.log || this.#texLog.join("\n");
       const diagnostics = parseTexLog(log);
@@ -335,9 +365,7 @@ export class SiglumLatexCompiler implements LatexCompiler {
         diagnostics,
         engine: this.#identity,
         durationMs,
-        // Siglum orchestrates its own rerun passes and does not report how many
-        // it ran, so this is not invented.
-        passes: 0,
+        passes,
       };
     } catch (error) {
       return this.#failure(

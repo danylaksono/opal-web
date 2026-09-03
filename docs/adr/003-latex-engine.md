@@ -109,7 +109,8 @@ None of these are exotic — all four were hit by ordinary corpus documents, and
 all four are worked around in
 `src/platform/browser/compiler/siglum-compiler.ts`, behind the port, which is
 the point of having one. Diagnosing the CTAN-era failures later turned up four
-more, numbered 5–8 below.
+more, numbered 5–8 below, and measuring fidelity turned up two after that,
+numbered 9–10.
 
 1. **The xelatex baseline cannot render T1 encoding.** `core` ships `tulmr.fd`
    (TU/Unicode) but not `t1lmr.fd`. A document using the pdfTeX-oriented
@@ -336,6 +337,126 @@ leaves documents uncompilable).
 This is scoped for Phase 0's close, not now, and it is the largest single item
 still standing between this engine and a product.
 
+## Measured: fidelity beyond page count
+
+Page count says only that a document did not fall apart. `pnpm spike:corpus-run`
+now compares every compiled project against desktop Tectonic's reference PDF on
+three measures, both sides opened through the same renderer so a difference is a
+real difference:
+
+- **Words.** Text as a word sequence per page, scored by longest common
+  subsequence. Never line by line: line breaking is the engine's own business.
+  Unicode is NFKC-folded, so one engine's `ﬁ` ligature and another's `fi` are
+  the same word.
+- **Ink.** The fraction of non-white pixels. Survives sub-pixel shifts and still
+  catches content that vanished or arrived twice.
+- **Pixels.** A differing-pixel ratio at 1 px/pt with an antialiasing tolerance.
+  The strictest and the easiest to misread — a tenth-of-a-point baseline shift
+  lights up every glyph — so a low figure means "laid out the same" and a high
+  one means *look*, not *fail*.
+
+Bytes are never compared: PDFs carry timestamps and object ordering that differ
+between identical runs.
+
+### How close the corpus gets
+
+**30 of 60 pages reproduce desktop's text word for word.**
+
+| project | exact pages | mean words | worst page | ink | pixels |
+| --- | --- | --- | --- | --- | --- |
+| `blank` | 1/1 | 1.0000 | 1.0000 | 0.0000 | 0.0000 |
+| `poster-academic` | 0/1 | 0.9908 | 0.9908 | 0.0000 | 0.0192 |
+| `thesis-standard` | 8/16 | 0.9896 | 0.9515 | 0.0005 | 0.0659 |
+| `report-technical` | 7/12 | 0.9888 | 0.9404 | 0.0005 | 0.0975 |
+| `report-scientific` | 7/8 | 0.9844 | 0.8750 | 0.0002 | 0.0056 |
+| `newsletter` | 0/3 | 0.9757 | 0.9633 | 0.0002 | 0.1016 |
+| `book-standard` | 7/8 | 0.9643 | 0.7143 | 0.0005 | 0.0060 |
+| `paper-standard` | 0/1 | 0.9091 | 0.9091 | 0.0006 | 0.0113 |
+| `presentation-beamer` | 0/5 | 0.8530 | 0.7895 | 0.0031 | 0.0290 |
+| `paper-acm` | 0/2 | 0.8000 | 0.7271 | 0.0078 | 0.2124 |
+| `paper-ieee` | 0/3 | 0.7878 | 0.6536 | 0.0171 | 0.2735 |
+
+The measurement found two more defects on its first run.
+
+### Defect 9: the rerun budget is predicted, not read
+
+`poster-academic` and `newsletter` matched desktop on words to within a
+hyphenation point and yet carried **a quarter of the reference's ink** — 0.0454
+against 0.1833 on the poster. Both open page 1 with a TikZ `remember picture,
+overlay` full-bleed banner, and neither banner was drawn.
+
+`remember picture` needs two passes: the page node coordinates are written to
+the `.aux` on the pass that has just finished. TeX said so —
+`LaTeX Warning: Label(s) may have changed. Rerun to get cross-references right.`
+— and Siglum ran one pass anyway. Its `predictRequiredPasses` decides the budget
+**before compiling**, by matching `\ref`, `\cite`, `\label`,
+`\tableofcontents` and friends against the source; neither document uses any of
+them, so both were put in "single-pass mode: no cross-references detected" and
+the rerun loop was never entered. Every mechanism that needs a second pass
+without one of those macros is affected: `remember picture`, `lastpage`,
+`totpages`, `longtable` column widths, anything writing to the `.aux`.
+
+Fixed by taking the request from the log instead of from a prediction: after a
+successful compile, rerun while TeX asks, bounded at four passes. Siglum caches
+`.aux` files between compiles keyed on the preamble, so a second call reads back
+what the first wrote.
+
+### Defect 10: the PDF cache is keyed on the source alone
+
+The first version of that fix changed nothing. The rerun fired and returned pass
+one's PDF: Siglum caches a compiled document against `hashDocument(source)`, and
+a rerun has the same source by definition and a different `.aux`. Any engine
+that reruns at all has two different correct outputs for one source, so this key
+cannot be right. Fixed by disabling the cache on rerun passes.
+
+With both fixed, the poster's ink delta went **0.1380 → 0.0000** and its pixel
+difference **0.1584 → 0.0192**; the newsletter's **0.1386 → 0.0002** and
+**0.2464 → 0.1016**.
+
+### The missing babel setup costs typography everywhere
+
+Defect 7 was diagnosed as a beamer crash. It is wider than that. `hyphen.cfg`
+also sets `\lefthyphenmin` and `\righthyphenmin`, and without it they keep TeX's
+primitive default of **zero** — so the engine breaks words after a single
+letter. The divergence column showed it plainly across four documents:
+`presentations` broken as `p-`, `Standards` as `S-`.
+
+Setting the two primitives produces output identical to loading babel, at none
+of its download cost — measured, not assumed: `\usepackage[english]{babel}` and
+`\lefthyphenmin=2 \righthyphenmin=3` give the same page-by-page scores on
+`newsletter`. Both are now in the format shim.
+
+**It barely moves the numbers**, and that is worth stating rather than dressing
+up: 30/60 pages before and after, with three documents' means improving in the
+third decimal and one falling. The reason is a limit of the instrument — the
+metric measures *agreement with desktop*, not correctness, and a break in an
+invalid place scores exactly the same as a break in a different valid one. The
+evidence for the shim is the divergence text, where one-letter breaks disappear,
+not the score. It stays because the output it removes is wrong by any
+typographic standard, whatever desktop did.
+
+### What the remaining gap is made of
+
+- **`\today`, not the engine.** Four documents' worst page differs only in a
+  month name: the reference PDFs were built in February and March, and the runs
+  comparing against them in September. A corpus artefact, and the reason
+  `paper-standard` scores 0.9091 on an otherwise identical title page.
+- **Hyphenation points.** `report-technical` and `thesis-standard` break words
+  where desktop did not — legally, now, but differently.
+- **Two-column drift.** `paper-ieee` and `paper-acm` are the worst by a
+  distance. On `paper-ieee` the divergence begins at word 64 of page 1 (desktop
+  hyphenates `han-dling`, we do not) and compounds: by page 3 desktop is inside
+  the bibliography where we are still printing its heading. Same page count,
+  offset content. `paper-acm` is the one document whose page count still differs,
+  3 against 2.
+
+### Not measured: diagnostics
+
+PLAN.md 7.4 also asks for diagnostics to be compared. They cannot be, yet: the
+corpus commits desktop's reference *PDFs* but not its *logs*, so there is
+nothing to compare a parsed diagnostic against. Committing Tectonic's logs
+alongside the PDFs is what that needs.
+
 ## Still to measure
 
 The CTAN path is answered: **11/13, with 10 of 11 matching desktop's page
@@ -345,13 +466,19 @@ failures.
 
 - [x] Stand up a self-hosted CTAN proxy and re-run the corpus with `--ctan`.
 - [x] Compare page counts against the committed reference PDFs.
-- [ ] Compare extracted text, diagnostics and rendered page images too — not
-      bytes, which carry nondeterministic metadata.
+- [x] Compare extracted text and rendered page images too — not bytes, which
+      carry nondeterministic metadata. 30/60 pages match word for word.
+- [ ] Compare diagnostics, which needs desktop Tectonic's logs committed
+      alongside the reference PDFs. There is nothing to compare against today.
 - [x] Diagnose the four remaining failures. Two were font-asset gaps, one is
       version skew, one was a format built without babel. Two are fixed.
 - [ ] Investigate `paper-acm` at 51 s, and its 3-versus-2 page discrepancy.
-      `presentation-beamer` at 19 s and `paper-ieee` at 17 s are the next
-      slowest, both spending most of it on repeated full recompiles.
+      `presentation-beamer` and `paper-ieee` are the next slowest, both spending
+      most of it on repeated full recompiles. Every timing in this ADR predates
+      the rerun fix, which adds passes by design; performance needs its own
+      clean run rather than numbers taken alongside a fidelity comparison.
+- [ ] Chase the two-column drift in `paper-ieee` and `paper-acm`, which starts
+      as one hyphenation decision on page 1 and compounds.
 - [x] Decide how to handle version skew between bundled TeX Live packages and
       pinned-archive fetches, which is what breaks `letter-formal`: rebuild the
       bundle set from the single tree we pin.
@@ -378,6 +505,14 @@ the port cannot hide, and it is instructive: the adapter can compensate for what
 an engine *does*, but not for what it will not carry. That is the same
 conclusion the version-skew decision reaches from the other side, and together
 they point at owning the package tree rather than consuming someone else's.
+
+Defects 9 and 10 make a different point, about measurement rather than
+architecture. Both produced *plausible* output — a poster that compiled, opened
+and read correctly, and simply had no banner on it. Page count would never have
+found either; nor would a human skim of a PDF they had not seen before. They
+were found because the harness compared ink against a reference, which is an
+argument for keeping the corpus and its reference PDFs as a permanent fixture
+rather than a Phase 0 instrument.
 
 `EngineIdentity` carries the package-set version on every result, which the
 pinned asset release makes meaningful: a compile can name exactly the TeX Live

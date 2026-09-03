@@ -40,10 +40,12 @@ Repository: <https://github.com/danylaksono/opal-web>, AGPL-3.0-or-later.
 - Compiler acceptance corpus: all 13 desktop examples pinned with desktop
   Tectonic's reference output, plus a generated manifest — 6 document classes,
   32 packages, 4 needing bibliography passes.
-- 52 unit tests, 4 browser e2e tests, and three spike scripts
+- 75 unit tests, 4 browser e2e tests, and three spike scripts
   (`spike:coverage`, `spike:siglum`, `spike:corpus-run`). The corpus runner
   takes `--only a,b` and writes each project's full engine log to
-  `spike-results/logs/`, which is how the four failures above were read.
+  `spike-results/logs/`, which is how the four failures above were read; every
+  project that compiles is then compared against desktop's reference PDF on
+  words, ink and pixels.
 
 ### Where the corpus stands
 
@@ -87,6 +89,48 @@ TeX Live tree we already pin.** It is the only option that makes
 carries the metrics and faces we choose. See ADR-003 for the rejected
 alternatives; this is now the largest item between this engine and a product.
 
+### How close the output is to desktop's
+
+**30 of 60 pages reproduce desktop Tectonic's text word for word**, with both
+sides opened through the same renderer. Text is compared as a word sequence per
+page — line breaking is the engine's own business — alongside ink coverage and
+a differing-pixel ratio. Bytes are never compared.
+
+The comparison paid for itself on its first run by finding two defects that
+produce *plausible* output, which is the kind page count cannot catch:
+
+- **Siglum predicts its rerun budget from the source** rather than reading TeX's
+  request from the log. `poster-academic` and `newsletter` open with a TikZ
+  `remember picture` full-bleed banner, use no `\ref` or `\cite`, and were
+  therefore given one pass — so the banner never drew, and both carried a
+  quarter of the reference's ink while matching it on words. Fixed by rerunning
+  while TeX asks, bounded at four passes.
+- **Siglum's PDF cache is keyed on the source alone**, so the first rerun handed
+  back the pass it was meant to replace. Any engine that reruns has two correct
+  outputs for one source; the key cannot be right. Fixed by bypassing the cache
+  on reruns.
+
+Together those took the poster's ink delta from 0.1380 to 0.0000 and its pixel
+difference from 0.1584 to 0.0192.
+
+The comparison also widened defect 7. The format built without babel's
+`hyphen.cfg` leaves `\lefthyphenmin` and `\righthyphenmin` at zero, so the
+engine breaks words after one letter — `p-resentations`, `S-tandards` — across
+four documents. Setting the two primitives is measurably identical to loading
+babel and is now in the shim. Honestly: it barely moves the score, because the
+metric measures agreement with desktop rather than correctness, and a break in
+an invalid place scores the same as a break in a different valid one. It stays
+because the output it removes is wrong regardless of what desktop did.
+
+What is left of the gap is mostly not the engine: four documents' worst page
+differs only in a month name, because the reference PDFs were built in February
+and the runs comparing them in September. The real remainder is hyphenation
+points, and a two-column drift in `paper-ieee` and `paper-acm` that starts as
+one hyphenation decision on page 1 and compounds.
+
+Diagnostics cannot be compared yet: the corpus commits desktop's reference PDFs
+but not its logs.
+
 ### What changed in the plan's assumptions
 
 - **Section 7.1's candidate set is superseded.** SwiftLaTeX is not published on
@@ -104,8 +148,10 @@ alternatives; this is now the largest item between this engine and a product.
   render T1 encoding, document classes missing from the package index,
   incomplete bundle dependency lists, an always-empty result log, font failures
   invisible to both resolution paths, a file index holding no font names, a
-  format built without babel, and a CTAN fetcher that discards OpenType. Seven
-  are absorbed by the adapter; the eighth cannot be. See ADR-003.
+  format built without babel, a CTAN fetcher that discards OpenType, a rerun
+  budget predicted from the source instead of read from the log, and a PDF
+  cache keyed on source alone. Nine are absorbed by the adapter; the OpenType
+  one cannot be. See ADR-003.
 - **A port hides what an engine does, not what it will not carry.** That is the
   line the eighth defect crosses, and it is the same conclusion the version-skew
   decision reaches from the other side: the package tree has to be ours.
@@ -116,13 +162,15 @@ alternatives; this is now the largest item between this engine and a product.
 
 ### Next, in order
 
-1. Compare successful output beyond page count — extracted text, diagnostics
-   and rendered images within tolerance, never bytes.
-2. Measure cold and warm compile time, peak memory, and cancellation, and
-   investigate why `paper-acm` takes ten times longer than anything else.
-3. Build the bundle set from the single pinned TeX Live tree, per the skew
+1. Measure cold and warm compile time, peak memory, and cancellation on a clean
+   run, and investigate why `paper-acm` takes ten times longer than anything
+   else. Every timing recorded so far predates the rerun fix, which adds passes
+   by design.
+2. Build the bundle set from the single pinned TeX Live tree, per the skew
    decision above, and measure what it costs to host. This is what unblocks
    `cv-modern` and `letter-formal`.
+3. Commit desktop Tectonic's logs alongside the reference PDFs, so diagnostics
+   can be compared as well as output.
 4. Exercise bibliography reruns across `natbib`, `cite` and `acmart`. No corpus
    project has reached its bibliography yet.
 5. Close the remaining ADR-004 criteria: Firefox and Safari, link resolution,
@@ -131,7 +179,7 @@ alternatives; this is now the largest item between this engine and a product.
    xelatex baseline alone is 39 MB on top of MuPDF's 10.4 MB.
 7. Build the AGPL section 13 source offer before any public deployment.
 
-Phase 1 does not start until 1-2 are answered and ADR-003 is closed.
+Phase 1 does not start until 1 is answered and ADR-003 is closed.
 
 
 ## 1. Executive recommendation

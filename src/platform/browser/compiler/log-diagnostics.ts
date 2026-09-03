@@ -169,3 +169,33 @@ export function firstError(
 ): CompileDiagnostic | undefined {
   return diagnostics.find((d) => d.severity === "error");
 }
+
+/**
+ * The ways LaTeX asks for another pass.
+ *
+ * Deliberately the same set Siglum matches internally, so the adapter and the
+ * engine agree on what a rerun request looks like and differ only on when they
+ * are willing to act on one.
+ */
+const RERUN_REQUEST =
+  /Rerun to get|Label\(s\) may have changed|There were undefined references|Rerun LaTeX|Please rerun/i;
+
+/**
+ * Whether TeX asked to be run again.
+ *
+ * TeX resolves forward references through the `.aux` file: a first pass writes
+ * what it learned, a second reads it back. Until then a `\ref` prints `??`, a
+ * table of contents is empty, and — the case that surfaced this — a TikZ
+ * `remember picture` overlay draws nothing at all, because the page node
+ * coordinates it needs are written on the pass that has just finished.
+ *
+ * Siglum decides how many passes to run by pattern-matching the source before
+ * compiling: `\ref`, `\cite`, `\label`, `\tableofcontents` and friends. A
+ * document that needs a second pass for any other reason gets one pass and a
+ * silently incomplete result, because the prediction has already fixed the
+ * budget by the time TeX says otherwise. Reading the request from the log
+ * instead is the whole fix: TeX knows, and it says so.
+ */
+export function needsRerun(log: string): boolean {
+  return RERUN_REQUEST.test(log);
+}

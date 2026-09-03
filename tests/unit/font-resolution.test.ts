@@ -84,4 +84,15 @@ describe("FORMAT_SHIMS", () => {
   it("defers to a document that defines the macro itself", () => {
     expect(FORMAT_SHIMS).toContain("\\providecommand");
   });
+
+  it("sets hyphenation minima, which the format leaves at zero", () => {
+    expect(FORMAT_SHIMS).toContain("\\lefthyphenmin=2");
+    expect(FORMAT_SHIMS).toContain("\\righthyphenmin=3");
+  });
+
+  it("terminates its last number, so the document cannot extend it", () => {
+    // TeX reads digits until something that is not one. A document whose first
+    // character is a digit would otherwise be absorbed into `3`.
+    expect(FORMAT_SHIMS.endsWith(" ")).toBe(true);
+  });
 });

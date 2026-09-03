@@ -96,8 +96,20 @@ export function unresolvableFonts(log: string): string[] {
  * `\begin{document}` and stops with "Undefined control sequence". A document
  * that loads babel never meets this; one that does not cannot compile at all.
  *
+ * The same omission costs typography everywhere else. `hyphen.cfg` also sets
+ * `\lefthyphenmin` and `\righthyphenmin`; without it they keep TeX's primitive
+ * default of zero, and the engine breaks words after a single letter —
+ * "p-resentations", "S-tandards". The fidelity comparison found this across
+ * four corpus documents before anything crashed. Setting the two primitives
+ * produces output identical to loading babel, at none of its download cost.
+ *
+ * 2 and 3 are English's conventional minima, which is what `hyphen.cfg` sets
+ * for the default language. They are wrong for some languages and right for
+ * none universally — but a document in another language loads babel, which
+ * overrides them, and every value is better than zero.
+ *
  * Prepended without a newline, so every line of the user's document keeps its
  * number and SyncTeX and diagnostic line mapping stay exact. `\providecommand`
  * yields to babel where a document does load it.
  */
-export const FORMAT_SHIMS = String.raw`\providecommand{\languagename}{english}`;
+export const FORMAT_SHIMS = String.raw`\providecommand{\languagename}{english}\lefthyphenmin=2 \righthyphenmin=3 `;
