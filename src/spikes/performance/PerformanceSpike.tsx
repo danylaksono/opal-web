@@ -83,8 +83,43 @@ const ABORT_AT_FRACTION = 0.5;
 /** Floor for that delay, so a very fast document still gets a real abort. */
 const MIN_ABORT_MS = 30;
 
+interface MemoryBreakdownEntry {
+  bytes: number;
+  types?: string[];
+  attribution?: { url?: string; scope?: string }[];
+}
+
 interface MemoryCapableWindow {
-  measureUserAgentSpecificMemory?: () => Promise<{ bytes: number }>;
+  measureUserAgentSpecificMemory?: () => Promise<{
+    bytes: number;
+    breakdown?: MemoryBreakdownEntry[];
+  }>;
+}
+
+/**
+ * Log a sample and its breakdown to the console.
+ *
+ * The total alone says memory is large; the breakdown says which realm holds
+ * it, which is the difference between a leak in our code and the engine's WASM
+ * instance not being reclaimed.
+ */
+function logMemory(
+  stage: string,
+  bytes: number | null,
+  breakdown?: MemoryBreakdownEntry[],
+): void {
+  if (bytes === null) return;
+  const mb = (value: number) => `${(value / 1024 / 1024).toFixed(1)} MB`;
+  const parts = (breakdown ?? [])
+    .filter((entry) => entry.bytes > 0)
+    .map(
+      (entry) =>
+        `${entry.types?.join("+") || "?"}:${mb(entry.bytes)}` +
+        (entry.attribution?.[0]?.scope
+          ? `(${entry.attribution[0].scope})`
+          : ""),
+    );
+  console.log(`[mem] ${stage.padEnd(16)} ${mb(bytes)}  ${parts.join(" ")}`);
 }
 
 /**
@@ -94,7 +129,7 @@ interface MemoryCapableWindow {
  * cross-origin isolated: a number that omits the engine would be worse than no
  * number, because it looks like an answer.
  */
-async function sampleMemory(): Promise<{
+async function sampleMemory(stage: string): Promise<{
   bytes: number | null;
   source: string;
 }> {
@@ -110,6 +145,7 @@ async function sampleMemory(): Promise<{
   }
   try {
     const result = await measure.call(performance);
+    logMemory(stage, result.bytes, result.breakdown);
     return { bytes: result.bytes, source: "measureUserAgentSpecificMemory" };
   } catch (error) {
     return {
@@ -176,10 +212,12 @@ export function PerformanceSpike() {
         // questions: whether the *engine* fits in a browser tab, and what a
         // document adds on top. If the fixed cost dominates, no amount of
         // document-level care will help.
-        const memoryAfterInit = await sampleMemory();
+        const memoryAfterInit = await sampleMemory("after init");
 
         setState({ status: "running", stage: "cold compile" });
         const cold = await compiler.compile({ revision: 1, mainFile, files });
+
+        await sampleMemory("after cold");
 
         setState({ status: "running", stage: "cached compile" });
         const cached = await compiler.compile({ revision: 2, mainFile, files });
@@ -199,7 +237,7 @@ export function PerformanceSpike() {
           files: edited,
         });
 
-        const memory = await sampleMemory();
+        const memory = await sampleMemory("after 3 compiles");
 
         // Then a second compiler, aborted mid-run. Separate from the timing
         // compiler because an abort terminates the worker, and measuring a

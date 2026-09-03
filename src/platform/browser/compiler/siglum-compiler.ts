@@ -62,6 +62,20 @@ export interface SiglumCompilerOptions {
    * 9 of the 13 corpus projects use this idiom.
    */
   extraBundles?: string[];
+  /**
+   * Throw the engine away after each compile and start a fresh one.
+   *
+   * On by default because leaving it off leaks. Siglum's `getOrCreateModule`
+   * does not cache despite its name: every TeX pass instantiates a new WASM
+   * module, and the old one is not reclaimed even after a forced collection.
+   * Measured on `blank`: 40 MB after init, 490 MB after one compile, 907 MB
+   * after two — about 418 MB per compile, unbounded.
+   *
+   * The recycle runs after the result has been returned, so its ~500 ms lands
+   * between compiles rather than inside one. Turn it off only to measure the
+   * leak.
+   */
+  recycleAfterCompile?: boolean;
 }
 
 /**
@@ -207,6 +221,8 @@ export class SiglumLatexCompiler implements LatexCompiler {
    * package arrives fails on the next pass instead of refetching forever.
    */
   #fetchedFontPackages = new Set<string>();
+  /** In-flight engine recycle, so overlapping compiles wait for one restart. */
+  #recyclePromise: Promise<void> | null = null;
 
   constructor(options: SiglumCompilerOptions = {}) {
     this.#options = {
@@ -233,7 +249,10 @@ export class SiglumLatexCompiler implements LatexCompiler {
     return this.#identity;
   }
 
-  init(): Promise<void> {
+  async init(): Promise<void> {
+    // A recycle in flight is a dispose followed by an init; joining it is what
+    // keeps a compile from starting against a worker about to be terminated.
+    if (this.#recyclePromise) await this.#recyclePromise;
     this.#initPromise ??= this.#start();
     return this.#initPromise;
   }
@@ -425,6 +444,12 @@ export class SiglumLatexCompiler implements LatexCompiler {
         "",
         performance.now() - started,
       );
+    } finally {
+      // After the result is computed, never awaited: the engine leaks about
+      // 418 MB per compile, and the only way to give it back is to throw the
+      // worker away. Doing it here rather than at the start of the next
+      // compile keeps the cost off whatever the caller does next.
+      if (this.#options.recycleAfterCompile !== false) void this.#recycle();
     }
   }
 
@@ -493,6 +518,30 @@ export class SiglumLatexCompiler implements LatexCompiler {
       if (result && !result.notFound) loaded.push(name);
     }
     return loaded;
+  }
+
+  /**
+   * Replace the engine, off the critical path.
+   *
+   * Called after a result has been handed back, so the restart overlaps with
+   * whatever the caller does next instead of adding to the compile it follows.
+   * `init()` awaits the same promise, so a compile issued mid-recycle waits for
+   * one restart rather than racing a second engine into existence.
+   */
+  #recycle(): Promise<void> {
+    this.#recyclePromise ??= (async () => {
+      try {
+        await this.dispose();
+        // Deliberately not through `init()`, which joins the recycle promise —
+        // and inside the recycle that promise is this one, so going through it
+        // would have the restart wait for itself.
+        this.#initPromise = this.#start();
+        await this.#initPromise;
+      } finally {
+        this.#recyclePromise = null;
+      }
+    })();
+    return this.#recyclePromise;
   }
 
   async restart(): Promise<void> {

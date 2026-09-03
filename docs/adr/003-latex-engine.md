@@ -109,8 +109,8 @@ None of these are exotic — all four were hit by ordinary corpus documents, and
 all four are worked around in
 `src/platform/browser/compiler/siglum-compiler.ts`, behind the port, which is
 the point of having one. Diagnosing the CTAN-era failures later turned up four
-more, numbered 5–8 below, and measuring fidelity turned up two after that,
-numbered 9–10.
+more, numbered 5–8 below; measuring fidelity turned up two after that, 9–10;
+and measuring memory turned up an eleventh.
 
 1. **The xelatex baseline cannot render T1 encoding.** `core` ships `tulmr.fd`
    (TU/Unicode) but not `t1lmr.fd`. A document using the pdfTeX-oriented
@@ -467,6 +467,10 @@ has present but disabled, so the runner launches `channel: "chrome"` and falls
 back to Chromium with the memory column dropped rather than reporting a
 JS-heap-only figure that would look like an answer.
 
+Measured with the engine recycle **off**, so the memory column shows the
+untreated leak that motivated it; the recycled figures are under "What
+recycling costs".
+
 | project | init | cold | warm | cached | warm saves | peak memory |
 | --- | --- | --- | --- | --- | --- | --- |
 | `paper-acm` | 501 ms | 57.5 s | 5.1 s | 0 ms | 91% | 1024 MB |
@@ -489,25 +493,75 @@ Siglum keys its PDF cache on a hash of the source, so recompiling an unchanged
 document never reaches the engine — that is the "cached" column, and it is
 measuring the cache rather than the compiler.
 
-### Memory is the finding, and it is not where it looked
+### Defect 11: the engine leaks a WASM instance per compile
 
 **After init the whole page holds 40 MB. Peak during a compile is 0.9–1.2 GB.**
 
 The engine is cheap to load and enormous to run, and the cost is not the
 document: `blank` peaks at 907 MB on a single pass, within 30% of the largest
-figure in the corpus. So this is not complexity, not pass count, and not
-something a user's document controls — it is what one compile costs, and 95% of
-it appears between init and the first PDF.
+figure in the corpus.
 
-The likely mechanism is visible in the logs: every pass calls `resetFS` and
-remounts the bundle set — about 3,745 files — into WASM linear memory, which
-grows and never returns. That makes it a fixed cost per compile rather than a
-leak, but a fixed cost of nearly a gigabyte is a product constraint, not a
-tuning note. iOS Safari terminates tabs in this region.
+Sampling per stage on `blank` says what is happening, and it is worse than a
+fixed cost:
 
-This did not show up until now because nothing was measuring it, and it could
-not have been: without cross-origin isolation the only available API counts the
-JS heap, which here is under 3 MB — three orders of magnitude off.
+| stage | total | worker realm |
+| --- | --- | --- |
+| after init | 40 MB | 2 MB |
+| after one compile | 490 MB | 420 MB |
+| after two compiles | 907 MB | 836 MB |
+
+That is **~418 MB per compile, retained**. `measureUserAgentSpecificMemory`
+forces a collection before it reports, so these are not uncollected temporaries
+— the instances are held. The mechanism is in `getOrCreateModule`, which does
+not cache despite its name: every TeX pass instantiates a fresh WASM module and
+the previous one is never released.
+
+Fixed in the adapter by throwing the engine away after each compile — the only
+lever available, since nothing in Siglum's API releases it. The recycle is
+started after the result has been returned and is not awaited, so it overlaps
+with whatever the caller does next. On `blank` this takes peak memory from
+**907 MB to 100 MB**, and it also fixes the flaky post-abort recovery noted
+below, since recovery now runs against a fresh engine by construction.
+
+It is not free: a recycled engine remounts its bundles, so a warm compile is no
+longer warm. The corpus-wide cost is measured under "What recycling costs".
+
+None of this showed up until now because nothing was measuring it, and nothing
+could: without cross-origin isolation the only available API counts the JS heap,
+which here is under 3 MB — three orders of magnitude off.
+
+### What recycling costs
+
+Corpus-wide, with the recycle on against off:
+
+| | recycle off | recycle on |
+| --- | --- | --- |
+| Peak memory | 907–1231 MB | 34–49 MB |
+| Total cold, 13 projects | 170 s | 173 s |
+| Total warm, 13 projects | 41 s | 87 s |
+| Worst warm | 12.2 s (`presentation-beamer`) | 30.0 s |
+
+Memory becomes flat and roughly document-independent. Cold is unchanged, because
+a cold compile was paying for its mounts anyway. **Warm roughly doubles**, and
+worst-case warm nearly triples: a recycled engine has thrown away its mounted
+bundles and fetched packages, so every compile is effectively cold. `paper-acm`
+goes from 5.1 s to 23.2 s.
+
+There is no policy that avoids this. Delaying the recycle does not help — the
+next compile still meets a fresh engine — and recycling every *n*th compile
+scales the peak by *n*, which at 418 MB a compile is over budget at n=2. With
+this engine, bounded memory and a fast edit cycle are mutually exclusive.
+
+**Shipped on by default anyway.** Slow is bad; unbounded is fatal. These
+measurements cover three compiles; an ordinary editing session is dozens, and
+the untreated growth reaches several gigabytes long before a user stops typing.
+
+The proper fix is upstream and is not the instance-per-pass itself — Siglum
+creates a fresh WASM instance deliberately, because TeX's C globals do not
+survive reuse, and its own memory-snapshot path is disabled in a comment saying
+so. The defect is only that the *previous* instance stays reachable. Released
+properly, memory would be flat with no recycle and no warm-compile penalty. The
+adapter's worker restart is a blunt substitute for a fix it cannot make.
 
 ### `paper-acm` at 57 s: one missing file per full recompile
 
@@ -539,12 +593,13 @@ cancel and a WASM TeX run holds its worker's only thread, so there is nothing to
 ask politely. The adapter now races each pass against the signal, terminates the
 worker, and returns `cancelled`.
 
-**Abort latency is 0–14 ms** from signalling to control returning, on all 13
+**Abort latency is 0–16 ms** from signalling to control returning, on all 13
 projects. Recovery — a compile after the abort, paying a full engine re-init —
 succeeded on 11 of 13; the two that failed, `cv-modern` and `letter-formal`,
-fail anyway. One caveat worth keeping: `presentation-beamer` recovered cleanly
-in one run and failed in another, so recovery is not yet reliably clean and
-deserves a look before this is called done.
+fail anyway. `presentation-beamer` recovered in one run and failed in another
+before the recycle landed; with the recycle on it recovers, which is expected —
+recovery now runs against a fresh engine by construction rather than one that
+has just had a TeX run terminated under it.
 
 ### A cache that helps least when it is needed most
 
@@ -581,11 +636,14 @@ failures.
       bundle set from the single tree we pin.
 - [ ] Carry that decision out, and measure what it costs to host.
 - [x] Cold and warm compile time, peak memory, cancellation behaviour.
-- [ ] **Bring peak memory down from ~1 GB.** The engine holds 40 MB after init
-      and 0.9–1.2 GB while compiling, on an empty document as much as a thesis.
-      This is now the largest open risk to the product running at all on mobile.
-- [ ] Why recovery after an abort is not reliably clean: `presentation-beamer`
-      recovered in one run and failed in another.
+- [x] **Bring peak memory down from ~1 GB.** It was a retention leak, ~418 MB
+      per compile. Recycling the engine after each compile caps it at 34–49 MB,
+      at the cost of doubling warm compiles.
+- [ ] Get the warm cost back by having the engine release instances instead of
+      the adapter terminating workers. Needs an upstream change to Siglum.
+- [x] Why recovery after an abort is not reliably clean. The recycle answers it:
+      recovery now runs against a fresh engine rather than one whose TeX run was
+      terminated under it.
 - [ ] Multi-pass bibliography orchestration across `natbib`, `cite` and
       `acmart`. No corpus project has reached its bibliography yet.
 - [ ] First-load and offline story: the xelatex baseline is 39 MB before any
@@ -598,16 +656,22 @@ failures.
 ## Consequences so far
 
 `LatexCompiler` in `src/core/compiler/types.ts` remains the only compiler
-surface any other code may depend on, and it has now earned that: seven of the
-eight engine defects are absorbed by the adapter without anything above it
+surface any other code may depend on, and it has now earned that: ten of the
+eleven engine defects are absorbed by the adapter without anything above it
 knowing. Had the spike called Siglum directly, those workarounds would be spread
 through the product.
 
-The eighth — the CTAN fetcher discarding OpenType fonts — is the first defect
-the port cannot hide, and it is instructive: the adapter can compensate for what
-an engine *does*, but not for what it will not carry. That is the same
-conclusion the version-skew decision reaches from the other side, and together
-they point at owning the package tree rather than consuming someone else's.
+The eighth — the CTAN fetcher discarding OpenType fonts — is the one defect the
+port cannot hide, and it is instructive: the adapter can compensate for what an
+engine *does*, but not for what it will not carry. That is the same conclusion
+the version-skew decision reaches from the other side, and together they point
+at owning the package tree rather than consuming someone else's.
+
+The eleventh is absorbed but not *fixed*, and the distinction matters. The
+adapter can stop the memory leak only by terminating the worker, which also
+discards work the engine had legitimately cached — so the workaround costs
+double the warm compile time. A port lets an adapter hide a defect; it does not
+make the defect free.
 
 Defects 9 and 10 make a different point, about measurement rather than
 architecture. Both produced *plausible* output — a poster that compiled, opened

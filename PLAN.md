@@ -28,8 +28,8 @@ Repository: <https://github.com/danylaksono/opal-web>, AGPL-3.0-or-later.
 - Standalone repository, strict TypeScript, Biome, Vitest, Playwright, CI.
 - **The ports first**: `LatexCompiler`, `PdfRenderer`, branded `ProjectId` /
   `ProjectPath` with archive-hostile path validation. Nothing above them touches
-  a browser API or an engine type. This has already paid for itself — nine of
-  the ten engine defects found so far are absorbed entirely inside adapters.
+  a browser API or an engine type. This has already paid for itself — ten of
+  the eleven engine defects found so far are absorbed entirely inside adapters.
 - **MuPDF running in a plain browser worker**, not a Tauri webview:
   `paper-standard` opens in 94.5 ms and rasterises 612×792 in 31.7 ms, with
   per-line baselines distinct from bounding-box bottoms, so review anchoring
@@ -138,6 +138,9 @@ preview. Both are required: peak memory needs `measureUserAgentSpecificMemory`,
 the only API that sees the WASM heap, and Playwright's bundled Chromium has it
 present but disabled.
 
+Figures below are with the engine recycle **off**, which is what the leak looked
+like before it was fixed; the shipped numbers follow.
+
 | | fastest | slowest |
 |---|---|---|
 | Engine init | 479 ms | 699 ms |
@@ -145,16 +148,36 @@ present but disabled.
 | Warm compile, after an edit | 0.8 s | 12.2 s (`presentation-beamer`) |
 | Peak memory | 907 MB (`blank`) | 1231 MB (`cv-modern`) |
 
-**Memory is the finding, and it is not where it looked.** After init the page
-holds **40 MB**; a single compile takes it to **0.9–1.2 GB**. The cost is not
-the document — `blank` peaks at 907 MB on one pass, within 30% of the largest
-figure in the corpus — so it is what one compile costs, and no amount of
-document-level care will move it. Every pass resets the virtual filesystem and
-remounts ~3,745 files into WASM linear memory, which grows and never returns.
-iOS Safari terminates tabs in this region. **This is now the largest open risk
-to the product running at all on mobile**, and it did not surface earlier
-because nothing was measuring it: without cross-origin isolation the only
-available API counts the JS heap, which here is under 3 MB.
+With the recycle on, as shipped: cold is unchanged (170 s to 173 s across the
+corpus), warm doubles (41 s to 87 s), and peak memory drops to 34–49 MB.
+
+**Memory was the finding, and it was a leak.** After init the page holds
+**40 MB**; one compile took it to 490 MB and two to 907 MB — about **418 MB per
+compile, retained**. `measureUserAgentSpecificMemory` forces a collection before
+reporting, so those were not uncollected temporaries. Siglum's
+`getOrCreateModule` does not cache despite its name: every TeX pass instantiates
+a fresh WASM module and the previous one stays reachable. It never surfaced
+before because nothing was measuring it, and nothing could — without
+cross-origin isolation the only available API counts the JS heap, which here is
+under 3 MB.
+
+**Fixed by recycling the engine after each compile**, started after the result
+is returned and never awaited. Peak across the corpus drops from **907–1231 MB
+to 34–49 MB**, and it also settles the flaky post-abort recovery, which now runs
+against a fresh engine by construction.
+
+It is a poor trade, taken deliberately. A recycled engine has discarded its
+mounted bundles, so warm compiles roughly double corpus-wide — 41 s to 87 s —
+and the worst case goes from 12.2 s to 30 s. No policy avoids this: delaying the
+recycle does not help, since the next compile still meets a fresh engine, and
+recycling every *n*th compile scales the peak by *n*. With this engine, bounded
+memory and a fast edit cycle are mutually exclusive. Slow is bad; unbounded is
+fatal, and three compiles was already a gigabyte.
+
+The proper fix is upstream, and it is not the instance-per-pass — Siglum creates
+a fresh instance on purpose, because TeX's C globals do not survive reuse. The
+defect is only that the previous instance stays reachable. Released properly,
+memory would be flat with no recycle and no warm penalty.
 
 **`paper-acm`'s 57 seconds is one missing file per full recompile.** TeX stops
 at the first file it cannot find, so each pass discovers exactly one package and
@@ -171,10 +194,8 @@ case — 12.2 s — is still too slow.
 **Cancellation now works and had to be built.** The port has always declared
 `signal`; the adapter checked it once and never again. Siglum exposes no cancel
 and a WASM TeX run holds its worker's only thread, so the adapter races each
-pass against the signal and terminates the worker. Abort latency is **0–14 ms**
-on all 13 projects, and the next compile succeeds. One caveat:
-`presentation-beamer` recovered cleanly in one run and failed in another, so
-recovery is not yet reliably clean.
+pass against the signal and terminates the worker. Abort latency is **0–16 ms**
+on all 13 projects, and the next compile succeeds.
 
 **The compile cache helps least when it is most needed.** Recompiling an
 unchanged document costs 0 ms — but only when it succeeded. `letter-formal` and
@@ -199,9 +220,9 @@ the situation where a user recompiles most.
   incomplete bundle dependency lists, an always-empty result log, font failures
   invisible to both resolution paths, a file index holding no font names, a
   format built without babel, a CTAN fetcher that discards OpenType, a rerun
-  budget predicted from the source instead of read from the log, and a PDF
-  cache keyed on source alone. Nine are absorbed by the adapter; the OpenType
-  one cannot be. See ADR-003.
+  budget predicted from the source instead of read from the log, a PDF cache
+  keyed on source alone, and a WASM instance retained per compile. Ten are
+  absorbed by the adapter; the OpenType one cannot be. See ADR-003.
 - **A port hides what an engine does, not what it will not carry.** That is the
   line the eighth defect crosses, and it is the same conclusion the version-skew
   decision reaches from the other side: the package tree has to be ours.
@@ -212,10 +233,12 @@ the situation where a user recompiles most.
 
 ### Next, in order
 
-1. Bring peak memory down from ~1 GB per compile. Nothing else on this list
-   matters if the product cannot run on a phone.
-2. Resolve a document's package closure before compiling instead of one full
-   pass at a time, which is what makes first open take 57 seconds.
+1. Resolve a document's package closure before compiling instead of one full
+   pass at a time. This is what makes first open take 57 seconds, and with the
+   engine recycle on it now costs the edit cycle too — `paper-acm`'s warm
+   compile is 23 s because every compile re-fetches the closure.
+2. Get the warm-compile cost back by having the engine release WASM instances
+   instead of the adapter terminating workers. Needs an upstream change.
 3. Build the bundle set from the single pinned TeX Live tree, per the skew
    decision above, and measure what it costs to host. This is what unblocks
    `cv-modern` and `letter-formal`.
