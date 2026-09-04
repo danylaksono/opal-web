@@ -30,6 +30,15 @@ const mupdfVersion: string = JSON.parse(
  */
 const crossOriginIsolated = process.env.OPAL_COI === "1";
 
+/**
+ * Whether to build the browser test surfaces alongside the app.
+ *
+ * Off by default: `tests/browser/contract.html` exercises the storage layer and
+ * has no business in a production bundle. Playwright sets it, because the e2e
+ * suite runs against the built output rather than the dev server.
+ */
+const testPages = process.env.OPAL_TEST_PAGES === "1";
+
 const isolationHeaders = crossOriginIsolated
   ? {
       "Cross-Origin-Opener-Policy": "same-origin",
@@ -117,6 +126,21 @@ export default defineConfig({
   build: {
     target: "es2022",
     sourcemap: true,
+    // The contract page runs the storage suite against real OPFS, so it has to
+    // be built rather than only served in dev — Playwright drives the
+    // production build. It is opt-in so that test code never reaches a user.
+    ...(testPages
+      ? {
+          rollupOptions: {
+            input: {
+              main: fileURLToPath(new URL("./index.html", import.meta.url)),
+              contract: fileURLToPath(
+                new URL("./tests/browser/contract.html", import.meta.url),
+              ),
+            },
+          },
+        }
+      : {}),
   },
   define: {
     __OPAL_CROSS_ORIGIN_ISOLATED__: JSON.stringify(crossOriginIsolated),

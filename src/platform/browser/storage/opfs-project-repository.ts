@@ -372,6 +372,20 @@ export class OpfsProjectRepository implements ProjectRepository {
     return this.#locks.request(`opal-project-${id}`, work) as Promise<T>;
   }
 
+  /**
+   * Release the IndexedDB connection.
+   *
+   * An open connection blocks `deleteDatabase` indefinitely, and any later
+   * `open` queues behind that delete — so a repository nobody closes can wedge
+   * every repository that follows it. The app keeps one for its lifetime and
+   * never needs this; anything that creates several does.
+   */
+  async close(): Promise<void> {
+    const database = this.#database;
+    this.#database = undefined;
+    if (database) (await database).close();
+  }
+
   #open(): Promise<IDBDatabase> {
     this.#database ??= new Promise<IDBDatabase>((resolve, reject) => {
       const opening = this.#indexedDb.open(DATABASE_NAME, DATABASE_VERSION);

@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>ProjectRepository contract — OPFS</title>
+  </head>
+  <body>
+    <h1>ProjectRepository contract, against OPFS and IndexedDB</h1>
+    <p>
+      A test surface, not part of the app. It is built only when
+      <code>OPAL_TEST_PAGES=1</code>, so it never ships to a user.
+    </p>
+    <div data-testid="contract-status" data-state="running">Running…</div>
+    <ol data-testid="contract-results"></ol>
+    <script type="module" src="./contract.ts"></script>
+  </body>
+</html>

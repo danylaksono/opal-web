@@ -20,6 +20,9 @@ export default defineConfig({
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: {
     command: "npx vite build && npx vite preview --port 4173 --strictPort",
+    // Builds tests/browser/*, which run the storage contract against real
+    // OPFS. Off in an ordinary build, so test code never reaches a user.
+    env: { OPAL_TEST_PAGES: "1" },
     url: "http://localhost:4173",
     reuseExistingServer: !process.env.CI,
     timeout: 180_000,
