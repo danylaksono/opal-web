@@ -257,6 +257,7 @@ describe("parseTarIndex with paths", () => {
 describe("IndexedArchive", () => {
   const INDEX = [
     "a.sty 0 1 /texlive/texmf-dist/tex/latex/a/a.sty",
+    "d.ltd.tex 4 1 /texlive/texmf-dist/tex/latex/d/d.ltd.tex",
     "a-extra.tex 3 1 /texlive/texmf-dist/tex/latex/a/a-extra.tex",
     "b.sty 1 1 /texlive/texmf-dist/tex/latex/b/b.sty",
     "noplace.sty 2 1",
@@ -356,5 +357,14 @@ describe("IndexedArchive", () => {
           : new Response(new Uint8Array([1]), { status: 206 }),
     );
     expect(await subject.neighbours("f0.tfm", 4)).toEqual(["f0.tfm"]);
+  });
+
+  it("finds a file TeX asked for without its default extension", async () => {
+    // LaTeX appends `.tex` while searching, so a document wanting `d.ltd.tex`
+    // reports `d.ltd` missing. Without this the file reads as absent.
+    const files = await archive(stubFetch().fetch).fetchFiles(["d.ltd"]);
+    expect(files.map((f) => f.path)).toEqual([
+      "/texlive/texmf-dist/tex/latex/d/d.ltd.tex",
+    ]);
   });
 });

@@ -40,7 +40,7 @@ const CATEGORIES: [string, (url: string) => boolean][] = [
   ["tex bundles", (url) => url.includes("/engines/siglum/bundles/")],
   ["tex engine", (url) => url.includes("/engines/siglum/")],
   ["ctan packages", (url) => url.includes("/ctan/")],
-  ["tex archive", (url) => url.includes("/tex/texfiles")],
+  ["tex archive", (url) => url.includes("texfiles")],
   ["pdf renderer", (url) => /mupdf.*\.wasm$|mupdf/.test(url)],
   ["app", () => true],
 ];
@@ -80,6 +80,24 @@ function projectFiles(project: string): string[] {
     .map((name) => resolve(dir, name));
 }
 
+/**
+ * The archive root, as a site-relative path.
+ *
+ * Pass it without a leading slash — `--archive-url tex-pinned`. Git Bash on
+ * Windows rewrites a leading-slash argument into a Windows path, so
+ * `--archive-url /tex-pinned` arrives here as `C:/Program Files/Git/tex-pinned`,
+ * the page then fetches an index that does not exist, and the run reports a
+ * compile failure that is really a mangled flag. A value that still looks like
+ * a filesystem path is reduced to its last segment rather than used as-is.
+ */
+function normaliseArchiveUrl(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const bare = /^[A-Za-z]:/.test(value)
+    ? value.slice(value.lastIndexOf("/") + 1)
+    : value;
+  return bare.startsWith("/") || bare.startsWith("http") ? bare : `/${bare}`;
+}
+
 function mb(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
@@ -97,6 +115,9 @@ async function main(): Promise<void> {
     : undefined;
   const useCtan = !process.argv.includes("--no-ctan");
   const useArchive = process.argv.includes("--archive");
+  // Which archive the page resolves from; the spike surface reads it from the
+  // query string so one build can measure either.
+  const archiveUrl = normaliseArchiveUrl(arg("--archive-url"));
 
   const projects = readdirSync(CORPUS_ROOT, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
@@ -152,7 +173,11 @@ async function main(): Promise<void> {
       }
 
       const started = Date.now();
-      await page.goto(PREVIEW_URL);
+      await page.goto(
+        archiveUrl
+          ? `${PREVIEW_URL}/?archive=${encodeURIComponent(archiveUrl)}`
+          : PREVIEW_URL,
+      );
       if (useCtan) await page.check('[data-testid="ctan-toggle"]');
       if (useArchive) await page.check('[data-testid="archive-toggle"]');
       await page.setInputFiles(
@@ -243,7 +268,7 @@ async function main(): Promise<void> {
   await mkdir(OUT_DIR, { recursive: true });
   const file = resolve(
     OUT_DIR,
-    `firstload${useArchive ? "-archive" : ""}${throttleMbps === undefined ? "" : `-${throttleMbps}mbps`}${only ? "-partial" : ""}.json`,
+    `firstload${useArchive ? (archiveUrl ? "-pinned" : "-archive") : ""}${throttleMbps === undefined ? "" : `-${throttleMbps}mbps`}${only ? "-partial" : ""}.json`,
   );
   await writeFile(
     file,

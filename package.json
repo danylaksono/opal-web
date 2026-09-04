@@ -25,6 +25,7 @@
     "spike:firstload": "tsx scripts/run-firstload-spike.ts",
     "spike:tex-archive": "tsx scripts/build-tex-archive.ts",
     "spike:range-fetch": "tsx scripts/run-range-fetch-spike.ts",
+    "spike:pinned-archive": "tsx scripts/build-pinned-archive.ts",
     "serve:tex-archive": "tsx scripts/serve-tex-archive.ts"
   },
   "dependencies": {

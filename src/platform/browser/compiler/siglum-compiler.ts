@@ -187,8 +187,13 @@ const DOCUMENT_CLASS = /\\documentclass(?:\[[^\]]*\])?\{([^}]+)\}/;
  * \input reports "I can't find file `x'." — and pgf reaches for
  * `pgfutil-common.tex` that way, so a resolver knowing only the first form gets
  * a document three packages in and then stops on a file it could have fetched.
+ *
+ * The opening quote is a backtick or an apostrophe: a package raising the error
+ * itself through \IfFileExists does not follow the kernel's convention. `lipsum`
+ * asks for `lipsum.ltd` that way, and thesis-standard stopped there with every
+ * other file it needed already delivered.
  */
-const MISSING_FILE = /File `([^']+)' not found/g;
+const MISSING_FILE = /File [`']([^']+)' not found/g;
 const MISSING_INPUT = /I can't find file `([^']+)'/g;
 
 /**

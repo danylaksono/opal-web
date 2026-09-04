@@ -290,9 +290,22 @@ export class IndexedArchive {
     return this.#index;
   }
 
+  /**
+   * The index entry for a name TeX asked for, if the archive holds it.
+   *
+   * LaTeX appends the default extension while searching, so a document wanting
+   * `lipsum.ltd.tex` reports `lipsum.ltd` missing. Looking the bare name up and
+   * then the name with `.tex` is what kpathsea does, and without it a file
+   * sitting in the archive reads as absent.
+   */
+  async locate(name: string): Promise<FileLocation | undefined> {
+    const index = await this.load();
+    return index.get(name) ?? index.get(`${name}.tex`);
+  }
+
   /** Whether the archive holds a file, without fetching it. */
   async has(name: string): Promise<boolean> {
-    return (await this.load()).has(name);
+    return (await this.locate(name)) !== undefined;
   }
 
   /**
@@ -312,7 +325,7 @@ export class IndexedArchive {
    */
   async neighbours(name: string, cap = 64): Promise<string[]> {
     const index = await this.load();
-    const path = index.get(name)?.path;
+    const path = (await this.locate(name))?.path;
     if (!path) return [];
     const directory = path.slice(0, path.lastIndexOf("/") + 1);
     const siblings: string[] = [];
@@ -338,13 +351,13 @@ export class IndexedArchive {
     names: readonly string[],
     concurrency = DEFAULT_CONCURRENCY,
   ): Promise<ArchiveFile[]> {
-    const index = await this.load();
-    const wanted = names
-      .map((name) => ({ name, location: index.get(name) }))
-      .filter(
-        (entry): entry is { name: string; location: FileLocation } =>
-          entry.location?.path !== undefined,
-      );
+    const located = await Promise.all(
+      names.map(async (name) => ({ name, location: await this.locate(name) })),
+    );
+    const wanted = located.filter(
+      (entry): entry is { name: string; location: FileLocation } =>
+        entry.location?.path !== undefined,
+    );
 
     const files: ArchiveFile[] = [];
     let next = 0;

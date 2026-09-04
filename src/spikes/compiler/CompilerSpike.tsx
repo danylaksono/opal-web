@@ -69,6 +69,10 @@ export function CompilerSpike() {
   const [result, setResult] = useState<SpikeResult>({ status: "idle" });
   const [useCtan, setUseCtan] = useState(false);
   const [useArchive, setUseArchive] = useState(false);
+  // Which archive to resolve from, so one build can measure the archive built
+  // from Siglum's bundles against the one built from a pinned TeX Live tree.
+  const archiveUrl =
+    new URLSearchParams(window.location.search).get("archive") ?? "/tex";
   const [engine, setEngine] = useState<"xelatex" | "pdflatex" | "lualatex">(
     "xelatex",
   );
@@ -93,90 +97,103 @@ export function CompilerSpike() {
     };
   }, []);
 
-  const run = useCallback(
-    async (fileList: FileList) => {
-      setResult({ status: "initialising" });
-      setFidelity({ status: "idle" });
-      compiledPdfRef.current = null;
+  /**
+   * The options a compile should use, read at call time rather than captured.
+   *
+   * `run` is reached from the file input's `change` handler, and a harness that
+   * ticks a checkbox and immediately sets files can dispatch that change before
+   * React has rebound the handler — so a memoised `run` compiles with the
+   * previous toggle values and the measurement silently describes a different
+   * configuration than the one asked for. That happened: runs with the archive
+   * enabled resolved from bundles instead, intermittently, depending on how
+   * much other work the driver was doing. Mirroring into a ref costs nothing
+   * and removes the race rather than making it less likely.
+   */
+  const optionsRef = useRef({ useCtan, useArchive, archiveUrl, engine });
+  optionsRef.current = { useCtan, useArchive, archiveUrl, engine };
 
-      // Rebuilt per run so the toggles take effect, and so a wedged engine
-      // cannot poison the next measurement.
-      await compilerRef.current?.dispose();
-      const compiler = new SiglumLatexCompiler({
-        engine,
-        verbose: true,
-        ...(useCtan ? { ctanProxyUrl: "/ctan" } : {}),
-        ...(useArchive ? { texArchiveUrl: "/tex" } : {}),
-        // Engine chatter goes to the console rather than React state: it is
-        // high-volume, and this is a measurement harness where the browser
-        // console is where you actually read it.
-        onLog: (line) => console.log("[siglum]", line),
-        onProgress: (stage, detail) =>
-          setResult((previous) => ({
-            ...previous,
-            stage: detail ? `${stage}: ${detail}` : stage,
-          })),
+  const run = useCallback(async (fileList: FileList) => {
+    setResult({ status: "initialising" });
+    setFidelity({ status: "idle" });
+    compiledPdfRef.current = null;
+
+    // Rebuilt per run so the toggles take effect, and so a wedged engine
+    // cannot poison the next measurement.
+    await compilerRef.current?.dispose();
+    const options = optionsRef.current;
+    const compiler = new SiglumLatexCompiler({
+      engine: options.engine,
+      verbose: true,
+      ...(options.useCtan ? { ctanProxyUrl: "/ctan" } : {}),
+      ...(options.useArchive ? { texArchiveUrl: options.archiveUrl } : {}),
+      // Engine chatter goes to the console rather than React state: it is
+      // high-volume, and this is a measurement harness where the browser
+      // console is where you actually read it.
+      onLog: (line) => console.log("[siglum]", line),
+      onProgress: (stage, detail) =>
+        setResult((previous) => ({
+          ...previous,
+          stage: detail ? `${stage}: ${detail}` : stage,
+        })),
+    });
+    compilerRef.current = compiler;
+
+    try {
+      const files = await Promise.all(
+        Array.from(fileList).map(async (file) => ({
+          path: projectPath(file.name),
+          content: new Uint8Array(await file.arrayBuffer()),
+        })),
+      );
+
+      const mainFile =
+        files.find((file) => file.path === "main.tex")?.path ??
+        files.find((file) => file.path.endsWith(".tex"))?.path;
+      if (!mainFile) throw new Error("No .tex file selected");
+
+      setResult((previous) => ({ ...previous, status: "compiling" }));
+
+      const compiled = await compiler.compile({
+        revision: 1,
+        mainFile,
+        files,
       });
-      compilerRef.current = compiler;
 
-      try {
-        const files = await Promise.all(
-          Array.from(fileList).map(async (file) => ({
-            path: projectPath(file.name),
-            content: new Uint8Array(await file.arrayBuffer()),
-          })),
+      let pageCount: number | undefined;
+      if (compiled.ok && rendererRef.current) {
+        compiledPdfRef.current = new Uint8Array(compiled.pdf);
+        // Round-trip through the renderer: proves the bytes are a PDF a
+        // viewer can actually open, not just a non-zero buffer.
+        const doc = await rendererRef.current.openDocument(
+          new Uint8Array(compiled.pdf),
         );
-
-        const mainFile =
-          files.find((file) => file.path === "main.tex")?.path ??
-          files.find((file) => file.path.endsWith(".tex"))?.path;
-        if (!mainFile) throw new Error("No .tex file selected");
-
-        setResult((previous) => ({ ...previous, status: "compiling" }));
-
-        const compiled = await compiler.compile({
-          revision: 1,
-          mainFile,
-          files,
-        });
-
-        let pageCount: number | undefined;
-        if (compiled.ok && rendererRef.current) {
-          compiledPdfRef.current = new Uint8Array(compiled.pdf);
-          // Round-trip through the renderer: proves the bytes are a PDF a
-          // viewer can actually open, not just a non-zero buffer.
-          const doc = await rendererRef.current.openDocument(
-            new Uint8Array(compiled.pdf),
-          );
-          pageCount = doc.pageCount;
-          await doc.close();
-        }
-
-        setResult({
-          status: "done",
-          engine: `${compiled.engine.name} ${compiled.engine.version}`,
-          packageSet: compiled.engine.packageSetVersion,
-          ok: compiled.ok,
-          durationMs: compiled.durationMs,
-          diagnostics: compiled.diagnostics,
-          logTail: compiled.log.split("\n").slice(-25).join("\n"),
-          ...(compiled.ok
-            ? {
-                pdfBytes: compiled.pdf.byteLength,
-                hasSyncTex: compiled.synctex !== undefined,
-                ...(pageCount !== undefined ? { pageCount } : {}),
-              }
-            : { summary: compiled.summary, category: compiled.category }),
-        });
-      } catch (error) {
-        setResult({
-          status: "error",
-          summary: error instanceof Error ? error.message : String(error),
-        });
+        pageCount = doc.pageCount;
+        await doc.close();
       }
-    },
-    [useCtan, useArchive, engine],
-  );
+
+      setResult({
+        status: "done",
+        engine: `${compiled.engine.name} ${compiled.engine.version}`,
+        packageSet: compiled.engine.packageSetVersion,
+        ok: compiled.ok,
+        durationMs: compiled.durationMs,
+        diagnostics: compiled.diagnostics,
+        logTail: compiled.log.split("\n").slice(-25).join("\n"),
+        ...(compiled.ok
+          ? {
+              pdfBytes: compiled.pdf.byteLength,
+              hasSyncTex: compiled.synctex !== undefined,
+              ...(pageCount !== undefined ? { pageCount } : {}),
+            }
+          : { summary: compiled.summary, category: compiled.category }),
+      });
+    } catch (error) {
+      setResult({
+        status: "error",
+        summary: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }, []);
 
   const compare = useCallback(async (file: File) => {
     const renderer = rendererRef.current;
@@ -246,9 +263,10 @@ export function CompilerSpike() {
           checked={useArchive}
           onChange={(event) => setUseArchive(event.target.checked)}
         />{" "}
-        Resolve missing files from the indexed TeX archive at <code>/tex</code>,
-        one byte range per file, instead of fetching whole bundles (ADR-011).
-        Needs <code>pnpm spike:tex-archive</code>.
+        Resolve missing files from the indexed TeX archive at{" "}
+        <code>{archiveUrl}</code>, one byte range per file, instead of fetching
+        whole bundles (ADR-011). Set <code>?archive=</code> to choose one;{" "}
+        <code>/tex-pinned</code> is the single-vintage tree.
       </label>
 
       <input
