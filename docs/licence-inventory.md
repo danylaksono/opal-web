@@ -16,6 +16,7 @@ Repeat this audit against pinned versions before any distribution.
 | @siglum/engine | 0.1.4 | MIT | ADR-003 spike. Runtime assets (busytex.wasm plus TeX Live 2025 bundles, 225 MB) are fetched separately and gitignored; they are third-party TeX Live content redistributed under their own per-package terms, which still needs auditing. |
 | blake3-wasm (via @siglum/engine) | 2.1.5 | Apache-2.0 OR MIT | Browser build is broken upstream and is aliased to a stub; see docs/adr/003. |
 | xzwasm (via @siglum/engine) | ^0.1.2 | MIT | Pulled in transitively; only used on the CTAN path, which is not yet enabled. |
+| fflate | 0.8.3 | MIT | ZIP import and export (PLAN.md 14 Phase 1). Zero dependencies. Chosen over hand-rolling a container reader because import is hostile input; the path and resource policy stays ours in `src/core/project/archive.ts`. |
 | mupdf | 1.28.0 | AGPL-3.0-or-later | Selected in ADR-004. Sets the application licence via ADR-002. WASM binary is 10.4 MB raw, 4.8 MB gzipped; a `.br` variant ships alongside it. |
 
 ## Build and test only — not distributed

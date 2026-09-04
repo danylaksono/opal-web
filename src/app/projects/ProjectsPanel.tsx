@@ -12,7 +12,13 @@
  * 6.1 is explicit that this must be visible rather than buried.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  ArchiveRejectedError,
+  packProject,
+  unpackProject,
+} from "@/core/project/archive";
+import type { ProjectId } from "@/core/project/ids";
 import { projectPath } from "@/core/project/ids";
 import type {
   ProjectRepository,
@@ -58,12 +64,20 @@ export function ProjectsPanel({
   const [status, setStatus] = useState<StorageStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [title, setTitle] = useState("Untitled project");
+  const importInput = useRef<HTMLInputElement | null>(null);
 
+  /**
+   * Re-read the list.
+   *
+   * Reports its own failure but never clears someone else's: `act` runs this
+   * after every action, and a `setError(null)` here would wipe the message the
+   * action had just set. A rejected import then looked like nothing happening
+   * at all, which is how the browser test found it.
+   */
   const refresh = useCallback(async () => {
     try {
       setProjects(await repository.list());
       setStatus(await readStorageStatus());
-      setError(null);
     } catch (cause) {
       // A storage layer that cannot list is the one failure this panel must
       // not hide: everything else it offers would silently do nothing.
@@ -78,15 +92,71 @@ export function ProjectsPanel({
 
   const act = useCallback(
     async (work: () => Promise<unknown>) => {
+      // Cleared before, not after: what follows may set one.
+      setError(null);
       try {
         await work();
-        setError(null);
       } catch (cause) {
-        setError(cause instanceof Error ? cause.message : "Storage refused");
+        // An archive rejection is the user's problem to fix, so it names the
+        // entry rather than reporting a generic storage failure.
+        setError(
+          cause instanceof ArchiveRejectedError
+            ? `Archive rejected (${cause.reason}): ${cause.message}`
+            : cause instanceof Error
+              ? cause.message
+              : "Storage refused",
+        );
       }
       await refresh();
     },
     [refresh],
+  );
+
+  /**
+   * Download a project as a ZIP.
+   *
+   * The object URL is revoked on the next frame rather than immediately: the
+   * click has to reach the browser's download machinery first, and revoking in
+   * the same tick cancels the download in some browsers.
+   */
+  const exportProject = useCallback(
+    async (id: ProjectId, projectTitle: string) => {
+      const paths = await repository.listFiles(id);
+      const files = await Promise.all(
+        paths.map(async (path) => ({
+          path,
+          bytes: await repository.readFile(id, path),
+        })),
+      );
+      const zip = packProject(files);
+      const url = URL.createObjectURL(
+        new Blob([zip as BlobPart], { type: "application/zip" }),
+      );
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${projectTitle.replace(/[^\w.-]+/g, "-") || "project"}.zip`;
+      anchor.click();
+      setTimeout(() => {
+        URL.revokeObjectURL(url);
+      }, 0);
+    },
+    [repository],
+  );
+
+  const importArchive = useCallback(
+    async (file: File) => {
+      const archive = new Uint8Array(await file.arrayBuffer());
+      // Unpacked before the project is created, so a rejected archive leaves
+      // nothing behind to clean up.
+      const files = unpackProject(archive);
+      const main = files.find((entry) => entry.path.endsWith("main.tex"));
+      await repository.create({
+        title: file.name.replace(/\.zip$/i, "") || "Imported project",
+        files,
+        ...(main ? { rootTexPath: main.path } : {}),
+      });
+    },
+    [repository],
   );
 
   return (
@@ -126,6 +196,25 @@ export function ProjectsPanel({
         >
           Create project
         </button>
+        <input
+          ref={importInput}
+          type="file"
+          accept=".zip,application/zip"
+          data-testid="import-archive"
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            if (!file) return;
+            void act(async () => {
+              try {
+                await importArchive(file);
+              } finally {
+                // Cleared either way, so importing the same file twice after
+                // fixing it still fires a change event.
+                if (importInput.current) importInput.current.value = "";
+              }
+            });
+          }}
+        />
       </div>
 
       {error && (
@@ -169,6 +258,15 @@ export function ProjectsPanel({
                     }}
                   >
                     Open
+                  </button>{" "}
+                  <button
+                    type="button"
+                    data-testid="export-project"
+                    onClick={() => {
+                      void act(() => exportProject(project.id, project.title));
+                    }}
+                  >
+                    Export ZIP
                   </button>{" "}
                   <button
                     type="button"
