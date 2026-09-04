@@ -33,7 +33,8 @@
  *   a Latin-script document opens is absent.
  * - `full`   — the whole tree, 2.6 GB, for reference rather than for shipping.
  *
- * Usage: pnpm spike:pinned-archive [--scope corpus|latin|full] [--fetch]
+ * Usage: pnpm spike:pinned-archive [--scope corpus|macros|latin|full]
+ *        [--fetch] [--via range|whole]
  */
 import {
   createWriteStream,
@@ -53,8 +54,19 @@ const OUT_DIR = resolve("public/tex-pinned");
 const ARCHIVE = resolve(OUT_DIR, "texfiles.bin");
 const INDEX_OUT = resolve(OUT_DIR, "texfiles.index");
 
-/** How many range requests to keep in flight against the upstream host. */
-const CONCURRENCY = 16;
+/**
+ * How many range requests to keep in flight against the upstream host.
+ *
+ * Low on purpose. The bundle is served by a volunteer-run host that rate-limits:
+ * sixteen in flight earned HTTP 429 on every request and then a block lasting
+ * minutes. Range fetching suits small scopes; anything large should use
+ * `--via whole`, which asks for the archive once rather than tens of thousands
+ * of times.
+ */
+const CONCURRENCY = 4;
+
+/** Consecutive failures after which a run is being refused, not unlucky. */
+const FAILURE_LIMIT = 20;
 
 interface Entry {
   name: string;
@@ -233,6 +245,107 @@ function megabytes(bytes: number): string {
 }
 
 /** One range request per file, into the output stream, in index order. */
+/** Tar headers are 512 bytes, and every entry is padded to a multiple. */
+const TAR_BLOCK = 512;
+
+/**
+ * Build the archive from a single sequential download.
+ *
+ * One request instead of one per file. That is politeness as much as speed: the
+ * bundle is hosted by a volunteer project, and asking it for 19,222 byte ranges
+ * is an unreasonable way to read a file it will happily send once — sixteen
+ * concurrent ranges earned HTTP 429 on every request and then a block.
+ *
+ * The whole 2.6 GB streams past, but only files in scope are kept, so the
+ * archive written is the size of the scope rather than of the source. Parsing
+ * is just walking header blocks, since the tar is flat: the name is the first
+ * 100 bytes and the size a 12-byte octal field at offset 124.
+ */
+async function fetchWhole(selected: Entry[]): Promise<void> {
+  const wanted = new Set(selected.map((entry) => entry.name));
+  await mkdir(OUT_DIR, { recursive: true });
+  const out = createWriteStream(ARCHIVE);
+  const index: string[] = [];
+  let offset = 0;
+  let kept = 0;
+  let seen = 0;
+  let read = 0;
+
+  const response = await fetch(BUNDLE_URL);
+  if (!response.ok || !response.body) {
+    throw new Error(`Bundle fetch failed: ${response.status}`);
+  }
+
+  // A rolling buffer, because a tar entry rarely aligns with a network chunk.
+  let buffer = new Uint8Array(0);
+  let pending: { name: string; size: number } | null = null;
+  const decoder = new TextDecoder();
+  const field = (bytes: Uint8Array): string => {
+    const text = decoder.decode(bytes);
+    const end = text.indexOf("\0");
+    return (end === -1 ? text : text.slice(0, end)).trim();
+  };
+
+  for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {
+    const grown = new Uint8Array(buffer.length + chunk.length);
+    grown.set(buffer);
+    grown.set(chunk, buffer.length);
+    buffer = grown;
+    read += chunk.length;
+
+    for (;;) {
+      if (!pending) {
+        if (buffer.length < TAR_BLOCK) break;
+        const header = buffer.subarray(0, TAR_BLOCK);
+        buffer = buffer.subarray(TAR_BLOCK);
+        const name = field(header.subarray(0, 100));
+        const size = Number.parseInt(
+          field(header.subarray(124, 136)) || "0",
+          8,
+        );
+        // Two zero blocks end the archive; anything nameless is padding.
+        if (!name || !Number.isFinite(size)) continue;
+        seen++;
+        pending = { name, size };
+      }
+      // Entries are padded to a block boundary; the padding is not content.
+      const padded = Math.ceil(pending.size / TAR_BLOCK) * TAR_BLOCK;
+      if (buffer.length < padded) break;
+      if (pending.size > 0 && wanted.has(pending.name)) {
+        const bytes = buffer.slice(0, pending.size);
+        if (!out.write(bytes)) {
+          await new Promise<void>((r) => out.once("drain", () => r()));
+        }
+        index.push(
+          `${pending.name} ${offset} ${bytes.length} ${texmfPath(pending.name)}`,
+        );
+        offset += bytes.length;
+        kept++;
+      }
+      buffer = buffer.subarray(padded);
+      pending = null;
+      if (seen % 20000 === 0) {
+        process.stdout.write(
+          `  ${seen} entries, ${kept} kept, ${(read / 1048576).toFixed(0)} MB read\n`,
+        );
+      }
+    }
+  }
+
+  await new Promise<void>((finished, reject) => {
+    out.on("error", reject);
+    out.end(() => {
+      finished();
+    });
+  });
+  await writeFile(INDEX_OUT, `${index.join("\n")}\n`, "utf8");
+  console.log(
+    `\n${kept} of ${selected.length} wanted files found in ${seen} entries\n` +
+      `archive ${megabytes((await stat(ARCHIVE)).size)} at ${ARCHIVE}\n` +
+      `index   ${((await stat(INDEX_OUT)).size / 1024).toFixed(0)} KB at ${INDEX_OUT}`,
+  );
+}
+
 async function fetchAll(selected: Entry[]): Promise<void> {
   await mkdir(OUT_DIR, { recursive: true });
   const out = createWriteStream(ARCHIVE);
@@ -240,6 +353,7 @@ async function fetchAll(selected: Entry[]): Promise<void> {
   let offset = 0;
   let done = 0;
   let failed = 0;
+  let consecutiveFailures = 0;
 
   // Fetched in parallel but written in order: the archive's own offsets are
   // assigned as bytes are appended, so writes cannot race.
@@ -256,12 +370,24 @@ async function fetchAll(selected: Entry[]): Promise<void> {
             Range: `bytes=${entry.offset}-${entry.offset + entry.length - 1}`,
           },
         });
+        if (response.status === 429) throw new Error("rate limited (429)");
         if (response.status !== 206)
           throw new Error(`status ${response.status}`);
         results[i] = new Uint8Array(await response.arrayBuffer());
-      } catch {
+        consecutiveFailures = 0;
+      } catch (error) {
         results[i] = null;
         failed++;
+        // Stop rather than grind through thousands of doomed requests and then
+        // write an empty archive: this many failures in a row is a host
+        // refusing the rate, and continuing is both useless and rude.
+        if (++consecutiveFailures >= FAILURE_LIMIT) {
+          throw new Error(
+            `${consecutiveFailures} consecutive failures (last: ` +
+              `${error instanceof Error ? error.message : "unknown"}). ` +
+              "Use --via whole, which asks for the archive once.",
+          );
+        }
       }
       done++;
       if (done % 250 === 0) {
@@ -323,6 +449,20 @@ async function main(): Promise<void> {
 
   if (!fetching) {
     console.log("\nSizing only. Pass --fetch to build it.");
+    return;
+  }
+  // One request per file is fine for a small scope and abusive for a large one,
+  // so the default follows the scope rather than the caller's memory.
+  const viaAt = process.argv.indexOf("--via");
+  const via =
+    (viaAt === -1 ? undefined : process.argv[viaAt + 1]) ??
+    (selected.length > 1000 ? "whole" : "range");
+
+  if (via === "whole") {
+    console.log(
+      `\nStreaming the archive once, keeping ${selected.length} files.`,
+    );
+    await fetchWhole(selected);
     return;
   }
   console.log(`\nFetching ${selected.length} files, ${CONCURRENCY} at a time.`);
