@@ -249,6 +249,13 @@ Researched routes, none needing server-side compilation:
   dependencies are described upstream as surmountable rather than solved. ADR-011
   takes the delivery model — a file format and an index — and leaves the engine
   to ADR-003. The two were entangled only because one project ships both.
+
+  Since measured end to end. The delivery works and the round trips are cheap;
+  what does not work is bolting it beside the engine's own loading. Siglum
+  fetches 77.1 MB of font bundles during init, before TeX runs and regardless of
+  the document, which is both why no font is ever reported missing and why the
+  17–21 MB figure is unreachable until the engine reads from the archive
+  directly rather than being handed files after it has already asked.
 - **SwiftLaTeX** does the same from the browser side and has an existence proof
   in TeXbrain (MIT, static hosting, no server). Its resolver is a Flask app,
   but it resolves names rather than compiling, and that resolution can be
@@ -289,19 +296,30 @@ plus the few hundred kilobytes of TeX files it opens: single-digit megabytes.
 
 ### Next, in order
 
-1. Prove ADR-011's delivery model end to end: feed the engine files one at a
-   time from an indexed archive, and measure the round-trip cost of ~145 range
-   requests over HTTP/2. It is the largest measured win available — 118.9 MB to
-   about 2 MB of TeX files for beamer — and it subsumes the bundle rebuild.
+1. ~~Prove ADR-011's delivery model end to end.~~ **Done, with a limit.** Round
+   trips are affordable: beamer's 142 files take 575 ms on a 150 ms link over
+   HTTP/2, provided the client declines the HTTP cache — Chrome locks the cache
+   entry per URL and every file is a range of one URL, which costs 38× — and the
+   host speaks HTTP/2, worth another 7×. The engine does take files one at a
+   time through `ctanFiles`, and on beamer that replaced five bundles, 33.7 MB,
+   with 2.8 MB of range requests. But the adapter's hook is a fallback behind
+   Siglum's own resolution, which fetches **77.1 MB of font bundles at init**
+   whatever the document uses, so with CTAN on the archive saves nothing. The
+   win needs the engine's bundle path replaced, which is item 3.
 2. Get the warm-compile cost back by having the engine release WASM instances
    instead of the adapter terminating workers. Needs an upstream change, and it
    is the main lever left on compile time: resolving the package closure ahead
    of time was tried and rejected (above), so `paper-acm`'s 23 s warm compile
    stands until the recycle is unnecessary.
 3. Build that archive from the single pinned TeX Live tree, per the skew
-   decision above. This is what unblocks `cv-modern` and `letter-formal`, and a
-   tree that carries the whole closure removes the discovery chain as a side
-   effect.
+   decision above, and load the engine *from* it rather than from bundles. This
+   is now the item everything else waits on: it unblocks `cv-modern` and
+   `letter-formal`, removes the discovery chain (a tree carrying the whole
+   closure has nothing to discover), and is the only route to the first-load
+   figure, since the 77.1 MB of eager font bundles are unreachable from the
+   adapter. It also removes the one place file-at-a-time resolution is awkward —
+   TeX names one missing file per run, so an engine that asked the archive per
+   file as it opened it would need no retry loop at all.
 4. Exercise bibliography reruns across `natbib`, `cite` and `acmart`. No corpus
    project has reached its bibliography yet.
 5. Close the remaining ADR-004 criteria: Firefox and Safari, link resolution,
@@ -314,7 +332,13 @@ plus the few hundred kilobytes of TeX files it opens: single-digit megabytes.
 8. Build the AGPL section 13 source offer before any public deployment.
 
 Phase 1 does not start until 1 and 2 are answered, and ADR-003 and ADR-011
-are closed.
+are closed. 1 is answered; 3 is what closes ADR-011.
+
+The gate is about cost, not about interfaces. `LatexCompiler` and `PdfRenderer`
+already insulate a UI from both open decisions, so nothing above the ports would
+have to change if the engine or the delivery model did. What would not survive
+is the product: a 23 s warm compile and a 41–135 MB first load make an editor
+feel broken, and neither is a problem a UI can be built around.
 
 
 ## 1. Executive recommendation
