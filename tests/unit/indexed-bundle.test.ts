@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  type FetchLike,
+  fetchTexFile,
   parseTarIndex,
   parseTtbHeader,
   parseTtbIndex,
@@ -78,9 +80,9 @@ describe("parseTtbHeader", () => {
   });
 
   it("rejects a file that is not a bundle", () => {
-    expect(() => parseTtbHeader(ttbHeader({ magic: "notabundle!!!!" }))).toThrow(
-      /Not a Tectonic bundle/,
-    );
+    expect(() =>
+      parseTtbHeader(ttbHeader({ magic: "notabundle!!!!" })),
+    ).toThrow(/Not a Tectonic bundle/);
   });
 
   it("rejects a truncated header rather than reading past it", () => {
@@ -157,5 +159,68 @@ describe("rangeHeader", () => {
   it("matches the range that fetched acmart.cls from the live bundle", () => {
     const location = parseTarIndex(TAR_INDEX).get("acmart.cls");
     expect(location && rangeHeader(location)).toBe("bytes=52796928-52904142");
+  });
+});
+
+describe("fetchTexFile", () => {
+  /** Records what it was asked for, and answers with `body` and `status`. */
+  function stubFetch(
+    body: Uint8Array,
+    status = 206,
+  ): FetchLike & { calls: RequestInit[] } {
+    const calls: RequestInit[] = [];
+    const impl = async (_input: string, init?: RequestInit) => {
+      calls.push(init ?? {});
+      return new Response(body as BodyInit, { status });
+    };
+    return Object.assign(impl, { calls });
+  }
+
+  const location = { offset: 10, length: 4, gzipped: false };
+
+  it("asks for exactly the file's byte range", async () => {
+    const fetchImpl = stubFetch(new Uint8Array([1, 2, 3, 4]));
+    await fetchTexFile("/tex/texfiles.bin", location, fetchImpl);
+    expect(fetchImpl.calls[0]?.headers).toEqual({ Range: "bytes=10-13" });
+  });
+
+  it("declines the HTTP cache, which serialises same-URL range requests", async () => {
+    // Not a preference. Chrome locks the cache entry per URL, and every file in
+    // the archive shares one URL, so the default mode turns concurrent fetches
+    // into sequential ones: 381 ms against 60 ms for six files on the rig.
+    const fetchImpl = stubFetch(new Uint8Array([1, 2, 3, 4]));
+    await fetchTexFile("/tex/texfiles.bin", location, fetchImpl);
+    expect(fetchImpl.calls[0]?.cache).toBe("no-store");
+  });
+
+  it("returns the bytes for an uncompressed entry", async () => {
+    const fetchImpl = stubFetch(new Uint8Array([1, 2, 3, 4]));
+    const bytes = await fetchTexFile("/tex/x.bin", location, fetchImpl);
+    expect([...bytes]).toEqual([1, 2, 3, 4]);
+  });
+
+  it("inflates a gzipped ttb entry", async () => {
+    const source = new TextEncoder().encode("\\ProvidesPackage{opal}");
+    const gzipped = new Uint8Array(
+      await new Response(
+        new Blob([source as BlobPart])
+          .stream()
+          .pipeThrough(new CompressionStream("gzip")),
+      ).arrayBuffer(),
+    );
+    const fetchImpl = stubFetch(gzipped);
+    const bytes = await fetchTexFile(
+      "/tex/x.ttb",
+      { offset: 0, length: gzipped.length, gzipped: true },
+      fetchImpl,
+    );
+    expect(new TextDecoder().decode(bytes)).toBe("\\ProvidesPackage{opal}");
+  });
+
+  it("rejects a 200, which means the whole archive rather than one file", async () => {
+    const fetchImpl = stubFetch(new Uint8Array([1, 2, 3, 4]), 200);
+    await expect(
+      fetchTexFile("/tex/texfiles.bin", location, fetchImpl),
+    ).rejects.toThrow(/ignored the range request/);
   });
 });

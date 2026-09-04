@@ -1,6 +1,7 @@
 # ADR-011: how TeX support files reach the browser
 
-- **Status:** Proposed — measured against the live Tectonic bundle, not yet built
+- **Status:** Proposed — format verified against the live Tectonic bundle, and
+  the delivery measured on a local archive; not yet wired to the engine
 - **Date:** 2026-09-03
 - **Deciders:** danylaksono
 
@@ -104,6 +105,60 @@ Adding those back, a first load under this model is roughly:
 Against 41–135 MB today. The ceiling matters more than the floor: the variance
 collapses, because nothing is fetched that the document does not open.
 
+### What the round trips cost, measured
+
+The open risk was never the bytes; it was that a document opening 145 files
+makes 145 requests. That is now measured rather than assumed, against a real
+archive: `pnpm spike:tex-archive` writes every file out of the engine's own
+bundles into one flat 257.8 MB archive of 8,269 files with a 249 KB index
+(87 KB gzipped), and `pnpm serve:tex-archive` serves byte ranges out of it over
+HTTP/2 or HTTP/1.1. The file list per document is what TeX recorded opening in
+the corpus logs, so the request pattern is a real one, and latency is added by
+the rig per response rather than by Chrome, whose throttling queues requests
+before delaying them and so hides the parallelism under test.
+
+`presentation-beamer`, 142 files, 2.14 MB, wall time in ms:
+
+| | 1 par | 6 par | 24 par | 64 par |
+| --- | --- | --- | --- | --- |
+| **HTTP/2, default cache**, 150 ms | 23054 | 22198 | 22143 | 22261 |
+| **HTTP/1.1, no-store**, 150 ms | 23031 | 3992 | 4005 | 4072 |
+| **HTTP/2, no-store**, 150 ms | 23074 | 4093 | 1043 | **575** |
+| **HTTP/2, no-store**, 50 ms | 8829 | 1514 | 464 | **275** |
+| **HTTP/2, no-store**, 0 ms | 2155 | 108 | 80 | **93** |
+
+Two things have to be true, and each is worth a sentence because getting either
+wrong costs an order of magnitude.
+
+**The client must decline the HTTP cache.** Every file is a different range of
+the *same* URL, and Chrome takes a lock on the cache entry for a URL while a
+request against it is in flight. Concurrent range requests therefore queue
+behind each other: the first row above is a 64-way parallel client performing
+exactly as if it were serial, 22 seconds either way. `cache: "no-store"` skips
+the cache entry and the lock with it. This is not a tuning preference — it is
+the difference between 22.1 s and 0.58 s for the same 142 files, and the wrong
+one is the obvious way to write the code, so it is enforced and explained in
+`fetchTexFile` rather than left to whoever writes the caller.
+
+**The protocol must be HTTP/2.** With the cache declined, HTTP/1.1 flattens at
+six requests in flight — 3992 ms at 6 parallel, 4072 ms at 64 — because that is
+the per-origin connection limit. HTTP/2 multiplexes on one connection and keeps
+scaling: 1043 ms at 24, 575 ms at 64. At six parallel the two protocols are
+indistinguishable, which is what confirms the cap is the whole difference.
+
+Done right, the worst document in the corpus takes **575 ms on a 150 ms link**
+to fetch every TeX file it opens, against 22.1 s for the naive version of the
+same model. Round trips are not what makes this model expensive.
+
+**Three caveats.** The archive is built from Siglum's bundles, so 38 files the
+corpus opens are not in it — `booktabs.sty`, `enumitem.sty`, `titlesec.sty`,
+`acmart.cls`, `IEEEtran.cls` and the rest of what the CTAN proxy supplies,
+which is ADR-003's version-skew finding showing up again. Those files are not
+fetched here, so the byte totals are a small undercount. Three more names in the
+logs are truncated by TeX's 79-column line wrap rather than missing. And the rig
+is loopback with an artificial delay: it measures round trips honestly and says
+nothing about throughput on a real link.
+
 ## Decision
 
 **Adopt indexed-archive delivery with per-file range requests, self-hosted.**
@@ -144,13 +199,20 @@ happens to ship both.
   of TeX Live would be far smaller, and that choice is now ours to make.
 - Latency replaces bandwidth. A document opening 145 files makes 145 range
   requests, and HTTP/2 multiplexing rather than raw throughput becomes what
-  matters. Unmeasured, and the first thing to measure.
+  matters. Measured above: 575 ms on a 150 ms link, and it stays that way only
+  while both conditions hold.
+- **Two of those conditions are now requirements, not preferences.** The host
+  must serve HTTP/2 — an HTTP/1.1 host costs 7× on the same files — and the
+  client must fetch with `cache: "no-store"`, or Chrome's per-URL cache lock
+  serialises every request and costs 38×. Caching belongs a layer up, keyed by
+  file rather than by byte range.
 - The index is a fixed 1.28 MB before any document compiles, which is the one
   place this model is *worse* than bundles for a trivial document.
 
 ## Still to measure
 
-- [ ] Round-trip cost of 145 range requests against a real host, over HTTP/2.
+- [x] Round-trip cost of 145 range requests over HTTP/2. **575 ms at 150 ms
+      RTT, 64-way parallel, with the HTTP cache declined.** See above.
 - [ ] Whether the engine can be fed files one at a time without the
       all-or-nothing bundle path, through the adapter's existing injection
       point.

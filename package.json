@@ -24,7 +24,8 @@
     "spike:perf": "tsx scripts/run-perf-spike.ts",
     "spike:firstload": "tsx scripts/run-firstload-spike.ts",
     "spike:tex-archive": "tsx scripts/build-tex-archive.ts",
-    "spike:range-fetch": "tsx scripts/run-range-fetch-spike.ts"
+    "spike:range-fetch": "tsx scripts/run-range-fetch-spike.ts",
+    "serve:tex-archive": "tsx scripts/serve-tex-archive.ts"
   },
   "dependencies": {
     "@siglum/engine": "^0.1.4",

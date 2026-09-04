@@ -1,7 +1,7 @@
+# pnpm 11 reads settings from here rather than package.json, and asks per
+# dependency whether its install scripts may run. esbuild's script places a
+# prebuilt binary; without it vite and tsx do not start.
 allowBuilds:
-  esbuild: set this to true or false
-# pnpm 11 reads settings from here rather than package.json.
-# esbuild ships a prebuilt binary that its install script places; without this
-# vite and tsx fail to start.
+  esbuild: true
 onlyBuiltDependencies:
   - esbuild

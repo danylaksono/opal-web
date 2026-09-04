@@ -90,7 +90,9 @@ export function parseTtbHeader(bytes: Uint8Array): TtbHeader {
   }
   const magic = new TextDecoder().decode(bytes.subarray(0, TTB_MAGIC.length));
   if (magic !== TTB_MAGIC) {
-    throw new Error(`Not a Tectonic bundle: magic reads ${JSON.stringify(magic)}`);
+    throw new Error(
+      `Not a Tectonic bundle: magic reads ${JSON.stringify(magic)}`,
+    );
   }
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const version = view.getUint32(14, true);
@@ -155,4 +157,56 @@ export function parseTtbIndex(text: string): TexFileIndex {
 /** The HTTP `Range` header value for one file. */
 export function rangeHeader(location: FileLocation): string {
   return `bytes=${location.offset}-${location.offset + location.length - 1}`;
+}
+
+/** Just enough of `fetch` to be substitutable in a test. */
+export type FetchLike = (
+  input: string,
+  init?: RequestInit,
+) => Promise<Response>;
+
+/**
+ * Fetch one file out of the archive.
+ *
+ * Every file in a document is a different range of the *same* URL, and that is
+ * what makes the cache mode load-bearing rather than a detail. Chrome locks the
+ * cache entry for a URL while a request against it is in flight, so concurrent
+ * range requests to the archive queue behind each other however many the client
+ * issues and whatever HTTP/2 would allow. Measured on the rig, fetching the 142
+ * files `presentation-beamer` opens over a 150 ms link: 22.1 s under the default
+ * cache mode, 0.58 s under `no-store`. The default makes a 64-way parallel
+ * client perform exactly as if it were serial, and the gap grows with the
+ * document.
+ *
+ * So this declines the HTTP cache deliberately. Caching happens a layer up,
+ * keyed by file rather than by byte range, where a cache entry means something.
+ *
+ * A 200 rather than a 206 is treated as failure and not as a body: it means the
+ * host ignored the `Range` header, and the response is then the entire archive.
+ */
+export async function fetchTexFile(
+  archiveUrl: string,
+  location: FileLocation,
+  fetchImpl: FetchLike = fetch,
+): Promise<Uint8Array> {
+  const response = await fetchImpl(archiveUrl, {
+    headers: { Range: rangeHeader(location) },
+    cache: "no-store",
+  });
+  if (response.status !== 206) {
+    throw new Error(
+      `Expected 206 for ${rangeHeader(location)}, got ${response.status}` +
+        (response.status === 200 ? ": the host ignored the range request" : ""),
+    );
+  }
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  return location.gzipped ? await gunzip(bytes) : bytes;
+}
+
+/** Inflate a `.ttb` entry, whose bytes are stored gzipped. */
+async function gunzip(bytes: Uint8Array): Promise<Uint8Array> {
+  const stream = new Blob([bytes as BlobPart])
+    .stream()
+    .pipeThrough(new DecompressionStream("gzip"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
 }

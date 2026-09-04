@@ -23,8 +23,11 @@ work on two questions whose answers change the architecture.
 3. **Package delivery — proposed.** Bundles are fetched whole, so a first
    compile transfers 41–135 MB. Tectonic's indexed-archive model, verified
    against its live bundle, would make that 17–21 MB: `presentation-beamer`
-   reads 2.1 MB of TeX files and currently downloads 118.9 MB to get them
-   (ADR-011).
+   reads 2.1 MB of TeX files and currently downloads 118.9 MB to get them.
+   Fetching those as 142 range requests costs 575 ms on a 150 ms link — but only
+   over HTTP/2 and only with the HTTP cache declined, because Chrome locks the
+   cache entry per URL and every file is a range of one URL. The obvious way to
+   write it is 38× slower (ADR-011).
 
 ## What is here
 
@@ -51,6 +54,9 @@ pnpm spike:siglum xelatex             # corpus coverage against those bundles
 pnpm spike:corpus-run xelatex --ctan  # compile all 13, needs a running preview
 pnpm spike:perf                       # init, cold, warm, memory, cancellation
 pnpm spike:firstload                  # bytes a cold first compile transfers
+pnpm spike:tex-archive                # indexed TeX archive built from the bundles
+pnpm serve:tex-archive --protocol h2  # range-request rig; h1 for the comparison
+pnpm spike:range-fetch                # what per-file range requests cost
 pnpm dev            # capability matrix and corpus overview
 pnpm test
 pnpm typecheck
