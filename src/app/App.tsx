@@ -1,8 +1,10 @@
 import { useMemo } from "react";
+import { ProjectsPanel } from "@/app/projects/ProjectsPanel";
 import {
   buildCapabilityReport,
   type Capability,
 } from "@/platform/browser/capabilities/detect";
+import { OpfsProjectRepository } from "@/platform/browser/storage/opfs-project-repository";
 import { CompilerSpike } from "@/spikes/compiler/CompilerSpike";
 import { PerformanceSpike } from "@/spikes/performance/PerformanceSpike";
 import { RendererSpike } from "@/spikes/renderer/RendererSpike";
@@ -28,6 +30,15 @@ function statusLabel(capability: Capability): string {
   if (capability.status === "available") return "Available";
   return capability.optional ? "Missing (optional)" : "Missing (required)";
 }
+
+/**
+ * One repository for the app's lifetime.
+ *
+ * It owns an IndexedDB connection, and a second instance would open a second
+ * one for no benefit. Constructed at module scope rather than in a hook so that
+ * a re-render cannot quietly create another.
+ */
+const repository = new OpfsProjectRepository();
 
 export function App() {
   const report = useMemo(() => buildCapabilityReport(), []);
@@ -129,6 +140,8 @@ export function App() {
           </tbody>
         </table>
       </section>
+
+      <ProjectsPanel repository={repository} />
 
       <CompilerSpike />
 
