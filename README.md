@@ -43,6 +43,7 @@ PLAN.md keeps it until the questions below are closed.
 
 | Path | Purpose |
 |---|---|
+| [docs/handover.md](docs/handover.md) | Picking this up on another machine: what is gitignored and how to rebuild it, and the environment traps that have cost time. |
 | [PLAN.md](PLAN.md) | The full architecture investigation. Written 2026-07-23 against desktop v1.4.8; see *Plan drift* below. |
 | [docs/adr/](docs/adr/) | Architecture decision records. 001, 002 and 004 accepted; 003 open; 011 proposed. |
 | [docs/licence-inventory.md](docs/licence-inventory.md) | Every third-party artifact with its exact version and terms. |
