@@ -1,7 +1,8 @@
 # ADR-011: how TeX support files reach the browser
 
-- **Status:** Proposed — format verified against the live Tectonic bundle, and
-  the delivery measured on a local archive; not yet wired to the engine
+- **Status:** Proposed — format verified against the live Tectonic bundle, the
+  delivery measured on a local archive, and file-level injection working behind
+  `texArchiveUrl`; the engine's own bundle path is not yet replaced
 - **Date:** 2026-09-03
 - **Deciders:** danylaksono
 
@@ -159,6 +160,45 @@ logs are truncated by TeX's 79-column line wrap rather than missing. And the rig
 is loopback with an artificial delay: it measures round trips honestly and says
 nothing about throughput on a real link.
 
+### Feeding the engine one file at a time: it works, and it is not enough
+
+The engine takes files individually. Siglum's compile request carries a
+`ctanFiles` map of path to bytes, which the worker writes into its filesystem
+before running TeX, and `ctanFetcher.fileCache` is that map. The adapter now
+takes files from the archive and puts them there, behind `texArchiveUrl`.
+
+TeX read them. With CTAN off, `presentation-beamer` fetched `etoolbox.sty`,
+`pgfmath.sty` and `pgfrcs.sty` as three byte ranges and the log shows XeTeX
+opening each one from the path the index recorded. **Bundle traffic for that run
+fell from 118.9 MB to 28.4 MB**, the remainder being the baseline Siglum loads
+at init.
+
+Three things were learned doing it, and two of them are limits.
+
+**TeX names one missing file per run.** Resolution driven by error messages
+therefore costs a full TeX pass per file, and beamer opens 142. Fetching the
+whole TeX Live directory a missing file sits in — which the index now supports,
+because it records paths — collapses that to a few passes, and still transfers
+2.1 MB rather than 118.9 MB. That figure is worth noting: it is what the
+cross-referenced logs predicted this document would read, arrived at
+independently.
+
+**The adapter's hook is a fallback, so with CTAN on the archive saves nothing.**
+Across the corpus it changed no project's byte total except `paper-acm`, and
+there it *added* 2.1 MB (135.6 → 137.7 MB) while removing no bundle. The reason
+is structural: Siglum resolves what it can internally and loads its baseline
+eagerly, and the adapter only ever sees what that left unresolved. This is what
+"Siglum's bundle loading is bypassed rather than fixed" means in practice, and
+it is now a measurement rather than a plan: **the saving needs the engine's own
+bundle path replaced, not supplemented.**
+
+**Resolution order is load-bearing.** A first version let any archive answer
+suppress the bundle and CTAN paths for that pass, which turned `paper-acm` from
+compiling to failing: the archive answered for some of its files, and
+`acmart.cls`, which only CTAN has, was never fetched. The archive now
+short-circuits only when it answered for every file TeX named. Corpus results
+are unchanged from the bundle baseline at 11 of 13.
+
 ## Decision
 
 **Adopt indexed-archive delivery with per-file range requests, self-hosted.**
@@ -213,9 +253,8 @@ happens to ship both.
 
 - [x] Round-trip cost of 145 range requests over HTTP/2. **575 ms at 150 ms
       RTT, 64-way parallel, with the HTTP cache declined.** See above.
-- [ ] Whether the engine can be fed files one at a time without the
-      all-or-nothing bundle path, through the adapter's existing injection
-      point.
+- [x] Whether the engine can be fed files one at a time. **Yes, and it is not
+      enough.** See below.
 - [ ] Font bytes per document, which the `(path` convention does not reveal.
 - [ ] Whether a tree scoped to plausible documents is small enough to serve from
       the same static host as the app.

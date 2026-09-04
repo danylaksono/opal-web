@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   type FetchLike,
   fetchTexFile,
+  IndexedArchive,
   parseTarIndex,
   parseTtbHeader,
   parseTtbIndex,
@@ -121,6 +122,9 @@ describe("parseTtbIndex", () => {
       length: 100,
       realLength: 250,
       gzipped: true,
+      // Keyed by name, but the location is kept: injecting a file into an
+      // engine's filesystem needs somewhere to put it.
+      path: "texlive/tex/latex/base/article.cls",
     });
   });
 
@@ -222,5 +226,135 @@ describe("fetchTexFile", () => {
     await expect(
       fetchTexFile("/tex/texfiles.bin", location, fetchImpl),
     ).rejects.toThrow(/ignored the range request/);
+  });
+});
+
+describe("parseTarIndex with paths", () => {
+  it("reads the fourth field our own archives add", () => {
+    const line =
+      "article.cls 100 200 /texlive/texmf-dist/tex/latex/base/article.cls";
+    expect(parseTarIndex(line).get("article.cls")).toEqual({
+      offset: 100,
+      length: 200,
+      gzipped: false,
+      path: "/texlive/texmf-dist/tex/latex/base/article.cls",
+    });
+  });
+
+  it("still reads Tectonic's three-field lines, which have no path", () => {
+    // The published bundle is the reason the field is optional rather than
+    // required: the same parser has to read both.
+    expect(
+      parseTarIndex("acmart.cls 52796928 107215").get("acmart.cls"),
+    ).toEqual({ offset: 52796928, length: 107215, gzipped: false });
+  });
+
+  it("rejects a line with more fields than the format has", () => {
+    expect(parseTarIndex("a.sty 1 2 /p extra").size).toBe(0);
+  });
+});
+
+describe("IndexedArchive", () => {
+  const INDEX = [
+    "a.sty 0 1 /texlive/texmf-dist/tex/latex/a/a.sty",
+    "a-extra.tex 3 1 /texlive/texmf-dist/tex/latex/a/a-extra.tex",
+    "b.sty 1 1 /texlive/texmf-dist/tex/latex/b/b.sty",
+    "noplace.sty 2 1",
+  ].join("\n");
+
+  /** Serves the index at one URL and 206 slices of a byte string at the other. */
+  function stubFetch(): {
+    fetch: FetchLike;
+    indexFetches: number;
+    ranges: string[];
+  } {
+    const stub = {
+      indexFetches: 0,
+      ranges: [] as string[],
+      fetch: async (input: string, init?: RequestInit) => {
+        if (input.endsWith(".index")) {
+          stub.indexFetches++;
+          return new Response(INDEX, { status: 200 });
+        }
+        const headers = init?.headers as Record<string, string> | undefined;
+        stub.ranges.push(headers?.Range ?? "");
+        return new Response(new Uint8Array([7]), { status: 206 });
+      },
+    };
+    return stub;
+  }
+
+  function archive(fetchImpl: FetchLike): IndexedArchive {
+    return new IndexedArchive(
+      "/tex/texfiles.bin",
+      "/tex/texfiles.index",
+      fetchImpl,
+    );
+  }
+
+  it("fetches the index once, however many files are asked for", async () => {
+    const stub = stubFetch();
+    const subject = archive(stub.fetch);
+    await subject.fetchFiles(["a.sty"]);
+    await subject.fetchFiles(["b.sty"]);
+    expect(stub.indexFetches).toBe(1);
+  });
+
+  it("returns each file at the path the index records for it", async () => {
+    const files = await archive(stubFetch().fetch).fetchFiles([
+      "a.sty",
+      "b.sty",
+    ]);
+    expect(files.map((f) => f.path).sort()).toEqual([
+      "/texlive/texmf-dist/tex/latex/a/a.sty",
+      "/texlive/texmf-dist/tex/latex/b/b.sty",
+    ]);
+  });
+
+  it("skips a name the archive does not hold rather than failing", async () => {
+    // A document draws files from several sources; this one answering for a
+    // subset is the normal case.
+    const files = await archive(stubFetch().fetch).fetchFiles([
+      "a.sty",
+      "absent.sty",
+    ]);
+    expect(files.map((f) => f.name)).toEqual(["a.sty"]);
+  });
+
+  it("skips an entry with no path, which it could not place anyway", async () => {
+    const files = await archive(stubFetch().fetch).fetchFiles(["noplace.sty"]);
+    expect(files).toEqual([]);
+  });
+
+  it("asks for one byte range per file", async () => {
+    const stub = stubFetch();
+    await archive(stub.fetch).fetchFiles(["a.sty", "b.sty"]);
+    expect(stub.ranges.sort()).toEqual(["bytes=0-0", "bytes=1-1"]);
+  });
+
+  it("takes the whole TeX Live directory a missing file sits in", async () => {
+    // TeX names one missing file per run, so resolving strictly by name costs a
+    // TeX pass per file. Siblings come along because a document needing one
+    // file from a package almost always needs its neighbours.
+    const names = await archive(stubFetch().fetch).neighbours("a.sty");
+    expect(names.sort()).toEqual(["a-extra.tex", "a.sty"]);
+  });
+
+  it("does not take a directory bigger than the cap", async () => {
+    // A cm-super font directory holds hundreds of files; pulling one whole
+    // would recreate the bundle problem at a smaller scale.
+    const many = Array.from(
+      { length: 10 },
+      (_, i) => `f${i}.tfm 0 1 /texlive/texmf-dist/fonts/tfm/x/f${i}.tfm`,
+    ).join("\n");
+    const subject = new IndexedArchive(
+      "/tex/texfiles.bin",
+      "/tex/texfiles.index",
+      async (input: string) =>
+        input.endsWith(".index")
+          ? new Response(many, { status: 200 })
+          : new Response(new Uint8Array([1]), { status: 206 }),
+    );
+    expect(await subject.neighbours("f0.tfm", 4)).toEqual(["f0.tfm"]);
   });
 });

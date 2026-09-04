@@ -13,7 +13,11 @@
  *
  * Requires a server already running at PREVIEW_URL.
  *
- * Usage: pnpm spike:firstload [--only a,b] [--throttle 9] [--no-ctan]
+ * `--archive` resolves missing files from the indexed TeX archive instead of
+ * fetching whole bundles (ADR-011), which is the comparison the whole ADR turns
+ * on: same documents, same harness, files delivered a different way.
+ *
+ * Usage: pnpm spike:firstload [--only a,b] [--throttle 9] [--no-ctan] [--archive]
  */
 import { readdirSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -36,6 +40,7 @@ const CATEGORIES: [string, (url: string) => boolean][] = [
   ["tex bundles", (url) => url.includes("/engines/siglum/bundles/")],
   ["tex engine", (url) => url.includes("/engines/siglum/")],
   ["ctan packages", (url) => url.includes("/ctan/")],
+  ["tex archive", (url) => url.includes("/tex/texfiles")],
   ["pdf renderer", (url) => /mupdf.*\.wasm$|mupdf/.test(url)],
   ["app", () => true],
 ];
@@ -56,6 +61,15 @@ interface FirstLoad {
   requests: number;
   /** The single largest response, which is usually the whole story. */
   largest: { url: string; bytes: number } | null;
+  /**
+   * Whether the compile succeeded, and why not.
+   *
+   * The harness waits for the spike to reach "done", which it reports for a
+   * failure as much as a success — so without this a document that failed early
+   * reads as a document with a cheap first load, which is the opposite of true.
+   */
+  ok: boolean;
+  verdict?: string;
   error?: string;
 }
 
@@ -82,6 +96,7 @@ async function main(): Promise<void> {
     ? Number(arg("--throttle"))
     : undefined;
   const useCtan = !process.argv.includes("--no-ctan");
+  const useArchive = process.argv.includes("--archive");
 
   const projects = readdirSync(CORPUS_ROOT, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
@@ -139,6 +154,7 @@ async function main(): Promise<void> {
       const started = Date.now();
       await page.goto(PREVIEW_URL);
       if (useCtan) await page.check('[data-testid="ctan-toggle"]');
+      if (useArchive) await page.check('[data-testid="archive-toggle"]');
       await page.setInputFiles(
         '[data-testid="tex-input"]',
         projectFiles(project),
@@ -152,6 +168,9 @@ async function main(): Promise<void> {
         { timeout: COMPILE_TIMEOUT_MS },
       );
       const totalMs = Date.now() - started;
+      const verdict =
+        (await page.locator('[data-testid="compile-verdict"]').textContent()) ??
+        "";
       // Responses are recorded asynchronously; give the last few a moment to
       // land before reading the totals.
       await page.waitForTimeout(500);
@@ -163,6 +182,8 @@ async function main(): Promise<void> {
         totalBytes,
         requests,
         largest,
+        ok: verdict.startsWith("Compiled"),
+        verdict,
       });
     } catch (error) {
       outcomes.push({
@@ -172,6 +193,7 @@ async function main(): Promise<void> {
         totalBytes,
         requests,
         largest,
+        ok: false,
         error: error instanceof Error ? error.message.slice(0, 120) : "failed",
       });
     } finally {
@@ -182,7 +204,9 @@ async function main(): Promise<void> {
     console.log(
       `${project.padEnd(22)} ${mb(last?.totalBytes ?? 0).padStart(9)} ` +
         `${String(last?.requests ?? 0).padStart(4)} reqs ` +
-        `${last?.totalMs === null || last?.totalMs === undefined ? "—" : `${(last.totalMs / 1000).toFixed(1)} s`}`,
+        `${last?.totalMs === null || last?.totalMs === undefined ? "—" : `${(last.totalMs / 1000).toFixed(1)} s`}` +
+        // A failure that is not said out loud reads as a cheap first load.
+        `${last?.ok ? "" : `  ${last?.verdict || last?.error || "failed"}`}`,
     );
   }
 
@@ -219,7 +243,7 @@ async function main(): Promise<void> {
   await mkdir(OUT_DIR, { recursive: true });
   const file = resolve(
     OUT_DIR,
-    `firstload${throttleMbps === undefined ? "" : `-${throttleMbps}mbps`}${only ? "-partial" : ""}.json`,
+    `firstload${useArchive ? "-archive" : ""}${throttleMbps === undefined ? "" : `-${throttleMbps}mbps`}${only ? "-partial" : ""}.json`,
   );
   await writeFile(
     file,

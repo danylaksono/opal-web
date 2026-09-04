@@ -5,8 +5,14 @@
  * Live installation: the bundles already contain every file, and
  * `file-manifest.json` already records where each one sits inside them. This
  * decompresses each bundle once, writes every file into a single flat archive,
- * and records `<name> <offset> <length>` — the same shape as Tectonic's
- * published index, so the client in `indexed-bundle.ts` reads either.
+ * and records `<name> <offset> <length> <path>` — Tectonic's published index
+ * plus a field, and the client in `indexed-bundle.ts` reads either.
+ *
+ * The extra field is the file's location in the TeX Live tree. Tectonic does
+ * not need one because its engine asks the bundle for a name and takes back
+ * bytes; we inject files into an engine's filesystem instead, and where a file
+ * lands decides whether TeX finds it — kpathsea searches by file type, so a
+ * `.tfm` written under `tex/latex/` is a `.tfm` that does not exist.
  *
  * The output is large and gitignored. It is a build artifact of assets that are
  * themselves downloaded, not a source of truth: the archive worth shipping is
@@ -91,7 +97,7 @@ async function main(): Promise<void> {
       if (!out.write(bytes)) {
         await new Promise<void>((r) => out.once("drain", () => r()));
       }
-      index.push(`${name} ${offset} ${bytes.length}`);
+      index.push(`${name} ${offset} ${bytes.length} ${path}`);
       offset += bytes.length;
       written++;
     }

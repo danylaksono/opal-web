@@ -7,6 +7,7 @@ import type {
   EngineIdentity,
   LatexCompiler,
 } from "@/core/compiler/types";
+import { IndexedArchive } from "@/platform/browser/tex/indexed-bundle";
 import {
   FORMAT_SHIMS,
   missingFontPackages,
@@ -38,6 +39,18 @@ export interface SiglumCompilerOptions {
    * an origin we control.
    */
   ctanProxyUrl?: string;
+  /**
+   * Indexed TeX archive to resolve missing files from, file by file (ADR-011).
+   *
+   * Given `/tex`, reads `/tex/texfiles.index` once and then one byte range per
+   * file TeX reports missing. This is the alternative to `extraBundles` and to
+   * bundle-shaped resolution generally: a bundle is fetched whole to reach one
+   * file inside it, 57.2 MB of `cm-super` for a few faces, while the archive
+   * delivers the file and nothing else.
+   *
+   * Left undefined, nothing changes and resolution stays bundle-shaped.
+   */
+  texArchiveUrl?: string;
   /** 'xelatex' matches desktop Tectonic's XeTeX lineage. */
   engine?: "xelatex" | "pdflatex" | "lualatex";
   onLog?: (line: string) => void;
@@ -158,7 +171,16 @@ async function fileBundleIndex(
 }
 
 const DOCUMENT_CLASS = /\\documentclass(?:\[[^\]]*\])?\{([^}]+)\}/;
+/**
+ * The two ways TeX says a file is missing.
+ *
+ * LaTeX's \usepackage reports "File `x.sty' not found."; the TeX primitive
+ * \input reports "I can't find file `x'." — and pgf reaches for
+ * `pgfutil-common.tex` that way, so a resolver knowing only the first form gets
+ * a document three packages in and then stops on a file it could have fetched.
+ */
 const MISSING_FILE = /File `([^']+)' not found/g;
+const MISSING_INPUT = /I can't find file `([^']+)'/g;
 
 /**
  * Run one compile pass, giving up as soon as `signal` aborts.
@@ -193,8 +215,10 @@ async function racePass<T>(
 /** Files TeX reported missing, in the order it hit them. */
 function missingFiles(log: string): string[] {
   const names = new Set<string>();
-  for (const match of log.matchAll(MISSING_FILE)) {
-    if (match[1]) names.add(match[1]);
+  for (const pattern of [MISSING_FILE, MISSING_INPUT]) {
+    for (const match of log.matchAll(pattern)) {
+      if (match[1]) names.add(match[1]);
+    }
   }
   return [...names];
 }
@@ -223,6 +247,16 @@ export class SiglumLatexCompiler implements LatexCompiler {
   #fetchedFontPackages = new Set<string>();
   /** In-flight engine recycle, so overlapping compiles wait for one restart. */
   #recyclePromise: Promise<void> | null = null;
+  /**
+   * The indexed archive, when one is configured. Built once: it holds the
+   * index, and refetching that per compile would cost more than the files.
+   */
+  #archive: IndexedArchive | null = null;
+  /**
+   * Files already taken from the archive, so a document whose real problem is
+   * something else does not refetch the same file on every retry.
+   */
+  #archiveFiles = new Set<string>();
 
   constructor(options: SiglumCompilerOptions = {}) {
     this.#options = {
@@ -234,6 +268,13 @@ export class SiglumLatexCompiler implements LatexCompiler {
       ...(BASELINE_SUPPLEMENTS[this.#options.engine] ?? []),
       ...(options.extraBundles ?? []),
     ];
+    if (options.texArchiveUrl) {
+      const base = options.texArchiveUrl.replace(/\/$/, "");
+      this.#archive = new IndexedArchive(
+        `${base}/texfiles.bin`,
+        `${base}/texfiles.index`,
+      );
+    }
     this.#identity = {
       id: `siglum-${this.#options.engine}`,
       name: `Siglum ${this.#options.engine}`,
@@ -346,10 +387,26 @@ export class SiglumLatexCompiler implements LatexCompiler {
         if (result.success) break;
         request.signal?.throwIfAborted();
         const failureLog = result.log || this.#texLog.join("\n");
-        const loaded = [
-          ...(await this.#resolveMissing(compiler, index, failureLog)),
-          ...(await this.#resolveFonts(compiler, failureLog)),
-        ];
+        // The archive is asked first, and the pass stops there only when it
+        // answered for every file TeX named: falling through would fetch the
+        // bundle holding those same files, which is the cost this exists to
+        // avoid. Answering for *some* of them is not enough — paper-acm needs
+        // `acmart.cls` from CTAN, and a partial archive answer that suppressed
+        // the CTAN path turned a compiling document into a failing one.
+        const missing = missingFiles(failureLog);
+        const fromArchive = await this.#resolveFromArchive(
+          compiler,
+          failureLog,
+        );
+        const archiveAnsweredAll =
+          missing.length > 0 && missing.every((n) => fromArchive.includes(n));
+        const loaded = archiveAnsweredAll
+          ? fromArchive
+          : [
+              ...fromArchive,
+              ...(await this.#resolveMissing(compiler, index, failureLog)),
+              ...(await this.#resolveFonts(compiler, failureLog)),
+            ];
         if (loaded.length === 0) break;
         this.#options.onLog?.(
           `[opal] retrying after loading: ${loaded.join(", ")}`,
@@ -477,6 +534,53 @@ export class SiglumLatexCompiler implements LatexCompiler {
     if (this.#eagerBundles.includes(bundle)) return;
     this.#eagerBundles.push(bundle);
     await compiler.preloadBundles([bundle]);
+  }
+
+  /**
+   * Take files TeX reported missing out of the indexed archive (ADR-011).
+   *
+   * Injection goes through Siglum's CTAN file cache, which is the engine's
+   * existing per-file entry point: its contents are handed to the worker as
+   * `ctanFiles` on the next compile and written into the engine's filesystem
+   * at the path given. That is why the archive index records TeX Live paths —
+   * the bytes have to land where kpathsea looks for that kind of file.
+   *
+   * Bundle resolution stays in place beside this and runs first. The archive is
+   * built from those same bundles, so it cannot yet resolve anything they do
+   * not hold; what it changes is the cost of the ones they do.
+   */
+  async #resolveFromArchive(
+    compiler: SiglumCompiler,
+    log: string,
+  ): Promise<string[]> {
+    if (!this.#archive) return [];
+    const missing = missingFiles(log).filter(
+      (name) => !this.#archiveFiles.has(name),
+    );
+    if (missing.length === 0) return [];
+
+    // Each missing file brings its directory with it. TeX names one missing
+    // file per run, so file-at-a-time resolution costs a TeX pass per file;
+    // taking the package's directory collapses a chain of passes into one and
+    // still transfers kilobytes.
+    const wanted = new Set<string>();
+    for (const name of missing) {
+      wanted.add(name);
+      for (const sibling of await this.#archive.neighbours(name)) {
+        if (!this.#archiveFiles.has(sibling)) wanted.add(sibling);
+      }
+    }
+
+    const files = await this.#archive.fetchFiles([...wanted]);
+    for (const file of files) {
+      this.#archiveFiles.add(file.name);
+      compiler.ctanFetcher.fileCache.set(file.path, file.bytes);
+    }
+    // Report only what TeX actually asked for: the siblings are an optimisation
+    // and naming them all would bury the resolution in the log.
+    return files
+      .map((file) => file.name)
+      .filter((name) => missing.includes(name));
   }
 
   /** Load bundles for files TeX reported missing. Returns what was loaded. */

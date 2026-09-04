@@ -68,6 +68,7 @@ function describeDivergence(comparison: DocumentComparison): string {
 export function CompilerSpike() {
   const [result, setResult] = useState<SpikeResult>({ status: "idle" });
   const [useCtan, setUseCtan] = useState(false);
+  const [useArchive, setUseArchive] = useState(false);
   const [engine, setEngine] = useState<"xelatex" | "pdflatex" | "lualatex">(
     "xelatex",
   );
@@ -98,13 +99,14 @@ export function CompilerSpike() {
       setFidelity({ status: "idle" });
       compiledPdfRef.current = null;
 
-      // Rebuilt per run so the CTAN toggle takes effect, and so a wedged engine
+      // Rebuilt per run so the toggles take effect, and so a wedged engine
       // cannot poison the next measurement.
       await compilerRef.current?.dispose();
       const compiler = new SiglumLatexCompiler({
         engine,
         verbose: true,
         ...(useCtan ? { ctanProxyUrl: "/ctan" } : {}),
+        ...(useArchive ? { texArchiveUrl: "/tex" } : {}),
         // Engine chatter goes to the console rather than React state: it is
         // high-volume, and this is a measurement harness where the browser
         // console is where you actually read it.
@@ -173,7 +175,7 @@ export function CompilerSpike() {
         });
       }
     },
-    [useCtan, engine],
+    [useCtan, useArchive, engine],
   );
 
   const compare = useCallback(async (file: File) => {
@@ -235,6 +237,18 @@ export function CompilerSpike() {
         Enable CTAN fetching through a self-hosted proxy at <code>/ctan</code>.
         Off by default: ADR-001 makes on-demand package fetching opt-in, because
         it reveals which packages a document uses.
+      </label>
+
+      <label style={{ display: "block", marginBottom: "0.75rem" }}>
+        <input
+          type="checkbox"
+          data-testid="archive-toggle"
+          checked={useArchive}
+          onChange={(event) => setUseArchive(event.target.checked)}
+        />{" "}
+        Resolve missing files from the indexed TeX archive at <code>/tex</code>,
+        one byte range per file, instead of fetching whole bundles (ADR-011).
+        Needs <code>pnpm spike:tex-archive</code>.
       </label>
 
       <input
