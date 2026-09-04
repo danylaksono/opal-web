@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { ErrorBoundary } from "@/app/ErrorBoundary";
 import { ProjectsPanel } from "@/app/projects/ProjectsPanel";
 import {
   buildCapabilityReport,
@@ -141,7 +142,9 @@ export function App() {
         </table>
       </section>
 
-      <ProjectsPanel repository={repository} />
+      <ErrorBoundary label="Projects">
+        <ProjectsPanel repository={repository} />
+      </ErrorBoundary>
 
       <CompilerSpike />
 

@@ -185,6 +185,81 @@ const storageCases: RepositoryCase[] = [
     },
   },
   {
+    name: "a record from a newer build is refused, not discarded",
+    run: async (repository) => {
+      // What an app update looks like from the older side: a tab that has been
+      // open for a week meets a record the new build wrote. Downgrading would
+      // be guesswork against someone's only copy, so it is refused — and the
+      // record has to survive being refused, or the update destroys the work
+      // it could not read.
+      const mine = await repository.create({ title: "Mine" });
+      await new Promise<void>((resolve, reject) => {
+        const opening = indexedDB.open("opal-projects", 1);
+        opening.onsuccess = () => {
+          const database = opening.result;
+          const transaction = database.transaction("projects", "readwrite");
+          transaction.objectStore("projects").put({
+            schemaVersion: 99,
+            id: "from-the-future",
+            title: "Written by a newer build",
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            lastOpenedAt: new Date().toISOString(),
+            revision: 7,
+            fileCount: 0,
+            byteSize: 0,
+          });
+          transaction.oncomplete = () => {
+            database.close();
+            resolve();
+          };
+          transaction.onerror = () => {
+            database.close();
+            reject(transaction.error);
+          };
+        };
+        opening.onerror = () => reject(opening.error);
+      });
+
+      // One unreadable record must not empty the picker.
+      const listed = await repository.list();
+      if (!listed.some((project) => project.id === mine.id)) {
+        throw new ContractFailure("a readable project vanished from the list");
+      }
+      if (listed.some((project) => project.id === "from-the-future")) {
+        throw new ContractFailure(
+          "a record from the future was listed as usable",
+        );
+      }
+
+      // And it is still on disk, waiting for a build that understands it.
+      const survived = await new Promise<boolean>((resolve) => {
+        const opening = indexedDB.open("opal-projects", 1);
+        opening.onsuccess = () => {
+          const database = opening.result;
+          const request = database
+            .transaction("projects", "readonly")
+            .objectStore("projects")
+            .get("from-the-future");
+          request.onsuccess = () => {
+            database.close();
+            resolve(request.result !== undefined);
+          };
+          request.onerror = () => {
+            database.close();
+            resolve(false);
+          };
+        };
+        opening.onerror = () => {
+          resolve(false);
+        };
+      });
+      if (!survived) {
+        throw new ContractFailure("the unreadable record was destroyed");
+      }
+    },
+  },
+  {
     name: "a project survives being read back through a second repository",
     run: async () => {
       // Two repository instances are what two tabs have. A record written by

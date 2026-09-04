@@ -5,10 +5,12 @@ projects on the user's device, and sends no document content to an Opal server.
 Sibling product to the [Opal desktop editor](https://github.com/danylaksono/opal-editor),
 not a port of it.
 
-**Status: Phase 0 — feasibility gates.** This repository contains measurement
-instrumentation, the architectural ports, and the decision records. There is no
-editor, no storage layer and no compiler yet, deliberately: PLAN.md gates product
-work on two questions whose answers change the architecture.
+**Status: Phase 1 — product skeleton and storage core.** Phase 0's measurement
+instrumentation, ports and decision records are still here and still run; on top
+of them there is now a storage layer that keeps projects on the device, autosaves
+them, and exports them as ZIPs. There is no editor beyond a textarea and no
+compiler in the product path yet — the compiler still lives in the spikes, where
+PLAN.md keeps it until the questions below are closed.
 
 1. **Renderer — settled.** MuPDF.js, verified booting in a plain browser module
    worker on a static host, with per-line text geometry good enough for review
@@ -45,7 +47,9 @@ work on two questions whose answers change the architecture.
 | [docs/adr/](docs/adr/) | Architecture decision records. 001, 002 and 004 accepted; 003 open; 011 proposed. |
 | [docs/licence-inventory.md](docs/licence-inventory.md) | Every third-party artifact with its exact version and terms. |
 | [docs/evidence/](docs/evidence/) | Third-party manifests kept verbatim so the ADR analyses are reproducible without re-fetching hundreds of megabytes. |
-| [src/core/](src/core/) | The ports: `LatexCompiler`, `PdfRenderer`, branded project ids and path validation. No browser API touches these. |
+| [src/core/](src/core/) | The ports: `LatexCompiler`, `PdfRenderer`, `ProjectRepository`, autosave, the ZIP policy, branded project ids and path validation. No browser API touches these. |
+| [src/platform/browser/storage/](src/platform/browser/storage/) | Projects on OPFS with metadata in IndexedDB: conditional writes, atomic file replacement, per-project locks. |
+| [tests/support/repository-contract.ts](tests/support/repository-contract.ts) | What every `ProjectRepository` must do. Run under vitest against the in-memory implementation and in a real browser against OPFS, so the two cannot drift. |
 | [src/platform/browser/](src/platform/browser/) | Capability probes and the MuPDF renderer adapter behind those ports. |
 | [src/workers/pdf/](src/workers/pdf/) | Versioned PDF worker protocol and the MuPDF worker. |
 | [src/spikes/](src/spikes/) | Measurement surfaces. The renderer spike loads a PDF through the port; the compiler spike builds a project, opens the result through the renderer, and compares it against desktop's reference on words, ink and pixels; the performance spike times init, cold, warm and cancellation, and samples memory. |
@@ -67,10 +71,10 @@ pnpm serve:tex-archive --protocol h2  # range-request rig; h1 for the comparison
 pnpm spike:range-fetch                # what per-file range requests cost
 pnpm spike:pinned-archive --scope macros  # size a tier of the pinned TeX Live tree
 pnpm spike:pinned-archive --scope corpus --fetch  # build it
-pnpm dev            # capability matrix and corpus overview
+pnpm dev            # the app: projects, capability matrix, corpus, spikes
 pnpm test
 pnpm typecheck
-pnpm test:e2e       # builds, serves, and drives the renderer spike in Chromium
+pnpm test:e2e       # builds, serves, and drives storage and the renderer in Chromium
 ```
 
 The corpus ships with desktop Tectonic's own output for each project as

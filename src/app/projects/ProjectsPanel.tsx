@@ -49,6 +49,26 @@ async function readStorageStatus(): Promise<StorageStatus> {
   };
 }
 
+/**
+ * A timestamp a person can read at a glance.
+ *
+ * The stored value is ISO 8601 because records have to sort and compare; that
+ * is a storage concern, and showing it raw makes the reader do the conversion.
+ */
+function when(iso: string): string {
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return iso;
+  const minutes = Math.round((Date.now() - at.getTime()) / 60000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  if (minutes < 60 * 24) return `${Math.round(minutes / 60)} h ago`;
+  return at.toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
 function megabytes(bytes: number): string {
   return `${(bytes / 1048576).toFixed(1)} MB`;
 }
@@ -257,25 +277,28 @@ export function ProjectsPanel({
         >
           Create project
         </button>
-        <input
-          ref={importInput}
-          type="file"
-          accept=".zip,application/zip"
-          data-testid="import-archive"
-          onChange={(event) => {
-            const file = event.target.files?.[0];
-            if (!file) return;
-            void act(async () => {
-              try {
-                await importArchive(file);
-              } finally {
-                // Cleared either way, so importing the same file twice after
-                // fixing it still fires a change event.
-                if (importInput.current) importInput.current.value = "";
-              }
-            });
-          }}
-        />
+        <label className="file-button">
+          Import ZIP
+          <input
+            ref={importInput}
+            type="file"
+            accept=".zip,application/zip"
+            data-testid="import-archive"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (!file) return;
+              void act(async () => {
+                try {
+                  await importArchive(file);
+                } finally {
+                  // Cleared either way, so importing the same file twice after
+                  // fixing it still fires a change event.
+                  if (importInput.current) importInput.current.value = "";
+                }
+              });
+            }}
+          />
+        </label>
       </div>
 
       {error && (
@@ -309,7 +332,7 @@ export function ProjectsPanel({
                 <td className="note" data-testid="project-row-revision">
                   {project.revision}
                 </td>
-                <td className="note">{project.lastOpenedAt}</td>
+                <td className="note">{when(project.lastOpenedAt)}</td>
                 <td>
                   <button
                     type="button"
@@ -352,7 +375,7 @@ export function ProjectsPanel({
             data-testid="editor-content"
             aria-label={`Contents of ${editing.path}`}
             value={editing.content}
-            rows={8}
+            rows={6}
             style={{ width: "100%", fontFamily: "monospace" }}
             onChange={(event) => {
               const content = event.target.value;

@@ -1166,6 +1166,12 @@ Exit criteria:
 
 ### Phase 1 — product skeleton and storage core
 
+> Complete. The storage core, autosave, ZIP round trip, shell and design tokens
+> are built and tested; the exit criteria below are each covered by a test that
+> runs against real OPFS rather than a stand-in. What is deliberately *not*
+> here: a directory mirror (PLAN.md 6.3 defers it) and history snapshots, which
+> the roadmap places later.
+
 Deliverables:
 
 - independent repository and CI;
@@ -1176,12 +1182,16 @@ Deliverables:
 - ZIP import/export with hostile-archive tests;
 - storage quota, persistence, and backup UX.
 
-Exit criteria:
+Exit criteria, and what shows each one:
 
 - projects survive reload, browser restart, app update, and simulated failed
-  write;
-- exported projects round-trip without data loss;
-- two tabs cannot silently overwrite each other.
+  write — `tests/e2e/project-storage.spec.ts` reloads and re-reads; the
+  contract page interrupts a write part-way and finds the previous content
+  intact, and meets a record written by a newer build without discarding it;
+- exported projects round-trip without data loss — a ZIP is exported through
+  the real download path and imported back, and the file compared;
+- two tabs cannot silently overwrite each other — a second page edits the same
+  project, and the first reports the conflict rather than winning.
 
 ### Phase 2 — compile and preview vertical slice
 
