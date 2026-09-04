@@ -20,6 +20,10 @@
     "vite.config.ts",
     "vitest.config.ts",
     "playwright.config.ts",
-    "scripts"
+    "scripts",
+    // Build-time code is tested inside the build-time project: a test under
+    // tests/unit belongs to the app project, and importing a script from there
+    // crosses project boundaries.
+    "tests/scripts"
   ]
 }

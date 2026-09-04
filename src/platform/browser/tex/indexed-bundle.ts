@@ -303,11 +303,6 @@ export class IndexedArchive {
     return index.get(name) ?? index.get(`${name}.tex`);
   }
 
-  /** Whether the archive holds a file, without fetching it. */
-  async has(name: string): Promise<boolean> {
-    return (await this.locate(name)) !== undefined;
-  }
-
   /**
    * The names in the same TeX Live directory as a file, including it.
    *
