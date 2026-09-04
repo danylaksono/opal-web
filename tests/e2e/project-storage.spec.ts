@@ -181,3 +181,72 @@ test.describe("archive round trip", () => {
     await expect(page.getByTestId("projects-empty")).toBeVisible();
   });
 });
+
+test.describe("autosave", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto("/");
+    await clearStorage(page);
+    await page.reload();
+    await page.getByTestId("project-title").fill("Autosaved");
+    await page.getByTestId("create-project").click();
+    await page.getByTestId("open-project").click();
+    await expect(page.getByTestId("editor")).toBeVisible();
+  });
+
+  test("an edit is written without being asked and survives a reload", async ({
+    page,
+  }) => {
+    await page.getByTestId("editor-content").fill("section{Autosaved}");
+    await expect(page.getByTestId("save-status")).toContainText("Saved at");
+
+    await page.reload();
+    await page.getByTestId("open-project").click();
+    await expect(page.getByTestId("editor-content")).toHaveValue(
+      "section{Autosaved}",
+    );
+  });
+
+  test("a burst of typing produces one revision, not one per keystroke", async ({
+    page,
+  }) => {
+    const before = Number(
+      await page.getByTestId("project-row-revision").textContent(),
+    );
+    await page.getByTestId("editor-content").pressSequentially("hello", {
+      delay: 20,
+    });
+    await expect(page.getByTestId("save-status")).toContainText("Saved at");
+
+    const after = Number(
+      await page.getByTestId("project-row-revision").textContent(),
+    );
+    expect(after).toBe(before + 1);
+  });
+
+  test("a change made elsewhere is reported rather than overwritten", async ({
+    page,
+    context,
+  }) => {
+    // A real second tab on the same origin, which is the situation the
+    // conditional write exists for, rather than a stand-in for one.
+    const other = await context.newPage();
+    await other.goto("/");
+    await other.getByTestId("open-project").click();
+    await other.getByTestId("editor-content").fill("written by the other tab");
+    await expect(other.getByTestId("save-status")).toContainText("Saved at");
+
+    // This tab still holds the revision it read before that write landed.
+    await page.getByTestId("editor-content").fill("written by this tab");
+    await expect(page.getByTestId("save-status")).toContainText(
+      "changed elsewhere",
+    );
+
+    // And the other tab's work is still there, which is the point.
+    await other.reload();
+    await other.getByTestId("open-project").click();
+    await expect(other.getByTestId("editor-content")).toHaveValue(
+      "written by the other tab",
+    );
+    await other.close();
+  });
+});

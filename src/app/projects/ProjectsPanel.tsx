@@ -18,7 +18,12 @@ import {
   packProject,
   unpackProject,
 } from "@/core/project/archive";
-import type { ProjectId } from "@/core/project/ids";
+import {
+  type Autosave,
+  createAutosave,
+  type SaveStatus,
+} from "@/core/project/autosave";
+import type { ProjectId, ProjectPath } from "@/core/project/ids";
 import { projectPath } from "@/core/project/ids";
 import type {
   ProjectRepository,
@@ -65,6 +70,13 @@ export function ProjectsPanel({
   const [error, setError] = useState<string | null>(null);
   const [title, setTitle] = useState("Untitled project");
   const importInput = useRef<HTMLInputElement | null>(null);
+  const [editing, setEditing] = useState<{
+    id: ProjectId;
+    path: ProjectPath;
+    content: string;
+  } | null>(null);
+  const [saveStatus, setSaveStatus] = useState<SaveStatus | null>(null);
+  const autosaveRef = useRef<Autosave | null>(null);
 
   /**
    * Re-read the list.
@@ -158,6 +170,55 @@ export function ProjectsPanel({
     },
     [repository],
   );
+
+  /**
+   * Open a project's main file for editing.
+   *
+   * The autosave scheduler is rebuilt per open because it holds the revision
+   * this session is writing against, and carrying one over from a different
+   * project would make its conditional writes meaningless.
+   */
+  const openForEditing = useCallback(
+    async (id: ProjectId) => {
+      await autosaveRef.current?.flush();
+      autosaveRef.current?.stop();
+
+      const record = await repository.open(id);
+      const path = record.rootTexPath ?? (await repository.listFiles(id))[0];
+      if (!path) {
+        setEditing(null);
+        return;
+      }
+      const content = new TextDecoder().decode(
+        await repository.readFile(id, path),
+      );
+      setEditing({ id, path, content });
+      setSaveStatus({ state: "idle", revision: record.revision });
+      autosaveRef.current = createAutosave({
+        repository,
+        projectId: id,
+        revision: record.revision,
+        onStatus: (status) => {
+          setSaveStatus(status);
+          // A saved revision changes the row's counts, so the list is stale
+          // until it is re-read.
+          if (status.state === "saved") void refresh();
+        },
+      });
+    },
+    [repository, refresh],
+  );
+
+  // A tab closing mid-edit is exactly when a debounce is a liability.
+  useEffect(() => {
+    const flush = () => {
+      void autosaveRef.current?.flush();
+    };
+    window.addEventListener("pagehide", flush);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+    };
+  }, []);
 
   return (
     <section data-testid="projects-panel">
@@ -254,7 +315,7 @@ export function ProjectsPanel({
                     type="button"
                     data-testid="open-project"
                     onClick={() => {
-                      void act(() => repository.open(project.id));
+                      void act(() => openForEditing(project.id));
                     }}
                   >
                     Open
@@ -282,6 +343,40 @@ export function ProjectsPanel({
             ))}
           </tbody>
         </table>
+      )}
+
+      {editing && (
+        <div style={{ marginTop: "0.75rem" }} data-testid="editor">
+          <h3 style={{ marginBottom: "0.25rem" }}>{editing.path}</h3>
+          <textarea
+            data-testid="editor-content"
+            aria-label={`Contents of ${editing.path}`}
+            value={editing.content}
+            rows={8}
+            style={{ width: "100%", fontFamily: "monospace" }}
+            onChange={(event) => {
+              const content = event.target.value;
+              setEditing({ ...editing, content });
+              autosaveRef.current?.queue(
+                editing.path,
+                new TextEncoder().encode(content),
+              );
+            }}
+          />
+          <p className="note" data-testid="save-status">
+            {saveStatus?.state === "conflict"
+              ? `Not saved: this project changed elsewhere (revision ${saveStatus.actualRevision}, this tab has ${saveStatus.revision}). Reopen it to continue.`
+              : saveStatus?.state === "failed"
+                ? `Not saved: ${saveStatus.message}`
+                : saveStatus?.state === "saving"
+                  ? "Saving…"
+                  : saveStatus?.state === "pending"
+                    ? "Unsaved changes"
+                    : saveStatus?.state === "saved"
+                      ? `Saved at revision ${saveStatus.revision}`
+                      : "No unsaved changes"}
+          </p>
+        </div>
       )}
 
       {status && (
