@@ -237,9 +237,17 @@ td.note {
   color: var(--amber);
 }
 
+/*
+ * A hairline box, coloured by state rather than tabbed.
+ *
+ * The first version put a 3px accent bar down one side, which was the only
+ * heavy element on a page otherwise built entirely from hairlines — and a
+ * decoration standing in for the word that already says what the state is.
+ * Everything else here distinguishes states with a rule weight the page
+ * already uses, so this does too.
+ */
 .banner {
   border: 1px solid var(--rule);
-  border-left: 3px solid var(--fire);
   padding: 0.9rem 1.1rem;
   background: var(--paper-raised);
   margin-bottom: 1.5rem;
@@ -247,7 +255,7 @@ td.note {
 }
 
 .banner.bad {
-  border-left-color: var(--flare);
+  border-color: var(--flare);
 }
 
 code {
