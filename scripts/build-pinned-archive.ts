@@ -25,9 +25,10 @@
  * - `corpus` — every macro file the corpus is known to open or to have reported
  *   missing. Small, and enough to test whether one vintage fixes the documents
  *   that version skew broke.
- * - `macros` — every runtime macro in TeX Live and no fonts. Ends discovery:
- *   a package that loads its own files and catches the failure reports no
- *   filename, so nothing can resolve it on demand.
+ * - `macros` — every runtime macro in TeX Live and no fonts. Built to end the
+ *   discovery chain, and measured not to: while files arrive because TeX
+ *   reported them missing, a package that catches its own failure still
+ *   resolves nothing. Useful only once the engine reads from the archive.
  * - `latin`  — every runtime macro in TeX Live, plus metrics, encodings, maps
  *   and Type 1 outlines for Latin-script families. No discovery chain: nothing
  *   a Latin-script document opens is absent.
@@ -179,11 +180,12 @@ function dropTexSuffix(name: string): string {
 function selectScope(entries: Entry[], scope: string): Entry[] {
   if (scope === "full") return entries;
   if (scope === "macros") {
-    // Every runtime macro in the tree and no fonts. This is the tier that ends
-    // discovery: a package that loads its own auxiliary files and catches the
-    // failure itself — `listings` asking for its aspects, and reporting only
-    // "Couldn't load requested aspect" — cannot be resolved from an error
-    // message, so the only fix is for the file to be there already.
+    // Every runtime macro in the tree and no fonts. Built to end the discovery
+    // chain — `listings` catches its own missing-file failure and reports only
+    // "Couldn't load requested aspect", which no on-demand resolver can act on
+    // — and measured not to: the corpus compiles the same 9 of 13 as the 4.8 MB
+    // tier. A complete archive is not a complete filesystem while files arrive
+    // only when TeX asks for them by name.
     return entries.filter((entry) =>
       RUNTIME_MACROS.has(extensionOf(entry.name)),
     );

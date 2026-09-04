@@ -181,7 +181,7 @@ async function fileBundleIndex(
 
 const DOCUMENT_CLASS = /\\documentclass(?:\[[^\]]*\])?\{([^}]+)\}/;
 /**
- * The two ways TeX says a file is missing.
+ * The ways TeX says a file is missing, of which there are now four.
  *
  * LaTeX's \usepackage reports "File `x.sty' not found."; the TeX primitive
  * \input reports "I can't find file `x'." — and pgf reaches for
@@ -195,6 +195,14 @@ const DOCUMENT_CLASS = /\\documentclass(?:\[[^\]]*\])?\{([^}]+)\}/;
  */
 const MISSING_FILE = /File [`']([^']+)' not found/g;
 const MISSING_INPUT = /I can't find file `([^']+)'/g;
+/**
+ * A package quoting the name itself, TeX-style: ``pgfsys-xetex.def'' not found.
+ *
+ * pgf reports its missing driver this way. Each spelling found so far has cost
+ * a corpus document, and this one cost `presentation-beamer` only once the
+ * archive was complete enough for pgf to reach the driver at all.
+ */
+const MISSING_QUOTED = /``([^`']+)'' not found/g;
 
 /**
  * Run one compile pass, giving up as soon as `signal` aborts.
@@ -229,7 +237,7 @@ async function racePass<T>(
 /** Files TeX reported missing, in the order it hit them. */
 function missingFiles(log: string): string[] {
   const names = new Set<string>();
-  for (const pattern of [MISSING_FILE, MISSING_INPUT]) {
+  for (const pattern of [MISSING_FILE, MISSING_INPUT, MISSING_QUOTED]) {
     for (const match of log.matchAll(pattern)) {
       if (match[1]) names.add(match[1]);
     }

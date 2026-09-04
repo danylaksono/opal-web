@@ -262,6 +262,12 @@ version-skew hypothesis confirmed by fixing it. Against the bundle baseline's 11
 of 13 this is not yet a replacement, but it is a 4.8 MB archive on our own
 origin standing in for a package proxy.
 
+The four that still fail are worth separating, because only one of them is about
+package delivery at all: `cv-modern` and `paper-ieee` now reach fonts and stop
+there, on the OpenType and metric limitations ADR-003 already records;
+`report-technical` stops inside `listings`, described below; `paper-acm` needs a
+pass its retry budget does not reach.
+
 Two limits showed up, and the second decides the tier.
 
 **Resolution needs to know every way TeX names a missing file.** The kernel
@@ -271,11 +277,24 @@ LaTeX also appends the default extension while searching, so `lipsum.ltd` is how
 a document asks for `lipsum.ltd.tex`. Each of those cost a corpus project until
 it was handled.
 
-**Some files cannot be discovered from an error at all.** `listings` loads its
-own aspects and catches the failure itself, reporting "Couldn't load requested
-aspect" and naming no file. Nothing can resolve that on demand, which is the
-argument for the `macros` tier: the discovery chain ends only when the tree is
-complete rather than fetched-as-asked.
+**Some files cannot be discovered from an error at all, and a complete tree
+does not fix it.** `listings` loads its own aspects, catches the failure itself,
+and reports "Couldn't load requested aspect" naming no file. The obvious remedy
+is a tree with nothing missing, so the `macros` tier was built and measured: all
+19,222 runtime macros in the vintage, 249 MB, read from the source in a single
+pass. **It changed nothing.** The corpus compiles the same 9 of 13 as the 4.8 MB
+tier, project for project, and `report-technical` still stops at the same
+sentence.
+
+The reason is that completeness of the *archive* is not completeness of the
+*filesystem*. Resolution here is on demand: a file arrives because TeX said it
+was missing. A failure that names no file fetches nothing, however much the
+archive holds. Only an engine that asks the archive as it opens each file — what
+Tectonic does, and what an adapter cannot reach — turns a complete tree into a
+document that compiles.
+
+So the tier is not the fix it looked like, and the 4.8 MB tier is the one worth
+having until the engine reads from the archive itself.
 
 **The host rate-limits.** Sixteen concurrent range requests earned HTTP 429 on
 every request and then a block lasting minutes. A large tier has to be built by
