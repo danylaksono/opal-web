@@ -282,13 +282,19 @@ does ship can never reach the engine. Nothing the adapter can do delivers an
 The adapter now names the font in the failure summary instead, which is the one
 thing a user can act on.
 
-### `letter-formal` — the bundle set is not one TeX Live vintage (blocked)
+### `letter-formal` — the bundle set is not one TeX Live vintage (fixed by a pinned tree)
 
 `! Package lastpage Error: hyperref package version too old.`
 
 The mechanism, end to end: the precompiled format's `\fmtversion` is at least
 2024/06/01, so `lastpage2e.sty` selects `lastpagemodern`, which requires
 hyperref **≥ 2024-10-30**. The bundled hyperref is **2023-02-07 v7.00v**.
+
+**Since fixed, which confirms the diagnosis.** Resolving this document's files
+from a single TeX Live vintage instead — Tectonic's TL2022 tree, delivered as an
+indexed archive (ADR-011) — compiles it, with the CTAN proxy switched off
+entirely. Nothing about the engine changed; only the package set stopped being
+five vintages at once.
 
 The skew is not between our pin and TeX Live. It is **inside the bundle set**,
 which is not one vintage at all:

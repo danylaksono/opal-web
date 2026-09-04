@@ -32,7 +32,10 @@ work on two questions whose answers change the architecture.
    2.8 MB of range requests. But it is a fallback behind Siglum's own
    resolution, which fetches 77.1 MB of font bundles at init whatever the
    document uses, so the engine's bundle path has to be replaced rather than
-   supplemented (ADR-011).
+   supplemented. Built instead from a single pinned TeX Live vintage — Tectonic's
+   own bundle — a **4.8 MB** archive on our origin compiles 9 of 13 with the CTAN
+   proxy switched off, including `letter-formal`, which fails on `main` even with
+   it (ADR-011, ADR-003).
 
 ## What is here
 
@@ -62,6 +65,8 @@ pnpm spike:firstload                  # bytes a cold first compile transfers
 pnpm spike:tex-archive                # indexed TeX archive built from the bundles
 pnpm serve:tex-archive --protocol h2  # range-request rig; h1 for the comparison
 pnpm spike:range-fetch                # what per-file range requests cost
+pnpm spike:pinned-archive --scope macros  # size a tier of the pinned TeX Live tree
+pnpm spike:pinned-archive --scope corpus --fetch  # build it
 pnpm dev            # capability matrix and corpus overview
 pnpm test
 pnpm typecheck

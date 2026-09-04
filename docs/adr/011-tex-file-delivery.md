@@ -231,6 +231,57 @@ compiling to failing: the archive answered for some of its files, and
 short-circuits only when it answered for every file TeX named. Corpus results
 are unchanged from the bundle baseline at 11 of 13.
 
+### Building it from one pinned tree
+
+The archive above was built from Siglum's bundles, which makes it useful for
+measuring delivery and useless as a package set: ADR-003 found those bundles
+span five TeX Live vintages. `pnpm spike:pinned-archive` builds from a single
+vintage instead — Tectonic's published bundle, the tree desktop compiles
+against — at `https://data1.fullyjustified.net/tlextras-2022.0r0.tar`, a URL
+this ADR previously described without recording.
+
+**It is a flat tar.** The index offsets point at file data, and the 512-byte tar
+header before each one carries a bare basename. There are no directories in the
+archive at all, so TeX Live paths cannot be recovered from it and are
+synthesised by file type instead. That is not a workaround so much as a match
+for how lookup works: kpathsea searches by type across a search path, and
+Siglum's own CTAN fetcher places unrecognised files the same way.
+
+Sizes, computed from the index without downloading anything:
+
+| scope | files | bytes |
+| --- | ---: | ---: |
+| `corpus` — what the corpus opens or reports missing | 235 | **4.8 MB** |
+| `macros` — every runtime macro in TeX Live, no fonts | 19,222 | 249 MB |
+| `latin` — those plus Latin-script metrics and outlines | 29,716 | 399 MB |
+| `full` | 134,980 | 2.6 GB |
+
+**With the 4.8 MB corpus tier and CTAN switched off entirely, 9 of 13 compile.**
+That includes `letter-formal`, which fails on `main` *with* CTAN — the
+version-skew hypothesis confirmed by fixing it. Against the bundle baseline's 11
+of 13 this is not yet a replacement, but it is a 4.8 MB archive on our own
+origin standing in for a package proxy.
+
+Two limits showed up, and the second decides the tier.
+
+**Resolution needs to know every way TeX names a missing file.** The kernel
+quotes with a backtick, a package raising the error itself through
+`\IfFileExists` uses apostrophes, and `\input` says "I can't find file" instead.
+LaTeX also appends the default extension while searching, so `lipsum.ltd` is how
+a document asks for `lipsum.ltd.tex`. Each of those cost a corpus project until
+it was handled.
+
+**Some files cannot be discovered from an error at all.** `listings` loads its
+own aspects and catches the failure itself, reporting "Couldn't load requested
+aspect" and naming no file. Nothing can resolve that on demand, which is the
+argument for the `macros` tier: the discovery chain ends only when the tree is
+complete rather than fetched-as-asked.
+
+**The host rate-limits.** Sixteen concurrent range requests earned HTTP 429 on
+every request and then a block lasting minutes. A large tier has to be built by
+reading the archive once and keeping what is in scope, which is what
+`--via whole` does; range requests are for tiers of a few hundred files.
+
 ## Decision
 
 **Adopt indexed-archive delivery with per-file range requests, self-hosted.**
@@ -291,5 +342,9 @@ happens to ship both.
       **77.1 MB of font bundles at init**, before TeX runs and independently of
       the document, so no font is ever reported missing. Answering this needs
       the engine's font loading replaced, not measured.
-- [ ] Whether a tree scoped to plausible documents is small enough to serve from
-      the same static host as the app.
+- [x] Whether a tree scoped to plausible documents is small enough to serve from
+      the same static host as the app. **Only the narrowest tier is.** Measured
+      from the pinned tree's index: corpus 4.8 MB, all runtime macros 249 MB,
+      macros plus Latin-script fonts 399 MB, the whole tree 2.6 GB. A tier that
+      ends discovery is hundreds of megabytes, so it needs object storage, as
+      this ADR's consequences already assumed.
