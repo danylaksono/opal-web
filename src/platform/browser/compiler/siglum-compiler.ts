@@ -92,14 +92,23 @@ export interface SiglumCompilerOptions {
 }
 
 /**
- * How many times to reload bundles and retry after a missing-file error.
+ * How many times to load what is missing and retry.
  *
  * TeX reports only the first missing file before stopping, so a document needs
- * one pass per missing bundle: beamer alone chains utils, pgf-tikz and xcolor.
+ * one pass per resolution step: beamer alone chains utils, pgf-tikz and xcolor.
  * Each pass must load something new to continue, so this only bounds
  * pathological chains, not ordinary resolution.
+ *
+ * A bundle brings hundreds of files at once, so twelve passes is generous for
+ * bundle-shaped resolution. The archive brings one file and its directory, and
+ * pgf alone spreads its files across `math`, `utilities`, `systemlayer` and
+ * `basiclayer` — measured on beamer, twelve passes ran out mid-chain and the
+ * document failed on a file the archive was holding. The higher bound applies
+ * only when the archive is configured, and costs nothing when it is not: the
+ * loop still stops as soon as a pass loads nothing new.
  */
 const MAX_RESOLUTION_RETRIES = 12;
+const MAX_ARCHIVE_RESOLUTION_RETRIES = 60;
 
 /**
  * Total TeX passes, including the first.
@@ -383,7 +392,10 @@ export class SiglumLatexCompiler implements LatexCompiler {
         request.signal,
       );
 
-      for (let attempt = 0; attempt < MAX_RESOLUTION_RETRIES; attempt++) {
+      const maxRetries = this.#archive
+        ? MAX_ARCHIVE_RESOLUTION_RETRIES
+        : MAX_RESOLUTION_RETRIES;
+      for (let attempt = 0; attempt < maxRetries; attempt++) {
         if (result.success) break;
         request.signal?.throwIfAborted();
         const failureLog = result.log || this.#texLog.join("\n");

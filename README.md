@@ -27,10 +27,11 @@ work on two questions whose answers change the architecture.
    Fetching those as 142 range requests costs 575 ms on a 150 ms link — but only
    over HTTP/2 and only with the HTTP cache declined, because Chrome locks the
    cache entry per URL and every file is a range of one URL. The obvious way to
-   write it is 38× slower. The engine takes files one at a time through the
-   adapter (`texArchiveUrl`), which drops beamer's bundle traffic from 118.9 MB
-   to 28.4 MB with CTAN off — but as a fallback behind Siglum's own resolution
-   it saves nothing, so the engine's bundle path has to be replaced rather than
+   write it is 38× slower. The engine does take files one at a time through the
+   adapter (`texArchiveUrl`): on beamer it replaced five bundles, 33.7 MB, with
+   2.8 MB of range requests. But it is a fallback behind Siglum's own
+   resolution, which fetches 77.1 MB of font bundles at init whatever the
+   document uses, so the engine's bundle path has to be replaced rather than
    supplemented (ADR-011).
 
 ## What is here

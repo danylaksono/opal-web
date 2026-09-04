@@ -167,21 +167,53 @@ The engine takes files individually. Siglum's compile request carries a
 before running TeX, and `ctanFetcher.fileCache` is that map. The adapter now
 takes files from the archive and puts them there, behind `texArchiveUrl`.
 
-TeX read them. With CTAN off, `presentation-beamer` fetched `etoolbox.sty`,
-`pgfmath.sty` and `pgfrcs.sty` as three byte ranges and the log shows XeTeX
-opening each one from the path the index recorded. **Bundle traffic for that run
-fell from 118.9 MB to 28.4 MB**, the remainder being the baseline Siglum loads
-at init.
+TeX read them. With CTAN off, `presentation-beamer` resolved `etoolbox.sty`,
+the pgf chain, `xcolor.sty` and `hyperref.sty` as byte ranges, and the log shows
+XeTeX opening each from the path the index recorded. Run twice, once each way,
+the substitution is exact:
 
-Three things were learned doing it, and two of them are limits.
+| | bundles fetched | of which by range |
+| --- | --- | --- |
+| Bundle resolution | 24 bundles | — |
+| Archive resolution | 19 bundles | 2.8 MB |
+
+The five it no longer fetches are `pgf-tikz`, `utils`, `tex-generic`,
+`hyperref` and `xcolor`: **33.7 MB of bundles replaced by 2.8 MB of range
+requests**, for the same document at the same point in its compile.
+
+**Neither run compiles.** Both stop in the same place for the same reason:
+`translator.sty`, which beamer loads unconditionally, is in no Siglum bundle and
+therefore not in an archive built from them, so without CTAN there is nowhere to
+get it. The comparison above is bytes spent before hitting an identical wall,
+which is a fair comparison of delivery and not a claim that the document
+compiled.
+
+Four things were learned doing it, and three of them are limits.
 
 **TeX names one missing file per run.** Resolution driven by error messages
 therefore costs a full TeX pass per file, and beamer opens 142. Fetching the
 whole TeX Live directory a missing file sits in — which the index now supports,
-because it records paths — collapses that to a few passes, and still transfers
-2.1 MB rather than 118.9 MB. That figure is worth noting: it is what the
-cross-referenced logs predicted this document would read, arrived at
-independently.
+because it records paths — is what makes that tractable, but it does not make it
+cheap: twelve passes, generous for bundles, ran out mid-chain on beamer and the
+bound had to go to sixty for the archive path. Pulling siblings also transfers
+more than the minimum, 2.8 MB against the 2.1 MB the document strictly opens.
+That is the trade: fewer TeX passes for slightly more bytes, and it is only
+worth taking because the bytes are small either way.
+
+An engine that asked the archive for each file as it opened it would need none
+of this. Tectonic does exactly that, which is the part of its design this ADR
+cannot adopt through an adapter.
+
+**Fonts never reach the adapter at all, which is why they cannot be counted
+this way.** The 19 bundles both runs fetch are the set Siglum loads during its
+own init, and ten of them are fonts: `cm-super` at 56.7 MB, `fonts-lm-type1` at
+8.6 MB, `fonts-cm`, `fonts-lm-otf`, `fonts-lm-afm` and the rest — **77.1 MB of
+font bundles, fetched before TeX runs and regardless of what the document
+uses**. That is the answer to why the logs record no font files: TeX never
+reports one missing, because they are all already there. A per-document font
+figure cannot be obtained by watching what the engine asks for; it needs the
+engine's font loading replaced, at which point the number is a property of the
+new design rather than a measurement of this one.
 
 **The adapter's hook is a fallback, so with CTAN on the archive saves nothing.**
 Across the corpus it changed no project's byte total except `paper-acm`, and
@@ -255,6 +287,9 @@ happens to ship both.
       RTT, 64-way parallel, with the HTTP cache declined.** See above.
 - [x] Whether the engine can be fed files one at a time. **Yes, and it is not
       enough.** See below.
-- [ ] Font bytes per document, which the `(path` convention does not reveal.
+- [~] Font bytes per document. Not obtainable by observation: Siglum fetches
+      **77.1 MB of font bundles at init**, before TeX runs and independently of
+      the document, so no font is ever reported missing. Answering this needs
+      the engine's font loading replaced, not measured.
 - [ ] Whether a tree scoped to plausible documents is small enough to serve from
       the same static host as the app.
