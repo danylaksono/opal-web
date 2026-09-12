@@ -12,7 +12,10 @@ autosaves them and exports them as ZIPs, an edit-compile-preview loop that runs
 the engine in the product path rather than in a spike, and now a CodeMirror
 editor over a project that can hold more than one file. Create a project, write
 LaTeX across a `main.tex` and a chapter, press Compile, and a page is rasterised
-from a PDF the browser produced. The two questions below are still open, but
+from a PDF the browser produced. A semantic index runs as you type: an outline
+that follows `\input` into other files, completion for labels and citation
+keys, and a project-health list that answers "does this `\ref` resolve" without
+compiling anything. The two questions below are still open, but
 they are no longer between the engine and a person using it.
 
 1. **Renderer — settled.** MuPDF.js, verified booting in a plain browser module

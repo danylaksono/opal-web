@@ -118,7 +118,15 @@ hundred compiles rather than every one, at 0.9 s each.
   is what finally makes the compile path's multi-file support reachable — a
   project can `\input` a chapter and it compiles. Flat rather than a tree
   because no project in this repository has a directory in it.
-- 194 unit tests and 24 Playwright e2e tests. The e2e suite is the part that
+- **A semantic index**, recomputed on every keystroke in about a millisecond:
+  labels, references, citations, `\bibitem` keys, inputs, graphics, packages
+  and sections, scanned character by character rather than by regular
+  expression. It carries an outline that follows `\input` in reading order, a
+  project-health list that answers "does this `\ref` resolve anywhere" without
+  compiling, and completion for labels and citation keys. It reports **zero
+  problems across all fourteen corpus projects**, which is a test: they compile,
+  so anything it reports is its own defect.
+- 234 unit tests and 29 Playwright e2e tests. The e2e suite is the part that
   matters here: four defects found during Phase 2 — the default font path, a
   boot package with no `ls-R`, a stale pre-compressed asset, and cancellation
   returning after 180 s — would each have passed every test that existed before
@@ -149,11 +157,13 @@ hundred compiles rather than every one, at 0.9 s each.
    to bite a 32 MB engine. **Needs a different machine**: the container this was
    built in cannot reach the Playwright browser CDN, so Chromium is the only
    engine installable on it.
-2. The rest of Phase 3: rename, completion, cross-references, an outline, and
-   gutter diagnostics. Rename wants a decision first — two revisions with a
-   window where both names exist, or `renameFile` on the port. The others want
-   the semantic index, which is the real next piece of work rather than a pile
-   of CodeMirror extensions.
+2. The rest of Phase 3. The index is in and has paid for the outline, project
+   health and completion; what is left on top of it is compiler diagnostics in
+   the gutter — the log's line numbers are already parsed, so this is mapping
+   rather than analysis. Beside it: rename, which wants a decision first (two
+   revisions with a window where both names exist, or `renameFile` on the
+   port), asset views for images and PDFs, and the keyboard and accessibility
+   pass, which nothing has looked at yet.
 3. `paper-acm` and `paper-ieee` from `texmfrepo`, on a machine that can reach a
    TeX Live mirror.
 4. Deploy, and confirm brotli and the first-load figure on a real host.
@@ -1380,11 +1390,12 @@ Exit criteria:
 ### Phase 3 — Opal authoring experience
 
 > Begun. CodeMirror is in with line numbers, undo and highlighting; the file
-> list does add, switch and delete. Not done: rename, the semantic index and
-> everything that depends on it (completion, cross-references, outline, gutter
-> diagnostics), asset views, and the keyboard and accessibility pass. The
-> editor is CodeMirror configured fresh rather than ported — desktop Opal's
-> configuration is in a repository this one cannot see.
+> list does add, switch and delete; and the semantic index carries an outline,
+> project health and completion for labels and citation keys. Not done: gutter
+> diagnostics from the compiler's log, rename, asset views, structured editors
+> and templates, and the keyboard and accessibility pass. The editor is
+> CodeMirror configured fresh rather than ported — desktop Opal's configuration
+> is in a repository this one cannot see.
 
 Deliverables:
 

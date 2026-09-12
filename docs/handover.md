@@ -28,9 +28,16 @@ than a stand-in; `PLAN.md` 14 names which test shows which criterion.
 **Phase 3 — authoring: begun.** CodeMirror 6 replaced the textarea (line
 numbers, undo, `stex` highlighting, one instance per document so undo stops at
 the file), and a flat file list does add, switch and delete — which is what
-makes the compile path's multi-file support reachable at all. Outstanding:
-rename, the semantic index and everything that needs it, asset views, and the
-accessibility pass.
+makes the compile path's multi-file support reachable at all.
+
+On top of that, `src/core/latex/` holds a semantic index: a character scanner
+per file, then the cross-file questions. It feeds an outline, a project-health
+list and completion, and it is recomputed from memory on every keystroke
+(~1 ms), which is why `ProjectsPanel` keeps every text file's content in state
+rather than re-reading OPFS. `tests/unit/latex-corpus-index.test.ts` runs it
+over all fourteen corpus projects and asserts it finds nothing: they compile, so
+a finding there is the index's bug. Outstanding: gutter diagnostics, rename,
+asset views, and the accessibility pass.
 
 **Phase 2 — compile and preview: the loop is built.** `Workspace.tsx` opens a
 project, compiles what is on screen through `LatexCompiler`, and draws the
