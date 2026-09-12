@@ -189,6 +189,7 @@ async function main(): Promise<void> {
   const useCtan = flags.includes("--ctan");
   const useTexlyre = flags.includes("--texlyre");
   const useEndpoint = flags.includes("--endpoint");
+  const savePdf = flags.includes("--save-pdf");
   const tiersIndex = process.argv.indexOf("--tiers");
   const tierDepth =
     tiersIndex === -1 ? null : Number(process.argv[tiersIndex + 1]);
@@ -266,6 +267,20 @@ async function main(): Promise<void> {
         undefined,
         { timeout: COMPILE_TIMEOUT_MS },
       );
+
+      if (savePdf) {
+        const bytes = await page.evaluate(
+          () =>
+            (window as unknown as { __opalCompiledPdf?: number[] })
+              .__opalCompiledPdf ?? null,
+        );
+        if (bytes) {
+          await writeFile(
+            resolve(OUT_DIR, `${project}-${engine}${suffix}.pdf`),
+            Buffer.from(bytes),
+          );
+        }
+      }
 
       const text = await page
         .locator('[data-testid="compile-status"]')

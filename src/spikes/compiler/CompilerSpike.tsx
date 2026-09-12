@@ -214,6 +214,17 @@ export function CompilerSpike() {
       let pageCount: number | undefined;
       if (compiled.ok && rendererRef.current) {
         compiledPdfRef.current = new Uint8Array(compiled.pdf);
+        /**
+         * Hand the compiled bytes to the driver.
+         *
+         * `pnpm spike:corpus-run --save-pdf` writes them next to the results so
+         * a page-count difference against desktop can be read rather than
+         * guessed: the fidelity comparison only covers the pages both documents
+         * have, so an extra page is exactly the page it cannot describe.
+         */
+        (
+          window as unknown as { __opalCompiledPdf?: number[] }
+        ).__opalCompiledPdf = Array.from(compiled.pdf);
         // Round-trip through the renderer: proves the bytes are a PDF a
         // viewer can actually open, not just a non-zero buffer.
         const doc = await rendererRef.current.openDocument(

@@ -106,13 +106,39 @@ const DECODER = new TextDecoder();
 const TEXLIVE_VINTAGE = "texlive-2026";
 
 /**
- * Whether a document asks for a bibliography.
+ * Whether a document actually cites anything.
  *
- * The engine resolves this itself when told nothing, but it does so from the
- * file set; saying so explicitly keeps a corpus run's pass count a property of
- * the document rather than of how the adapter happened to pass files through.
+ * Not whether it *declares* a bibliography, which is what this used to ask and
+ * is a different question. `report-scientific` carries `\bibliography{references}`
+ * and cites nothing: desktop Tectonic runs no bibtex, emits no bibliography and
+ * produces 8 pages, while running bibtex writes an empty `thebibliography` that
+ * `report` renders as a chapter heading on a ninth. That was the page-count
+ * discrepancy this ADR had recorded as unexplained.
+ *
+ * Checked against every reference PDF in the corpus: `paper-acm` and
+ * `paper-ieee` cite and have bibliographies; `paper-standard` and
+ * `report-scientific` declare one, cite nothing, and desktop gives them no
+ * bibliography at all; `thesis-standard` writes `thebibliography` out by hand
+ * and needs no bibtex either way.
  */
-const BIBLIOGRAPHY = /\\(bibliography|addbibresource|printbibliography)\b/;
+const CITATION = /\\(?:no)?cite[a-zA-Z]*\s*[[{]/;
+
+/**
+ * Source with TeX comments removed.
+ *
+ * `thesis-standard` has `% \bibliography{references}` commented out above a
+ * hand-written `thebibliography`, and a regex that cannot tell code from a
+ * comment reads that as a request. A `%` escaped as `\%` is a percent sign, not
+ * a comment.
+ */
+function withoutComments(source: string): string {
+  return source.replace(/(^|[^\\])%.*$/gm, "$1");
+}
+
+/** Whether a bibliography pass would have anything to do. */
+export function needsBibtex(source: string): boolean {
+  return CITATION.test(withoutComments(source));
+}
 
 export class TexlyreLatexCompiler implements LatexCompiler {
   readonly #options: Required<
@@ -246,7 +272,7 @@ export class TexlyreLatexCompiler implements LatexCompiler {
             input: source,
             mainTexPath: main,
             additionalFiles,
-            bibtex: BIBLIOGRAPHY.test(source),
+            bibtex: needsBibtex(source),
             // TeX decides how many passes it needs and says so in the log; letting
             // the engine rerun is what makes cross-references and a table of
             // contents resolve. ADR-003's defect 9 is the opposite arrangement.
