@@ -117,6 +117,60 @@ function literalRange(source: string, from: number): [number, number] {
   throw new Error("unterminated literal");
 }
 
+/** The tree kpathsea is told to consult only through its database. */
+const TEXMF_DIST = "/texlive/texmf-dist";
+
+/**
+ * Build the filename database kpathsea will actually read.
+ *
+ * `texmf.cnf` sets `TEXMF = {…,!!$TEXMFDIST}`, and the `!!` prefix means *use
+ * the `ls-R` database and never look at the disk*. A file mounted under
+ * `texmf-dist` that the database does not list is therefore invisible, however
+ * correctly it is placed — which is why a boot package without one sent every
+ * lookup to the endpoint, including files it had itself mounted, and why the
+ * default font failed: XeTeX resolved it remotely, baked
+ * `/tmp/texlive_remote/47_lmroman10-regular` into the XDV, and xdvipdfmx could
+ * not identify a file whose name no longer carried its extension.
+ *
+ * Each shipped tier carries its own `ls-R` covering exactly its own files, so
+ * this generates the equivalent for ours rather than reusing one that
+ * describes a tree we did not mount.
+ */
+function buildLsR(paths: readonly string[]): Buffer {
+  const children = new Map<string, Set<string>>();
+  const add = (dir: string, entry: string) => {
+    const set = children.get(dir) ?? new Set<string>();
+    set.add(entry);
+    children.set(dir, set);
+  };
+
+  for (const path of paths) {
+    if (!path.startsWith(`${TEXMF_DIST}/`)) continue;
+    const parts = path.slice(TEXMF_DIST.length + 1).split("/");
+    let dir = ".";
+    for (let i = 0; i < parts.length - 1; i += 1) {
+      const part = parts[i] as string;
+      add(dir, part);
+      dir = dir === "." ? `./${part}` : `${dir}/${part}`;
+    }
+    add(dir, parts[parts.length - 1] as string);
+  }
+
+  // The first line is load-bearing: kpathsea refuses a database without it.
+  const lines = [
+    "% ls-R -- filename database for kpathsea; do not change this line.",
+    "",
+  ];
+  for (const dir of [...children.keys()].sort()) {
+    lines.push(`${dir}:`);
+    for (const entry of [...(children.get(dir) ?? [])].sort()) {
+      lines.push(entry);
+    }
+    lines.push("");
+  }
+  return Buffer.from(lines.join("\n"), "utf8");
+}
+
 async function main(): Promise<void> {
   const engine = process.argv[2]?.startsWith("--")
     ? "xelatex"
@@ -151,6 +205,16 @@ async function main(): Promise<void> {
   } finally {
     archive.close();
   }
+
+  // Generated last, because it describes everything selected above.
+  const lsR = buildLsR(table.map((file) => file.filename));
+  chunks.push(lsR);
+  table.push({
+    filename: `${TEXMF_DIST}/ls-R`,
+    start: offset,
+    end: offset + lsR.byteLength,
+  });
+  offset += lsR.byteLength;
 
   const blob = Buffer.concat(chunks);
   console.log(`${engine}: ${table.length} files, ${mb(blob.byteLength)}`);
