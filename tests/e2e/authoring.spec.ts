@@ -65,6 +65,52 @@ test.describe("outline and project health", () => {
     ).toHaveAttribute("aria-current", "true");
   });
 
+  test("completing a reference offers the project's own labels", async ({
+    page,
+  }) => {
+    const editor = page.getByTestId("editor-content");
+    await editor.fill("\\section{One}\\label{sec:one}\n");
+
+    // Typed rather than filled: completion is a response to input, and `fill`
+    // sets the document without producing any.
+    await editor.click();
+    await page.keyboard.press("Control+End");
+    await editor.pressSequentially("See \\ref{sec", { delay: 20 });
+
+    const option = page.locator(".cm-tooltip-autocomplete li").first();
+    await expect(option).toHaveText("sec:one");
+    await option.click();
+
+    // The key a user cannot hold in their head, spelled exactly: a `\ref` to a
+    // label that does not exist renders as `??` and says nothing else.
+    await expect(editor).toContainText("\\ref{sec:one");
+  });
+
+  test("completing a citation offers keys from the bibliography", async ({
+    page,
+  }) => {
+    const editor = page.getByTestId("editor-content");
+    await editor.fill("\\cite{}\n");
+
+    await page.getByTestId("new-file-name").fill("refs.bib");
+    await page.getByTestId("create-file").click();
+    await expect(
+      page.locator('[data-testid="file-open"][data-path="refs.bib"]'),
+    ).toHaveAttribute("aria-current", "true");
+    await editor.fill("@book{knuth1984, title={The TeXbook}}\n");
+
+    await page
+      .locator('[data-testid="file-open"][data-path="main.tex"]')
+      .click();
+    await editor.click();
+    await page.keyboard.press("Control+End");
+    await editor.pressSequentially("\\cite{knu", { delay: 20 });
+
+    await expect(
+      page.locator(".cm-tooltip-autocomplete li").first(),
+    ).toHaveText("knuth1984");
+  });
+
   test("project health reports a dangling reference and clears it", async ({
     page,
   }) => {

@@ -1,3 +1,9 @@
+import {
+  autocompletion,
+  type CompletionContext,
+  type CompletionResult,
+  completionKeymap,
+} from "@codemirror/autocomplete";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { StreamLanguage } from "@codemirror/language";
 import { stex } from "@codemirror/legacy-modes/mode/stex";
@@ -35,10 +41,36 @@ import { useEffect, useRef } from "react";
  * effect watched would do the same thing less honestly, by listing something it
  * never reads.
  */
+/**
+ * What the editor can offer to complete, from the project's semantic index.
+ *
+ * Keys rather than a completion source, so this component knows nothing about
+ * where they came from — and so that the day completion has to include commands
+ * or packages, that is a change to what is passed in rather than to the editor.
+ */
+export interface Completions {
+  labels: readonly string[];
+  citations: readonly string[];
+}
+
+/**
+ * What is being typed, and which set of keys answers it.
+ *
+ * `\ref{sec:` completes against labels and `\cite{knu` against bibliography
+ * keys, including after a comma — `\cite{a,b` is one command with two keys, and
+ * a user typing the second one is asking the same question as the first.
+ */
+const REFERENCE_PREFIX =
+  /\\(?:auto|page|name|c|C|eq|v)?ref(?:range)?\{([^}]*)$/;
+const CITATION_PREFIX =
+  /\\(?:no|paren|text|auto|foot|full)?cite[a-zA-Z]*\{([^}]*)$/;
+
 interface CodeEditorProps {
   value: string;
   onChange: (value: string) => void;
   label: string;
+  /** Read at completion time, so typing does not rebuild the view. */
+  completions?: Completions;
   /**
    * A line to put the cursor on and scroll into view.
    *
@@ -54,6 +86,7 @@ export function CodeEditor({
   value,
   onChange,
   label,
+  completions,
   reveal,
 }: CodeEditorProps) {
   const host = useRef<HTMLDivElement>(null);
@@ -77,6 +110,47 @@ export function CodeEditor({
    */
   const initial = useRef(value);
   initial.current = value;
+  const available = useRef(completions);
+  available.current = completions;
+
+  /**
+   * Offer the project's own keys, and only where one is being written.
+   *
+   * There is no fuzzy matching over the whole document and no word completion:
+   * what a LaTeX writer cannot hold in their head is which labels and citation
+   * keys exist, and both of those are exact strings that fail silently when
+   * mistyped — a `\ref` to a label that does not exist renders as `??`.
+   */
+  const complete = useRef(
+    (context: CompletionContext): CompletionResult | null => {
+      const before = context.state.sliceDoc(
+        context.state.doc.lineAt(context.pos).from,
+        context.pos,
+      );
+      const reference = REFERENCE_PREFIX.exec(before);
+      const citation = reference ? null : CITATION_PREFIX.exec(before);
+      const match = reference ?? citation;
+      if (!match) return null;
+
+      // The part after the last comma: the key being typed, not the list.
+      const typed = (match[1] ?? "").split(",").at(-1) ?? "";
+      const keys = reference
+        ? (available.current?.labels ?? [])
+        : (available.current?.citations ?? []);
+      if (keys.length === 0) return null;
+
+      return {
+        from: context.pos - typed.length,
+        options: keys.map((key) => ({
+          label: key,
+          type: reference ? "variable" : "constant",
+        })),
+        // Without this the list closes as soon as a key contains a character the
+        // default word pattern does not, and label keys are full of colons.
+        validFor: /^[^},]*$/,
+      };
+    },
+  );
 
   useEffect(() => {
     if (!host.current) return;
@@ -86,7 +160,10 @@ export function CodeEditor({
         extensions: [
           lineNumbers(),
           history(),
-          keymap.of([...defaultKeymap, ...historyKeymap]),
+          autocompletion({
+            override: [(context) => complete.current(context)],
+          }),
+          keymap.of([...defaultKeymap, ...historyKeymap, ...completionKeymap]),
           StreamLanguage.define(stex),
           EditorView.lineWrapping,
           // On the content element rather than the host: a test — and a screen

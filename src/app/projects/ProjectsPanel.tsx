@@ -673,6 +673,10 @@ export function ProjectsPanel({
           <CodeEditor
             key={`${editing.id}:${editing.path}`}
             label={`Contents of ${editing.path}`}
+            completions={{
+              labels: [...(index?.labels.keys() ?? [])],
+              citations: [...(index?.bibliographyKeys ?? [])],
+            }}
             value={editing.content}
             reveal={reveal}
             onChange={(content) => {

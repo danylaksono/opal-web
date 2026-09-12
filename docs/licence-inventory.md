@@ -17,6 +17,7 @@ Repeat this audit against pinned versions before any distribution.
 | blake3-wasm (via @siglum/engine) | 2.1.5 | Apache-2.0 OR MIT | Browser build is broken upstream and is aliased to a stub; see docs/adr/003. |
 | xzwasm (via @siglum/engine) | ^0.1.2 | MIT | Pulled in transitively; only used on the CTAN path, which is not yet enabled. |
 | @codemirror/{state,view,commands,language} | 6.7.4 / 6.43.11 / 6.11.0 / 6.12.4 | MIT | The editing surface (PLAN.md 14, Phase 3). Permissive, so it constrains nothing: ADR-002's AGPL comes from MuPDF and this does not add to it. |
+| @codemirror/autocomplete | 6.20.3 | MIT | Label and citation completion, fed by the semantic index rather than by the document's words. |
 | @codemirror/legacy-modes | 6.5.4 | MIT | `stex` highlighting only. A stream mode rather than a Lezer grammar, because no maintained LaTeX grammar is published; the consequence is colour without a parse tree, so folding and outline wait. |
 | fflate | 0.8.3 | MIT | ZIP import and export (PLAN.md 14 Phase 1). Zero dependencies. Chosen over hand-rolling a container reader because import is hostile input; the path and resource policy stays ours in `src/core/project/archive.ts`. |
 | mupdf | 1.28.0 | AGPL-3.0-or-later | Selected in ADR-004. Sets the application licence via ADR-002. WASM binary is 10.4 MB raw, 4.8 MB gzipped; a `.br` variant ships alongside it. |
