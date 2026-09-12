@@ -62,6 +62,17 @@ export function Workspace({
 }: WorkspaceProps) {
   const [compile, setCompile] = useState<CompileState>({ status: "idle" });
   const [preview, setPreview] = useState<PreviewState>({ status: "idle" });
+  /**
+   * What the engine is doing, not just that it is doing something.
+   *
+   * A first compile downloads a 41 MB boot package before TeX starts, so a bare
+   * "Compiling…" is a spinner over a minute of silence. The adapter already
+   * reports stages and a download percentage; this is the only place that can
+   * show them.
+   */
+  const [stage, setStage] = useState<string | null>(null);
+  /** Shown only on failure, and collapsed: it is long, and it is the evidence. */
+  const [showLog, setShowLog] = useState(false);
   const sessionRef = useRef<CompileSession | null>(null);
   const rendererRef = useRef<MupdfRenderer | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -80,6 +91,8 @@ export function Workspace({
         remoteEndpoint: `${window.location.origin}/texlive`,
         verbose: true,
         onLog: (line) => console.log("[engine]", line),
+        onProgress: (name, detail) =>
+          setStage(detail ? `${name}: ${detail}` : name),
       }),
       onState: setCompile,
     });
@@ -121,6 +134,7 @@ export function Workspace({
   const run = useCallback(async () => {
     const session = sessionRef.current;
     if (!session) return;
+    setShowLog(false);
 
     // Everything the project holds, not just the open file: a document that
     // \inputs a chapter or cites a .bib compiles only if those travel with it.
@@ -136,6 +150,7 @@ export function Workspace({
     );
 
     const result = await session.compile(mainFile, files);
+    setStage(null);
     // null means a newer compile overtook this one; its result is already on
     // its way and this one must not touch the preview.
     if (!result?.ok) return;
@@ -193,7 +208,7 @@ export function Workspace({
         </button>
         <span data-testid="workspace-status" data-status={compile.status}>
           {compile.status === "idle" && "Not compiled yet"}
-          {busy && "Compiling…"}
+          {busy && (stage ? `Compiling… ${stage}` : "Compiling…")}
           {result?.ok &&
             `Compiled in ${Math.round(result.durationMs)} ms, ${result.passes} pass${
               result.passes === 1 ? "" : "es"
@@ -209,6 +224,33 @@ export function Workspace({
           {result.engine.name} {result.engine.version} ·{" "}
           {result.engine.packageSetVersion}
         </p>
+      )}
+
+      {result && !result.ok && result.log && (
+        <details
+          data-testid="workspace-log"
+          open={showLog}
+          onToggle={(event) => setShowLog(event.currentTarget.open)}
+        >
+          {/*
+            TeX's log is the only channel the engine gives, and a failure with
+            no parseable diagnostic — which is most of them once the failure is
+            after TeX, in xdvipdfmx — leaves the summary line and nothing else.
+            Collapsed, because it is thousands of lines and the summary is
+            usually enough.
+          */}
+          <summary>Engine log ({result.log.split("\n").length} lines)</summary>
+          <pre
+            style={{
+              maxHeight: "16rem",
+              overflow: "auto",
+              fontSize: "0.8em",
+              whiteSpace: "pre-wrap",
+            }}
+          >
+            {result.log.split("\n").slice(-200).join("\n")}
+          </pre>
+        </details>
       )}
 
       {result && result.diagnostics.length > 0 && (
