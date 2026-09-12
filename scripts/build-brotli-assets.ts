@@ -20,7 +20,14 @@
  *
  * Usage: pnpm spike:brotli [--quality n] [--write]
  */
-import { existsSync, readdirSync, statSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { promisify } from "node:util";
@@ -54,6 +61,42 @@ const TARGETS = [
  */
 const DIST_ASSETS = resolve("dist/assets");
 
+/**
+ * What each `.br` was made from.
+ *
+ * A pre-compressed sibling is only valid for the exact bytes it was produced
+ * from, and nothing about the two files says so: `.br` sits next to its source
+ * under a name derived from it, and mtimes are not evidence — `vite build`
+ * copies both and stamps them with the same time, which is how a stale
+ * compressed boot package was served for an hour while its source had changed
+ * underneath it. Recording the source's size and mtime at compression time
+ * turns that into a check the server can actually make.
+ *
+ * Kept out of `public/` on purpose: everything there is copied into the build,
+ * and this describes the build rather than belonging to it.
+ */
+const MANIFEST = resolve(".cache/brotli-manifest.json");
+
+interface ManifestEntry {
+  size: number;
+  mtimeMs: number;
+}
+
+function readManifest(): Record<string, ManifestEntry> {
+  if (!existsSync(MANIFEST)) return {};
+  try {
+    return JSON.parse(readFileSync(MANIFEST, "utf8")) as Record<
+      string,
+      ManifestEntry
+    >;
+  } catch {
+    // A manifest we cannot read is a manifest we do not trust; every sibling
+    // it would have vouched for is then served uncompressed, which is slow
+    // rather than wrong.
+    return {};
+  }
+}
+
 function mb(bytes: number): string {
   return `${(bytes / 1e6).toFixed(2)} MB`;
 }
@@ -70,6 +113,7 @@ async function main(): Promise<void> {
 
   let rawTotal = 0;
   let brTotal = 0;
+  const manifest = readManifest();
 
   const built = existsSync(DIST_ASSETS)
     ? readdirSync(DIST_ASSETS)
@@ -104,23 +148,55 @@ async function main(): Promise<void> {
         `(${Math.round((100 * compressed.byteLength) / raw.byteLength)}%, ${seconds}s)`,
     );
 
-    if (write) await writeFile(`${path}.br`, compressed);
+    if (write) {
+      await writeFile(`${path}.br`, compressed);
+      const stat = statSync(path);
+      manifest[path] = { size: stat.size, mtimeMs: stat.mtimeMs };
+    }
   }
 
   console.log(
     `\ntotal ${mb(rawTotal)} -> ${mb(brTotal)} ` +
       `(${Math.round((100 * brTotal) / rawTotal)}%), quality ${quality}`,
   );
-  if (!write) console.log("\n(--write to emit the .br files)");
+  if (!write) {
+    console.log("\n(--write to emit the .br files)");
+    return;
+  }
+
+  mkdirSync(resolve(".cache"), { recursive: true });
+  writeFileSync(MANIFEST, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+  console.log(`Manifest written to ${MANIFEST}`);
 }
 
 export { TARGETS };
 
-/** Whether a pre-compressed sibling exists and is newer than its source. */
+let cached: { mtimeMs: number; entries: Record<string, ManifestEntry> } | null =
+  null;
+
+/**
+ * The pre-compressed sibling for a file, if one was made from *these* bytes.
+ *
+ * Returns null when the source has changed since it was compressed, so the
+ * caller serves the original. Slower, and correct — where the alternative is
+ * serving content that silently does not match what the build produced.
+ */
 export function brotliSibling(file: string): string | null {
   const candidate = `${file}.br`;
   if (!existsSync(candidate) || !existsSync(file)) return null;
-  return statSync(candidate).mtimeMs >= statSync(file).mtimeMs
+
+  // Re-read when the manifest changes, so recompressing does not need the
+  // server restarted to take effect.
+  const manifestStat = existsSync(MANIFEST) ? statSync(MANIFEST) : null;
+  if (!manifestStat) return null;
+  if (!cached || cached.mtimeMs !== manifestStat.mtimeMs) {
+    cached = { mtimeMs: manifestStat.mtimeMs, entries: readManifest() };
+  }
+
+  const recorded = cached.entries[file];
+  if (!recorded) return null;
+  const source = statSync(file);
+  return source.size === recorded.size && source.mtimeMs === recorded.mtimeMs
     ? candidate
     : null;
 }
