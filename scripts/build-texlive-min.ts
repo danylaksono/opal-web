@@ -159,13 +159,28 @@ async function main(): Promise<void> {
     fs.readFile(TEMPLATE, "utf8"),
   );
 
+  // Order in the template is: the directory calls, then the chunk table, then
+  // the file table. Splicing them in any other order silently drops the loader
+  // glue between them, which fails as a bare SyntaxError inside a worker.
+  const CREATE_PATH = "Module['FS_createPath']";
+  const createPathsStart = template.indexOf(CREATE_PATH);
+  const createPathsEnd =
+    template.indexOf(";", template.lastIndexOf(CREATE_PATH)) + 1;
   const [compressedOpen, compressedClose] = literalRange(
     template,
     template.indexOf("var compressedData = {"),
   );
-  const createPathsAt = template.indexOf("Module['FS_createPath']");
   const loadPackageAt = template.indexOf('loadPackage({"files":');
   const [argOpen, argClose] = literalRange(template, loadPackageAt);
+  if (
+    !(
+      createPathsStart < createPathsEnd &&
+      createPathsEnd < compressedOpen &&
+      compressedClose < argOpen
+    )
+  ) {
+    throw new Error("template layout changed; the splice would corrupt it");
+  }
 
   // Directories, parent before child, deduplicated — the loader creates files
   // into paths that must already exist.
@@ -187,7 +202,9 @@ async function main(): Promise<void> {
   }
 
   const out =
-    template.slice(0, compressedOpen) +
+    template.slice(0, createPathsStart) +
+    createPaths.join("\n") +
+    template.slice(createPathsEnd, compressedOpen) +
     JSON.stringify({
       data: null,
       cachedOffset: blob.byteLength,
@@ -197,9 +214,7 @@ async function main(): Promise<void> {
       sizes,
       successes,
     }) +
-    template.slice(compressedClose, createPathsAt) +
-    `${createPaths.join("\n")}\n` +
-    template.slice(loadPackageAt, argOpen) +
+    template.slice(compressedClose, argOpen) +
     JSON.stringify({ files: table, remote_package_size: blob.byteLength }) +
     template.slice(argClose);
 
