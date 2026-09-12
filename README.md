@@ -84,15 +84,16 @@ pnpm spike:coverage docs/evidence/wasmtex-0.1.1/manifest.json
 ./scripts/download-siglum-assets.sh   # 225 MB of engine assets, gitignored
 ./scripts/download-texlyre-assets.sh  # 700 MB, the TeX Live 2026 comparison
 pnpm spike:siglum xelatex             # corpus coverage against those bundles
-pnpm spike:corpus-run xelatex --ctan  # compile all 13, needs a running preview
-pnpm spike:corpus-run xelatex --texlyre           # the same 13 on TeX Live 2026
+pnpm spike:corpus-run xelatex --ctan  # compile all 14, needs a running preview
+pnpm spike:corpus-run xelatex --texlyre           # the same 14 on TeX Live 2026
 pnpm spike:corpus-run xelatex --texlyre --tiers 2 # ... truncated to 294 MB
 pnpm spike:texlive-index              # size the index over the TeX Live tree
-pnpm spike:texlive-min xelatex --write        # the 110-file boot set
+pnpm spike:texlive-min xelatex --write        # the 183-file boot set
 pnpm spike:corpus-run xelatex --texlyre --tiers -1 --endpoint # per-file delivery
 pnpm spike:brotli --write                    # pre-compress engine, boot set, renderer
 pnpm spike:firstload --texlyre --tiers -1 --endpoint  # bytes a cold compile transfers
 pnpm spike:perf                       # init, cold, warm, memory, cancellation
+pnpm spike:perf --texlyre --soak 12   # ... plus 12 more compiles, memory after each
 pnpm spike:firstload                  # bytes a cold first compile transfers
 pnpm spike:tex-archive                # indexed TeX archive built from the bundles
 pnpm serve:tex-archive --protocol h2  # range-request rig; h1 for the comparison
@@ -115,8 +116,10 @@ WASM needs them is a Phase 0 measurement, so they are switchable rather than
 baked in — flip `netlify.toml` at the same time or local and deployed behaviour
 will disagree. `pnpm spike:perf` needs them for its memory column, because
 `measureUserAgentSpecificMemory` is the only API that sees the engine's WASM
-heap and it requires an isolated page; it also needs real Chrome, since
-Playwright's bundled Chromium has that API present but disabled.
+heap and it requires an isolated page. It does *not* need real Chrome: this
+document said so for weeks, and probing the API directly shows Playwright's
+Chromium exposes it with default flags. The isolation headers were always the
+whole requirement.
 
 Local and deployed behaviour have now disagreed twice, both times on
 `busytex.wasm` and both times invisibly — once serving it with a

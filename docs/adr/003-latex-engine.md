@@ -1084,13 +1084,24 @@ classes no local tier carries.
 - [x] Measure peak memory on `texlyre-busytex`, which the engine change
       reopened. **439.9 MB on `blank`, 441.7 MB on `book-standard`, 444.9 MB on
       `thesis-standard`**, holding 109.0 MB after init — flat across a 1-page
-      and a 16-page document, and flat across the four compiles each run
-      performs. At Siglum's ~418 MB per compile those four would have been
-      1.7 GB. The retention is Siglum's, not BusyTeX's, and the adapter
+      and a 16-page document, sampled after the three compiles each run
+      performs. At Siglum's ~418 MB per compile those three would have been
+      about 1.3 GB. The retention is Siglum's, not BusyTeX's, and the adapter
       therefore keeps its engine between compiles: that is the same decision as
       the 1.2–4.8 s warm compile, not a second win.
-      Unanswered: whether hundreds of compiles in one session grow slowly. Four
-      cannot say.
+- [x] Whether a long session grows, which three compiles cannot say. It does,
+      slightly: `--soak` keeps compiling on one engine and samples after each,
+      and over twelve `blank` goes 440.0 → 440.6 MB while `thesis-standard` goes
+      445.8 → 450.7 MB — **~0.45 MB per compile of a 16-page document**,
+      monotonic and reproducible across three runs. The realm breakdown puts all
+      of it in the worker: the Window sits at 4.1–4.4 MB throughout, so nothing
+      above the port is retaining PDFs. 200 compiles of a thesis would add
+      ~100 MB to a 445 MB baseline. Left as measured rather than fixed — the
+      mitigation, if it is ever needed, is Siglum's recycle every few hundred
+      compiles instead of every one, which costs 0.9 s.
+- [ ] Diagnose *what* the engine retains per compile. Measured, attributed to
+      its realm, and no further: it is inside BusyTeX's own heap and filesystem,
+      which is where this stops being an adapter question.
 - [x] Why recovery after an abort is not reliably clean. The recycle answers it:
       recovery now runs against a fresh engine rather than one whose TeX run was
       terminated under it.

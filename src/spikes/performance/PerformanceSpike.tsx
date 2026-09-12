@@ -51,6 +51,16 @@ interface Timing {
   /** After three compiles: fixed cost plus whatever a document adds. */
   memoryBytes: number | null;
   memorySource: string;
+  /**
+   * Memory after each of a run of extra compiles on the *same* engine, when
+   * asked for.
+   *
+   * Three compiles cannot tell a flat engine from one that grows slowly, and
+   * the difference is whether a person can write all afternoon. Siglum's
+   * retention was ~418 MB a compile and would have been obvious in three; a
+   * megabyte a compile would not be, and would still be 300 MB by tea time.
+   */
+  soakBytes: number[];
 }
 
 interface Cancellation {
@@ -182,6 +192,12 @@ export function PerformanceSpike() {
   // Which package set to time. The warm figure is the one a UI has to be
   // designed around, and the two engines reach it very differently.
   const [backend, setBackend] = useState<"siglum" | "texlyre">("siglum");
+  /**
+   * Extra compiles to run on one engine after the timed three, sampling memory
+   * after each. Zero by default: it is minutes of compiling and it answers a
+   * question only worth asking once an engine is a candidate.
+   */
+  const [soak, setSoak] = useState(0);
   const compilerRef = useRef<LatexCompiler | null>(null);
 
   const run = useCallback(
@@ -255,6 +271,38 @@ export function PerformanceSpike() {
 
         const memory = await sampleMemory("after 3 compiles");
 
+        /*
+          Optional: keep compiling on this same engine and sample after each.
+
+          Three compiles answer "does this engine fit in a tab"; they cannot
+          answer "does it still fit after an afternoon", and those are different
+          questions with different failure modes. Each iteration edits the
+          source so the compile misses both the PDF cache and the engine's own,
+          because a cache hit measures nothing.
+        */
+        const soakBytes: number[] = [];
+        for (let index = 0; index < soak; index += 1) {
+          setState({
+            status: "running",
+            stage: `soak compile ${index + 1} of ${soak}`,
+          });
+          const soakFiles = files.map((file) =>
+            file.path === mainFile
+              ? {
+                  ...file,
+                  content: appendComment(file.content, `soak${index}`),
+                }
+              : file,
+          );
+          await compiler.compile({
+            revision: 4 + index,
+            mainFile,
+            files: soakFiles,
+          });
+          const sample = await sampleMemory(`after soak ${index + 1}`);
+          if (sample.bytes !== null) soakBytes.push(sample.bytes);
+        }
+
         // Then a second compiler, aborted mid-run. Separate from the timing
         // compiler because an abort terminates the worker, and measuring a
         // warm compile after that would be measuring a cold one.
@@ -322,6 +370,7 @@ export function PerformanceSpike() {
             memoryAfterInitBytes: memoryAfterInit.bytes,
             memoryBytes: memory.bytes,
             memorySource: memory.source,
+            soakBytes,
           },
           cancellation: {
             afterMs: abortAfterMs,
@@ -340,7 +389,7 @@ export function PerformanceSpike() {
         });
       }
     },
-    [useCtan, backend],
+    [useCtan, backend, soak],
   );
 
   const { timing, cancellation } = state;
@@ -379,6 +428,22 @@ export function PerformanceSpike() {
           onChange={(event) => setUseCtan(event.target.checked)}
         />{" "}
         Fetch missing packages through the <code>/ctan</code> proxy.
+      </label>
+
+      <label style={{ display: "block", marginBottom: "0.75rem" }}>
+        Soak: extra compiles on one engine{" "}
+        <input
+          type="number"
+          min={0}
+          max={200}
+          data-testid="perf-soak-input"
+          value={soak}
+          style={{ width: "5rem" }}
+          onChange={(event) => setSoak(Number(event.target.value) || 0)}
+        />{" "}
+        <span className="note">
+          memory after each, to tell a flat engine from a slowly growing one
+        </span>
       </label>
 
       <input
@@ -449,6 +514,23 @@ export function PerformanceSpike() {
                     : `${(timing.memoryBytes / 1024 / 1024).toFixed(1)} MB`}
                 </td>
               </tr>
+              {timing.soakBytes.length > 0 && (
+                <tr>
+                  <td>Soak, after each compile</td>
+                  {/*
+                    The series rather than its maximum: a number that grows by a
+                    megabyte a compile and one that oscillates by a megabyte have
+                    the same maximum over ten compiles and are not the same
+                    engine.
+                  */}
+                  <td className="note" data-testid="perf-soak">
+                    {timing.soakBytes
+                      .map((bytes) => (bytes / 1024 / 1024).toFixed(1))
+                      .join(", ")}{" "}
+                    MB
+                  </td>
+                </tr>
+              )}
               <tr>
                 <td>Abort outcome</td>
                 <td className="note" data-testid="perf-abort">

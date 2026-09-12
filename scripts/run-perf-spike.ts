@@ -12,7 +12,11 @@
  * run still reports every timing and says why memory is missing. It does *not*
  * need Chrome: the isolation headers are the whole requirement.
  *
- * Usage: pnpm spike:perf [--only a,b,c] [--no-ctan] [--texlyre]
+ * `--soak n` adds n extra compiles on the same engine after the timed ones and
+ * samples memory after each, which is the only way to tell a flat engine from
+ * one that grows a little per compile. It needs `OPAL_COI=1` to mean anything.
+ *
+ * Usage: pnpm spike:perf [--only a,b,c] [--no-ctan] [--texlyre] [--soak n]
  */
 import { readdirSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -35,6 +39,10 @@ interface PerfOutcome {
   passes: string;
   memoryAfterInit: string;
   memory: string;
+  /** Memory after each extra compile, when `--soak` asked for them. */
+  soak: string;
+  /** First and last soak breakdowns, so growth can be attributed to a realm. */
+  breakdown: string;
   abortOutcome: string;
   abortMs: number | null;
   recovery: string;
@@ -61,6 +69,8 @@ async function main(): Promise<void> {
       : new Set((process.argv[onlyIndex + 1] ?? "").split(",").filter(Boolean));
   const useCtan = !process.argv.includes("--no-ctan");
   const useTexlyre = process.argv.includes("--texlyre");
+  const soakIndex = process.argv.indexOf("--soak");
+  const soak = soakIndex === -1 ? 0 : Number(process.argv[soakIndex + 1] ?? 0);
 
   const projects = readdirSync(CORPUS_ROOT, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
@@ -89,6 +99,22 @@ async function main(): Promise<void> {
     // A fresh page per project: "cold" has to mean cold, and a shared page
     // would carry the previous project's engine, caches and IndexedDB.
     const page = await browser.newPage();
+    /*
+      Keep the memory breakdowns the page logs during a soak.
+
+      The total says memory grew; the breakdown says *which realm* holds it,
+      which is the difference between the page retaining every PDF it has been
+      handed and the engine's heap not being reclaimed — and those have
+      different fixes. It takes the first and the last to attribute *growth*
+      rather than volume: one sample showing 4 MB in the Window cannot be told
+      apart from a Window that started at 0.4 MB and grew, which is the whole
+      question.
+    */
+    const soakBreakdowns: string[] = [];
+    page.on("console", (message) => {
+      const text = message.text();
+      if (text.startsWith("[mem] after soak")) soakBreakdowns.push(text);
+    });
     try {
       await page.goto(PREVIEW_URL);
       if (useTexlyre) {
@@ -98,6 +124,9 @@ async function main(): Promise<void> {
         );
       } else if (!useCtan) {
         await page.uncheck('[data-testid="perf-ctan-toggle"]');
+      }
+      if (soak > 0) {
+        await page.fill('[data-testid="perf-soak-input"]', String(soak));
       }
       await page.setInputFiles(
         '[data-testid="perf-input"]',
@@ -126,6 +155,14 @@ async function main(): Promise<void> {
         passes: await text("perf-passes"),
         memoryAfterInit: await text("perf-memory-init"),
         memory: await text("perf-memory"),
+        soak:
+          soak > 0 && (await page.getByTestId("perf-soak").count()) > 0
+            ? await text("perf-soak")
+            : "—",
+        breakdown:
+          soakBreakdowns.length > 1
+            ? `${soakBreakdowns[0]}\n${" ".repeat(24)}${soakBreakdowns[soakBreakdowns.length - 1]}`
+            : (soakBreakdowns[0] ?? ""),
         abortOutcome: await text("perf-abort"),
         abortMs: parseMs(await text("perf-abort-ms")),
         recovery: await text("perf-recovery"),
@@ -139,6 +176,8 @@ async function main(): Promise<void> {
         warmMs: null,
         passes: "—",
         memoryAfterInit: "—",
+        soak: "—",
+        breakdown: "",
         memory: "—",
         abortOutcome: "—",
         abortMs: null,
@@ -191,6 +230,14 @@ async function main(): Promise<void> {
     console.log(
       `  ${o.project.padEnd(22)} ${o.memoryAfterInit.padEnd(12)} ${o.memory}`,
     );
+  }
+  if (outcomes.some((o) => o.soak !== "—")) {
+    console.log("\nSoak, memory after each further compile on one engine:");
+    for (const o of outcomes) {
+      if (o.soak === "—") continue;
+      console.log(`  ${o.project.padEnd(22)} ${o.soak}`);
+      if (o.breakdown) console.log(`  ${" ".repeat(22)} ${o.breakdown}`);
+    }
   }
   if (outcomes.some((o) => o.memory.startsWith("unavailable"))) {
     console.log(

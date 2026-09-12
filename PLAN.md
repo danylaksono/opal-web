@@ -64,13 +64,28 @@ spread on one machine and worth remembering before reading 10% into anything.
 retained ~418 MB per compile — two compiles reached 907 MB, and the fix was to
 recycle the engine after each one, which doubled warm compiles corpus-wide.
 `texlyre-busytex` peaks at **439.9 MB for `blank` and 444.9 MB for
-`thesis-standard`**, after four compiles of each, holding 109 MB after init: a
-16-page document and a 1-page document cost the same, and four compiles cost
-what one does. At Siglum's retention rate those four would have been 1.7 GB.
-So the recycle is not needed here, which is *why* the warm compile is seconds
-rather than a minute — the two figures are the same decision, not two wins.
-What four compiles cannot answer is whether a long session grows slowly; that
-needs a longer run than this spike does.
+`thesis-standard`**, sampled after three compiles of each and holding 109 MB
+after init: a 16-page document and a 1-page document cost the same, and three
+compiles cost what one does. At Siglum's retention rate those three would have
+been about 1.3 GB. So the recycle is not needed here, which is *why* the warm
+compile is seconds rather than a minute — the two figures are the same decision,
+not two wins.
+
+**A session does grow, slightly, and it is the engine's.** Three compiles cannot
+tell a flat engine from one that creeps, so `spike:perf --soak` keeps compiling
+on the same engine and samples after each. Over twelve, `blank` goes 440.0 →
+440.6 MB and `thesis-standard` 445.8 → 450.7 MB — monotonic, reproducible across
+three runs, and **~0.45 MB per compile of a 16-page document** against 0.05 MB
+for a 1-page one. It scales with the document, so it is output being retained
+rather than a fixed leak.
+
+The realm breakdown says whose it is: across a soak the *Window* stays at
+4.1–4.4 MB while the worker goes 440.8 → 444.2 MB. Nothing above the port is
+holding onto PDFs; the growth is entirely inside the engine's own realm. At that
+rate an afternoon of 200 compiles on a thesis adds ~100 MB to a 445 MB baseline,
+which is survivable — and if it ever stops being survivable the mitigation is
+already known, because it is Siglum's recycle at a frequency of every few
+hundred compiles rather than every one, at 0.9 s each.
 
 ### How the engine is fed
 
@@ -110,9 +125,9 @@ needs a longer run than this spike does.
 - **`paper-acm` and `paper-ieee`.** `acmart` and `IEEEtran` are in `texmfrepo`,
   which indexes the full archive rather than the tiers, so they need a second
   source. Not structural, and not reachable from this container's egress policy.
-- **Memory over a long session.** Four compiles are flat (above), which rules
-  out Siglum's retention; a writer's afternoon is hundreds, and nothing has run
-  that long.
+- **Where the engine's 0.45 MB a compile goes.** Measured and attributed to the
+  worker realm (above), not diagnosed. It is small enough to leave, and it is
+  the kind of thing that is small until a document is large.
 - **Nothing has run outside desktop Chromium.** Firefox, Safari, and a
   constrained-memory device are all untested, and Safari's WASM limits are the
   ones most likely to bite.
