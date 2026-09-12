@@ -128,6 +128,22 @@ test.describe("outline and project health", () => {
     await expect(page.getByTestId("project-health")).toHaveCount(0);
   });
 
+  test("a problem is marked in the gutter of the line it is on", async ({
+    page,
+  }) => {
+    const editor = page.getByTestId("editor-content");
+    await editor.fill("\\section{One}\n\nSee \\ref{sec:nowhere}.\n");
+
+    // The list says the project has a problem; the gutter says where, on the
+    // line the cursor is near. Both, because a writer scrolling through a
+    // chapter is not reading a list.
+    const marker = page.locator(".cm-lint-marker-warning");
+    await expect(marker).toHaveCount(1);
+
+    await editor.fill("\\section{One}\\label{sec:nowhere}\n");
+    await expect(marker).toHaveCount(0);
+  });
+
   test("a reference resolves against a label in another file", async ({
     page,
   }) => {

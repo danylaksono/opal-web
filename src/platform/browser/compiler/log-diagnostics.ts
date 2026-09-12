@@ -60,6 +60,32 @@ export function unwrap(lines: string[]): string[] {
 }
 
 /**
+ * Where a filename ends in TeX's log.
+ *
+ * TeX prints `(` and the path and then keeps going *on the same line with no
+ * space*, so the very first line of any log reads
+ * `(./main.texLaTeX2e <2024-11-01> patch level 1`. Taking the token up to the
+ * next whitespace gives the file as `main.texLaTeX2e`, which matches no file in
+ * the project — so every diagnostic in the main file was attributed to a file
+ * that does not exist. It showed up the moment something tried to *use* the
+ * attribution rather than print it: the gutter had nothing to mark.
+ *
+ * Ending the name at a known TeX extension is what separates the path from
+ * whatever TeX said next.
+ */
+const TEX_PATH_END =
+  /\.(?:tex|ltx|sty|cls|clo|def|cfg|fd|bst|bbl|aux|toc|lof|lot|out|nav|snm|vrb|bib|dfu|enc|cnf|tikz|code)/i;
+
+function fileFromToken(token: string): string | null {
+  const match = TEX_PATH_END.exec(token);
+  if (match) return token.slice(0, match.index + match[0].length);
+  // An extension this does not know about, standing alone: keep the old
+  // behaviour rather than lose the file, since a token that *ends* in an
+  // extension has nothing appended to it.
+  return /\.\w+$/.test(token) ? token : null;
+}
+
+/**
  * Track the file TeX is currently reading by following its parenthesis stack.
  *
  * Only `(` immediately followed by a path-like token opens a file; TeX also
@@ -71,8 +97,8 @@ function updateFileStack(stack: string[], line: string): void {
   let match: RegExpExecArray | null = pattern.exec(line);
   while (match !== null) {
     if (match[1] === "(") {
-      const path = match[2] ?? "";
-      if (/\.\w+$/.test(path)) {
+      const path = fileFromToken(match[2] ?? "");
+      if (path) {
         stack.push(path.replace(/^\.\//, ""));
       } else {
         // A bare "(" in prose. Push a placeholder so the matching ")" pops

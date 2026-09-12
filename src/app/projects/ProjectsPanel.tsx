@@ -13,8 +13,10 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { EditorProblem } from "@/app/editor/CodeEditor";
 import { CodeEditor } from "@/app/editor/CodeEditor";
 import { Workspace } from "@/app/workspace/Workspace";
+import type { CompileDiagnostic } from "@/core/compiler/types";
 import { buildProjectIndex } from "@/core/latex/project-index";
 import {
   ArchiveRejectedError,
@@ -142,6 +144,8 @@ export function ProjectsPanel({
   const [reveal, setReveal] = useState<{ line: number; nonce: number } | null>(
     null,
   );
+  /** The last compile's diagnostics, kept so the editor can mark them. */
+  const [compiled, setCompiled] = useState<readonly CompileDiagnostic[]>([]);
   const [saveStatus, setSaveStatus] = useState<SaveStatus | null>(null);
   const autosaveRef = useRef<Autosave | null>(null);
 
@@ -396,6 +400,45 @@ export function ProjectsPanel({
       editing.mainFile,
     );
   }, [editing]);
+
+  /**
+   * What to mark in the open file's gutter, from both sources at once.
+   *
+   * They answer different questions and a writer does not care which is which:
+   * the engine knows what TeX could not do, the index knows what the project
+   * does not contain, and neither is visible from the other. Index problems are
+   * warnings even when they are certainly wrong — a missing `\label` compiles,
+   * it just renders as `??` — while the engine's own severity is kept.
+   */
+  const editorProblems = useMemo<EditorProblem[]>(() => {
+    if (!editing) return [];
+    const fromIndex = (index?.problems ?? [])
+      .filter((problem) => problem.file === editing.path)
+      .map((problem) => ({
+        line: problem.line,
+        message: problem.message,
+        severity: "warning" as const,
+      }));
+    const fromEngine = compiled.flatMap((diagnostic) =>
+      // A diagnostic with no file is about the compile target, which is where
+      // TeX was reading from; one with no line cannot be put in a gutter and
+      // stays in the list under the compile button.
+      diagnostic.line === undefined ||
+      (diagnostic.file ?? editing.mainFile) !== editing.path
+        ? []
+        : [
+            {
+              line: diagnostic.line,
+              message: diagnostic.message,
+              severity:
+                diagnostic.severity === "error"
+                  ? ("error" as const)
+                  : ("warning" as const),
+            },
+          ],
+    );
+    return [...fromIndex, ...fromEngine];
+  }, [editing, index, compiled]);
 
   /** Open a file if it is not already open, then put the cursor on a line. */
   const goTo = useCallback(
@@ -677,6 +720,7 @@ export function ProjectsPanel({
               labels: [...(index?.labels.keys() ?? [])],
               citations: [...(index?.bibliographyKeys ?? [])],
             }}
+            problems={editorProblems}
             value={editing.content}
             reveal={reveal}
             onChange={(content) => {
@@ -716,6 +760,7 @@ export function ProjectsPanel({
             mainFile={editing.mainFile}
             openPath={editing.path}
             content={editing.content}
+            onDiagnostics={setCompiled}
             onClose={() => {
               setEditing(null);
             }}

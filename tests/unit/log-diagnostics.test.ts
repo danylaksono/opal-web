@@ -147,4 +147,21 @@ ${line}
     // whole extra compile pass on every build of that document.
     expect(needsRerun("The experiment was rerun in triplicate.")).toBe(false);
   });
+
+  it("ends a filename where the path ends, not where the line does", () => {
+    // The first line of every LaTeX log: TeX prints the file it opened and the
+    // banner follows with no space between them. Read naively the file is
+    // `main.texLaTeX2e`, which matches nothing in the project — so a diagnostic
+    // could be printed but not acted on.
+    const diagnostics = parseTexLog(
+      [
+        "(./main.texLaTeX2e <2024-11-01> patch level 1",
+        "! Undefined control sequence.",
+        "l.4 \\error",
+        "",
+      ].join("\n"),
+    );
+
+    expect(diagnostics[0]).toMatchObject({ file: "main.tex", line: 4 });
+  });
 });

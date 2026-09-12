@@ -43,6 +43,14 @@ interface WorkspaceProps {
   openPath: ProjectPath;
   /** Live editor content, so a compile uses what is on screen, not on disk. */
   content: string;
+  /**
+   * The engine's diagnostics, handed up so the editor can mark them.
+   *
+   * The compile lives here and the editor lives in the panel above, so one of
+   * them has to reach the other. This direction keeps the engine's ports where
+   * they are: the panel learns *that there are diagnostics*, not how to compile.
+   */
+  onDiagnostics?: (diagnostics: readonly CompileDiagnostic[]) => void;
   onClose: () => void;
 }
 
@@ -78,6 +86,7 @@ export function Workspace({
   mainFile,
   openPath,
   content,
+  onDiagnostics,
   onClose,
 }: WorkspaceProps) {
   const [compile, setCompile] = useState<CompileState>({ status: "idle" });
@@ -114,6 +123,14 @@ export function Workspace({
    * the compiler spike documents having already been bitten by.
    */
   const viewRef = useRef({ pageIndex: 0, scrollTop: 0, scrollLeft: 0 });
+  /**
+   * Read when a compile finishes rather than captured by `run`.
+   *
+   * A callback in `run`'s dependencies rebuilds it on every render of the
+   * parent, which on this screen is every keystroke.
+   */
+  const report = useRef(onDiagnostics);
+  report.current = onDiagnostics;
 
   useEffect(() => {
     const renderer = new MupdfRenderer();
@@ -194,7 +211,12 @@ export function Workspace({
     setStage(null);
     // null means a newer compile overtook this one; its result is already on
     // its way and this one must not touch the preview.
-    if (!result?.ok) return;
+    if (!result) return;
+    // Reported before the early return on failure: a failed compile is exactly
+    // when its diagnostics matter, and clearing them on success is how the
+    // marks from the last failure leave the gutter.
+    report.current?.(result.diagnostics);
+    if (!result.ok) return;
 
     setPreview({ status: "rendering" });
     try {

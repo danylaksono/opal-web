@@ -7,6 +7,7 @@ import {
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { StreamLanguage } from "@codemirror/language";
 import { stex } from "@codemirror/legacy-modes/mode/stex";
+import { type Diagnostic, lintGutter, setDiagnostics } from "@codemirror/lint";
 import { EditorState } from "@codemirror/state";
 import { EditorView, keymap, lineNumbers } from "@codemirror/view";
 import { useEffect, useRef } from "react";
@@ -65,12 +66,27 @@ const REFERENCE_PREFIX =
 const CITATION_PREFIX =
   /\\(?:no|paren|text|auto|foot|full)?cite[a-zA-Z]*\{([^}]*)$/;
 
+/**
+ * A problem to mark in the gutter, already narrowed to this file.
+ *
+ * Line-only, because that is all either source has: TeX reports a line and the
+ * index records one, and inventing a column from either would put a squiggle
+ * under an arbitrary character.
+ */
+export interface EditorProblem {
+  line: number;
+  message: string;
+  severity: "error" | "warning";
+}
+
 interface CodeEditorProps {
   value: string;
   onChange: (value: string) => void;
   label: string;
   /** Read at completion time, so typing does not rebuild the view. */
   completions?: Completions;
+  /** Marked in the gutter and under the line. */
+  problems?: readonly EditorProblem[];
   /**
    * A line to put the cursor on and scroll into view.
    *
@@ -87,6 +103,7 @@ export function CodeEditor({
   onChange,
   label,
   completions,
+  problems,
   reveal,
 }: CodeEditorProps) {
   const host = useRef<HTMLDivElement>(null);
@@ -112,6 +129,8 @@ export function CodeEditor({
   initial.current = value;
   const available = useRef(completions);
   available.current = completions;
+  /** What is currently on the document, so identical sets are not re-dispatched. */
+  const marked = useRef<string | null>(null);
 
   /**
    * Offer the project's own keys, and only where one is being written.
@@ -159,6 +178,7 @@ export function CodeEditor({
         doc: initial.current,
         extensions: [
           lineNumbers(),
+          lintGutter(),
           history(),
           autocompletion({
             override: [(context) => complete.current(context)],
@@ -204,6 +224,46 @@ export function CodeEditor({
       changes: { from: 0, to: current.length, insert: value },
     });
   }, [value]);
+
+  /**
+   * Put the current problems on the document.
+   *
+   * Pushed in rather than computed by a `linter()`: nothing here can decide
+   * whether a document is wrong. One source is the engine, which has to be run,
+   * and the other is the project index, which spans files — both live above
+   * this component and both arrive when they arrive.
+   */
+  useEffect(() => {
+    const instance = view.current;
+    if (!instance) return;
+    // The array is rebuilt on every keystroke — the index behind it is — so the
+    // content decides whether to dispatch, not the identity. A transaction per
+    // character would be noise on the editor's own state for no visible change.
+    const signature = (problems ?? [])
+      .map(
+        (problem) => `${problem.line}:${problem.severity}:${problem.message}`,
+      )
+      .join("\n");
+    if (signature === marked.current) return;
+    marked.current = signature;
+
+    const total = instance.state.doc.lines;
+    const marks: Diagnostic[] = (problems ?? [])
+      // A stale problem can outlive the line it was about — an edit after a
+      // failed compile is the ordinary case — and a diagnostic past the end of
+      // the document throws inside the dispatch.
+      .filter((problem) => problem.line >= 1 && problem.line <= total)
+      .map((problem) => {
+        const line = instance.state.doc.line(problem.line);
+        return {
+          from: line.from,
+          to: line.to,
+          severity: problem.severity,
+          message: problem.message,
+        };
+      });
+    instance.dispatch(setDiagnostics(instance.state, marks));
+  }, [problems]);
 
   useEffect(() => {
     const instance = view.current;

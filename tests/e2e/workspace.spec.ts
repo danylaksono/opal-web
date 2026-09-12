@@ -333,6 +333,28 @@ test.describe("compile and preview", () => {
     );
   });
 
+  test("a failed compile marks the line in the editor's gutter", async ({
+    page,
+  }) => {
+    await openWorkspace(page);
+    await page
+      .getByTestId("editor-content")
+      .fill(
+        "\\documentclass{article}\n\\begin{document}\nOne\n\\error\n\\end{document}\n",
+      );
+    await page.getByTestId("compile-button").click();
+    await expect(page.getByTestId("workspace-status")).toHaveAttribute(
+      "data-status",
+      "done",
+      { timeout: 280_000 },
+    );
+
+    // The log says what went wrong and the gutter says where, in the file the
+    // writer is looking at. Reading a thousand-line log to find a line number
+    // the engine already reported is the thing this removes.
+    await expect(page.locator(".cm-lint-marker-error")).toHaveCount(1);
+  });
+
   test("a failed compile shows the engine log", async ({ page }) => {
     await openWorkspace(page);
     // `\error` is not a control sequence, so TeX stops. The point is not the
