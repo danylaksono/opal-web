@@ -18,7 +18,7 @@
  * the shipped one with three substitutions, so the parts that are easy to get
  * subtly wrong are not rewritten at all.
  *
- * Usage: pnpm spike:texlive-min [engine] [--write]   (default: xelatex)
+ * Usage: pnpm spike:texlive-min [engine] [--write] [--no-icu]
  */
 import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -66,8 +66,10 @@ function bootSet(path: string, engine: string): boolean {
   if (path.includes("/web2c/") && path.endsWith(".tcx")) return true;
   // The format is passed to the binary as an absolute path, never looked up.
   if (path === FORMATS[engine]) return true;
-  // ICU's data file is opened by name from inside the XeTeX binary.
-  if (path.endsWith("icudt78l.dat")) return true;
+  // ICU's data file. 22 MB — two thirds of the boot set — and XeTeX opens it
+  // from inside the binary rather than through kpathsea, so it cannot be
+  // served. `--no-icu` measures what leaving it out actually costs.
+  if (path.endsWith("icudt78l.dat")) return !process.argv.includes("--no-icu");
   // Loaded unconditionally by every compile rather than because of anything in
   // the document, so serving them per file is pure repetition: measured on the
   // corpus, `pdftex.map` alone was fetched twelve times for 66.5 MB of the
