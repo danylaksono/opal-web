@@ -20,7 +20,7 @@
  *
  * Usage: pnpm spike:brotli [--quality n] [--write]
  */
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { promisify } from "node:util";
@@ -44,6 +44,16 @@ const TARGETS = [
   "texlive-min-xelatex.js",
 ];
 
+/**
+ * The renderer, which is a build output rather than a downloaded asset.
+ *
+ * MuPDF's WASM is 10.4 MB and Vite emits it hashed into `dist/assets`, where
+ * the preview server does not compress it — measured, it was the largest single
+ * response of a first load once the engine was compressed. It is read whole by
+ * the worker, so the same reasoning applies.
+ */
+const DIST_ASSETS = resolve("dist/assets");
+
 function mb(bytes: number): string {
   return `${(bytes / 1e6).toFixed(2)} MB`;
 }
@@ -61,10 +71,19 @@ async function main(): Promise<void> {
   let rawTotal = 0;
   let brTotal = 0;
 
-  for (const name of TARGETS) {
-    const path = resolve(ROOT, name);
+  const built = existsSync(DIST_ASSETS)
+    ? readdirSync(DIST_ASSETS)
+        .filter((name) => name.endsWith(".wasm"))
+        .map((name) => resolve(DIST_ASSETS, name))
+    : [];
+  if (built.length === 0) {
+    console.log("(no built .wasm in dist/assets; run vite build first)\n");
+  }
+
+  for (const path of [...TARGETS.map((n) => resolve(ROOT, n)), ...built]) {
+    const name = path.slice(path.lastIndexOf("/") + 1);
     if (!existsSync(path)) {
-      console.log(`${name.padEnd(26)} (absent, skipped)`);
+      console.log(`${name.padEnd(34)} (absent, skipped)`);
       continue;
     }
     const raw = await readFile(path);
@@ -80,7 +99,7 @@ async function main(): Promise<void> {
     brTotal += compressed.byteLength;
 
     console.log(
-      `${name.padEnd(26)} ${mb(raw.byteLength).padStart(9)} -> ` +
+      `${name.padEnd(34)} ${mb(raw.byteLength).padStart(9)} -> ` +
         `${mb(compressed.byteLength).padStart(9)} ` +
         `(${Math.round((100 * compressed.byteLength) / raw.byteLength)}%, ${seconds}s)`,
     );

@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
+import { brotliCompressSync, constants } from "node:zlib";
 import type { Connect } from "vite";
 import {
   ARCHIVE_TIER,
@@ -167,13 +168,40 @@ export function texliveEndpointMiddleware(
       } ${entry.path}`,
     );
 
+    /**
+     * Compressed on the fly, at a quality chosen for latency not ratio.
+     *
+     * These are read by a *synchronous* XHR inside the worker, so every
+     * millisecond spent compressing is a millisecond TeX is blocked. Quality 4
+     * costs microseconds on files this size and still takes the corpus's
+     * endpoint traffic down by roughly two thirds; quality 11 would be a
+     * fraction better and is the wrong trade against a blocked engine.
+     *
+     * The browser decodes it before the engine sees it, so nothing downstream
+     * knows the difference — the same reason the whole-file assets can be
+     * pre-compressed.
+     */
+    const raw = archive.read(entry.start, entry.length);
+    const wantsBrotli = String(req.headers["accept-encoding"] ?? "").includes(
+      "br",
+    );
+    const body = wantsBrotli
+      ? brotliCompressSync(raw, {
+          params: {
+            [constants.BROTLI_PARAM_QUALITY]: 4,
+            [constants.BROTLI_PARAM_SIZE_HINT]: raw.byteLength,
+          },
+        })
+      : raw;
+
     res.statusCode = 200;
     res.setHeader("Content-Type", "application/octet-stream");
-    res.setHeader("Content-Length", String(entry.length));
+    if (wantsBrotli) res.setHeader("Content-Encoding", "br");
+    res.setHeader("Content-Length", String(body.byteLength));
     // Same-origin and served to a synchronous XHR inside a worker; no caching
     // headers, because the engine caches registered files in its own FS for
     // the life of the compile and a browser cache entry would only confuse the
     // byte accounting a first-load measurement depends on.
-    res.end(archive.read(entry.start, entry.length));
+    res.end(body);
   };
 }

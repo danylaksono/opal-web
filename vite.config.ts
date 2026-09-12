@@ -80,7 +80,11 @@ const CONTENT_TYPES: Record<string, string> = {
 function serveEngineAssets(): Plugin {
   const middleware: Connect.NextHandleFunction = (req, res, next) => {
     const url = req.url?.split("?")[0] ?? "";
-    if (!url.startsWith("/engines/")) {
+    // `/assets/` is Vite's own build output — the renderer's WASM lives there,
+    // and it is the largest single response of a first load once the engine is
+    // compressed.
+    const engineAsset = url.startsWith("/engines/");
+    if (!engineAsset && !url.startsWith("/assets/")) {
       next();
       return;
     }
@@ -116,7 +120,9 @@ function serveEngineAssets(): Plugin {
       return;
     }
 
-    const file = fileURLToPath(new URL(`./public${url}`, import.meta.url));
+    const file = fileURLToPath(
+      new URL(`./${engineAsset ? "public" : "dist"}${url}`, import.meta.url),
+    );
     const compressed = brotliSibling(file);
     if (!compressed) {
       next();
