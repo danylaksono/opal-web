@@ -188,6 +188,7 @@ async function main(): Promise<void> {
     : (process.argv[2] ?? "xelatex");
   const useCtan = flags.includes("--ctan");
   const useTexlyre = flags.includes("--texlyre");
+  const useEndpoint = flags.includes("--endpoint");
   const tiersIndex = process.argv.indexOf("--tiers");
   const tierDepth =
     tiersIndex === -1 ? null : Number(process.argv[tiersIndex + 1]);
@@ -195,7 +196,9 @@ async function main(): Promise<void> {
   // different package sets, and one silently overwriting the other would
   // leave an ADR citing a file that no longer says what it said.
   const suffix = useTexlyre
-    ? `-texlyre${tierDepth !== null ? `-${tierDepth}` : ""}`
+    ? `-texlyre${tierDepth !== null ? `-${tierDepth}` : ""}${
+        useEndpoint ? "-endpoint" : ""
+      }`
     : useCtan
       ? "-ctan"
       : "";
@@ -240,6 +243,7 @@ async function main(): Promise<void> {
       await page.goto(PREVIEW_URL);
       if (useTexlyre) {
         await page.selectOption('[data-testid="backend-select"]', "texlyre");
+        if (useEndpoint) await page.check('[data-testid="endpoint-toggle"]');
         if (tierDepth !== null) {
           await page.selectOption(
             '[data-testid="tier-select"]',

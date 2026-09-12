@@ -86,6 +86,9 @@ export function CompilerSpike() {
   // How much of the single-vintage tree to preload. Cumulative, so this is
   // a depth rather than a selection.
   const [tierDepth, setTierDepth] = useState(TEXLYRE_TIERS.length);
+  // The self-hosted TeX Live endpoint. Off by default: ADR-001 makes
+  // on-demand fetching opt-in even when the origin is ours.
+  const [useEndpoint, setUseEndpoint] = useState(false);
   const [fidelity, setFidelity] = useState<FidelityState>({ status: "idle" });
   const compilerRef = useRef<SiglumLatexCompiler | TexlyreLatexCompiler | null>(
     null,
@@ -128,6 +131,7 @@ export function CompilerSpike() {
     engine,
     backend,
     tierDepth,
+    useEndpoint,
   });
   optionsRef.current = {
     useCtan,
@@ -136,6 +140,7 @@ export function CompilerSpike() {
     engine,
     backend,
     tierDepth,
+    useEndpoint,
   };
 
   const run = useCallback(async (fileList: FileList) => {
@@ -162,6 +167,9 @@ export function CompilerSpike() {
             engine: options.engine,
             verbose: true,
             tiers: TEXLYRE_TIERS.slice(0, options.tierDepth),
+            ...(options.useEndpoint
+              ? { remoteEndpoint: `${window.location.origin}/texlive` }
+              : {}),
             onLog: (line) => console.log("[texlyre]", line),
             onProgress,
           })
@@ -283,6 +291,21 @@ export function CompilerSpike() {
         Same BusyTeX engine either way; what differs is the package set behind
         it. Siglum's spans five vintages, which ADR-003 records as structural.
       </label>
+
+      {backend === "texlyre" && (
+        <label style={{ display: "block", marginBottom: "0.75rem" }}>
+          <input
+            type="checkbox"
+            data-testid="endpoint-toggle"
+            checked={useEndpoint}
+            onChange={(event) => setUseEndpoint(event.target.checked)}
+          />{" "}
+          Resolve anything the preloaded tiers lack from the self-hosted TeX
+          Live endpoint at <code>/texlive</code>, one request per file
+          (ADR-011). Served from the same tree, so it adds reach rather than
+          another vintage.
+        </label>
+      )}
 
       {backend === "texlyre" && (
         <label style={{ display: "block", marginBottom: "0.75rem" }}>

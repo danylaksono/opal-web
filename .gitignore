@@ -29,3 +29,4 @@ public/tex/
 
 # Archive built from the pinned TeX Live tree by pnpm spike:pinned-archive.
 public/tex-pinned/
+public/texlive/

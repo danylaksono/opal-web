@@ -6,6 +6,7 @@ import { type Connect, defineConfig, type Plugin } from "vite";
 // proposal that Vite does not implement natively.
 import wasm from "vite-plugin-wasm";
 import { ctanProxyMiddleware } from "./scripts/ctan-proxy";
+import { texliveEndpointMiddleware } from "./scripts/texlive-endpoint";
 
 // mupdf's exports map does not expose package.json, and its WASM binary is not
 // an exported subpath either, so both are reached by path rather than by
@@ -82,10 +83,12 @@ function serveEngineAssets(): Plugin {
     configureServer: (server) => () => {
       server.middlewares.use(middleware);
       server.middlewares.use(ctanProxyMiddleware(console.log));
+      server.middlewares.use(texliveEndpointMiddleware(console.log));
     },
     configurePreviewServer: (server) => {
       server.middlewares.use(middleware);
       server.middlewares.use(ctanProxyMiddleware(console.log));
+      server.middlewares.use(texliveEndpointMiddleware(console.log));
     },
   };
 }
