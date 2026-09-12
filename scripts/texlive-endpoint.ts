@@ -38,6 +38,22 @@ import {
 /** The format code the engine sends for a plain TeX input file. */
 const KPSE_TEX_FORMAT = 26;
 
+/**
+ * Suffixes to try when the name as asked for is not in the index.
+ *
+ * kpathsea resolves a TeX input by trying the name, then the name with `.tex`,
+ * and the engine asks the endpoint the same way it would ask a local tree — so
+ * `\input beamerbasenavigationsymbols` arrives here with no extension at all.
+ * Answering 404 to those is not a missing file, it is a resolver that stops one
+ * step early: measured, it cost `presentation-beamer`
+ * (`beamerbasenavigationsymbols`) and `thesis-standard` (`lipsum.ltd`, whose
+ * real name is `lipsum.ltd.tex`), both of which compile when the tier holding
+ * them is preloaded instead. 2,295 of the 23,446 indexed names end in `.tex`.
+ */
+const SUFFIXES: Record<number, readonly string[]> = {
+  [KPSE_TEX_FORMAT]: [".tex"],
+};
+
 const ARCHIVE = resolve(TEXLIVE_ROOT, `texlive-${ARCHIVE_TIER}.data`);
 
 /**
@@ -97,7 +113,21 @@ export function texliveEndpointMiddleware(
 
     index ??= buildIndex();
     archive ??= new TexliveArchive();
-    const entry = index.get(name);
+
+    let entry = index.get(name);
+    let served = name;
+    if (!entry) {
+      for (const suffix of SUFFIXES[format] ?? []) {
+        const candidate = `${name}${suffix}`;
+        const found = index.get(candidate);
+        if (found) {
+          entry = found;
+          served = candidate;
+          break;
+        }
+      }
+    }
+
     if (!entry) {
       stats.misses += 1;
       log(`[texlive] 404 ${format}/${name}`);
@@ -109,7 +139,9 @@ export function texliveEndpointMiddleware(
     stats.hits += 1;
     stats.bytes += entry.length;
     log(
-      `[texlive] 200 ${format}/${name} ${entry.length}B${
+      `[texlive] 200 ${format}/${name}${
+        served === name ? "" : ` -> ${served}`
+      } ${entry.length}B${
         format === KPSE_TEX_FORMAT ? "" : ` (format ${format})`
       } ${entry.path}`,
     );
