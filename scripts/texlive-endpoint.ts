@@ -39,19 +39,40 @@ import {
 const KPSE_TEX_FORMAT = 26;
 
 /**
- * Suffixes to try when the name as asked for is not in the index.
+ * Suffixes to try, by kpathsea format, when the name as asked for is missing.
  *
- * kpathsea resolves a TeX input by trying the name, then the name with `.tex`,
- * and the engine asks the endpoint the same way it would ask a local tree — so
- * `\input beamerbasenavigationsymbols` arrives here with no extension at all.
- * Answering 404 to those is not a missing file, it is a resolver that stops one
- * step early: measured, it cost `presentation-beamer`
- * (`beamerbasenavigationsymbols`) and `thesis-standard` (`lipsum.ltd`, whose
- * real name is `lipsum.ltd.tex`), both of which compile when the tier holding
- * them is preloaded instead. 2,295 of the 23,446 indexed names end in `.tex`.
+ * This is the endpoint's half of a contract, not a workaround. kpathsea
+ * resolves a name by trying it and then trying it with the extensions its
+ * *format* implies, and the engine asks a remote resolver exactly as it asks a
+ * local tree — so `\input beamerbasenavigationsymbols` arrives with no
+ * extension, and so does the font XeTeX wants when it asks for
+ * `lmroman12-regular` under the OpenType, TrueType and Type 1 formats in turn.
+ * The format code is the only thing that says which file is meant.
+ *
+ * Both times this table was short, the failure looked like something else
+ * entirely: a missing file for `presentation-beamer`, a syntax error for
+ * `thesis-standard`, and `! Font ... not loadable` for every document that
+ * sets type in the default face. None of them named the endpoint.
+ *
+ * The numbers are `kpse_file_format_type` in kpathsea's `types.h`, confirmed
+ * against what the engine actually sent: 11 fontmap (`pdftex.map`), 26 tex,
+ * 39 program text (`dvipdfmx.cfg`), 47 opentype, 36 truetype, 32 type1.
  */
 const SUFFIXES: Record<number, readonly string[]> = {
-  [KPSE_TEX_FORMAT]: [".tex"],
+  3: [".tfm"],
+  4: [".afm"],
+  6: [".bib"],
+  7: [".bst"],
+  20: [".ofm"],
+  26: [".tex"],
+  32: [".pfb", ".pfa"],
+  33: [".vf"],
+  36: [".ttf", ".ttc"],
+  37: [".t42"],
+  44: [".enc"],
+  45: [".cmap"],
+  47: [".otf"],
+  51: [".lua"],
 };
 
 const ARCHIVE = resolve(TEXLIVE_ROOT, `texlive-${ARCHIVE_TIER}.data`);
