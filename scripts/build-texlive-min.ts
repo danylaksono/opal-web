@@ -201,6 +201,14 @@ async function main(): Promise<void> {
     }
   }
 
+  // The `.data` is not only the chunks. Emscripten allocates
+  // `total + CHUNK_SIZE * 2` and sets `cachedOffset` to `total`, using the tail
+  // as scratch for the two decompressed chunks it caches — so the file has to
+  // carry that room. Without it the loader stalls part-way through reading the
+  // package: `Downloading data... (41380/28023892)` and then nothing, for the
+  // full four-minute compile timeout, with no error anywhere.
+  const payload = Buffer.concat([blob, Buffer.alloc(CHUNK_SIZE * 2)]);
+
   const out =
     template.slice(0, createPathsStart) +
     createPaths.join("\n") +
@@ -215,11 +223,11 @@ async function main(): Promise<void> {
       successes,
     }) +
     template.slice(compressedClose, argOpen) +
-    JSON.stringify({ files: table, remote_package_size: blob.byteLength }) +
+    JSON.stringify({ files: table, remote_package_size: payload.byteLength }) +
     template.slice(argClose);
 
   await mkdir(TEXLIVE_ROOT, { recursive: true });
-  await writeFile(resolve(TEXLIVE_ROOT, `texlive-min-${engine}.data`), blob);
+  await writeFile(resolve(TEXLIVE_ROOT, `texlive-min-${engine}.data`), payload);
   await writeFile(
     resolve(TEXLIVE_ROOT, `texlive-min-${engine}.js`),
     out.replaceAll("texlive-basic.data", `texlive-min-${engine}.data`),
