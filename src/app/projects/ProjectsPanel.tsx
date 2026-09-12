@@ -13,6 +13,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Workspace } from "@/app/workspace/Workspace";
 import {
   ArchiveRejectedError,
   packProject,
@@ -399,6 +400,21 @@ export function ProjectsPanel({
                       ? `Saved at revision ${saveStatus.revision}`
                       : "No unsaved changes"}
           </p>
+
+          {/*
+            Keyed on the project so opening another one builds a new session
+            rather than pointing the old engine and the old PDF at new files.
+          */}
+          <Workspace
+            key={editing.id}
+            repository={repository}
+            projectId={editing.id}
+            mainFile={editing.path}
+            content={editing.content}
+            onClose={() => {
+              setEditing(null);
+            }}
+          />
         </div>
       )}
 
