@@ -9,7 +9,10 @@ have cost time before.
 
 **Phase 0 — feasibility gates.** Renderer settled (ADR-004). Engine open
 (ADR-003): `@siglum/engine` compiles 11 of 13 corpus projects with a self-hosted
-CTAN proxy. Delivery proposed and measured (ADR-011).
+CTAN proxy, and 2 of 13 without one; `texlyre-busytex`, the same engine on a
+single TeX Live 2026 tree, compiles 11 of 13 with no network at all. Delivery
+proposed and measured (ADR-011), and now the binding constraint: the tree that
+fixes coverage costs 635 MB to preload.
 
 **Phase 1 — product skeleton and storage core: complete.** Projects live on the
 device — bytes in OPFS, metadata in IndexedDB — with conditional writes,
@@ -114,7 +117,9 @@ changed — and the ADRs carry the conclusions:
   cannot resolve.
 - **ADR-011** — delivery. Round-trip cost over HTTP/2, the two conditions that
   each cost an order of magnitude, what feeding the engine one file at a time
-  does and does not achieve, and the scoped tiers of the pinned tree.
+  does and does not achieve, and the scoped tiers of the pinned tree. Revised: Tectonic's
+  bundle repository was archived in October 2024, so the tree to index is a
+  maintained one rather than its frozen 2022 vintage.
 - **PLAN.md** "Progress" and "Next, in order" — the state of the whole
   investigation, kept current.
 

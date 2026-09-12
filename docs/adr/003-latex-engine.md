@@ -1,7 +1,8 @@
 # ADR-003: LaTeX WASM engine and package distribution
 
-- **Status:** Open — Siglum reaches 11/13 with a self-hosted CTAN proxy
-- **Date:** 2026-09-01, last measured 2026-09-03
+- **Status:** Open — Siglum reaches 11/13 *with* a CTAN proxy; texlyre-busytex
+  reaches 11/13 with no network at all
+- **Date:** 2026-09-01, last measured 2026-09-12
 - **Deciders:** danylaksono
 
 ## Context
@@ -830,12 +831,103 @@ None of these options requires a server to compile anything. The one that does
 require a server — SwiftLaTeX's kpathsea resolver — has a static equivalent we
 can generate.
 
+## Measured: the same corpus on a single TeX Live vintage
+
+The version-skew decision above says to own the package tree. Before building
+one, it is worth asking whether somebody already ships the thing that decision
+describes. Since it was written, one candidate does.
+
+`texlyre-busytex` 1.4.0 is the same BusyTeX engine — so this is not an engine
+change, and the candidate-set finding above still holds — but its package set
+is built from **TeX Live 2026 in a single pass** (`versions.txt` names the
+`texlive-2026.0` source tree and the 2026 ISO). It ships three cumulative data
+tiers, `basic` 92.8 MB, `recommended` 201.2 MB and `extra` 341.6 MB, plus a
+32.5 MB `busytex.wasm`; and a `texmfrepo.txt` index of **8,418 revision-pinned
+packages** for a remote endpoint, which must be an origin we control.
+
+Checked statically first, against the fourteen names `spike:siglum` reports as
+CTAN-only: every one is in `texmfrepo`, and all but `ieeetran`, `acmart` and
+`algorithms` are in the local tiers. `translator.sty` is in `recommended` —
+the package `presentation-beamer` dies on under Siglum with CTAN off.
+
+### Result
+
+Run as `pnpm spike:corpus-run xelatex --texlyre`, with no CTAN proxy, no
+archive, and no endpoint configured — every file resolved from the preloaded
+tiers.
+
+| | Siglum, CTAN off | Siglum, CTAN on | texlyre, no network |
+|---|---|---|---|
+| Compiled | 2 / 13 | 11 / 13 | **11 / 13** |
+| Matching desktop's page count | 2 / 2 | 10 / 11 | 10 / 11 |
+| Pages word for word | — | 30 / 60 | **32 / 60** |
+
+**The same score, without the network.** That is the finding. Siglum needs a
+CTAN proxy — a request per missing package, revealing which packages a document
+uses, which ADR-001 makes opt-in for exactly that reason — to reach 11/13.
+This reaches it with nothing but files already on disk before TeX starts.
+
+The two sets of eleven are not the same eleven, and the difference is the
+argument:
+
+- **`cv-modern` compiles, 2/2 pages word for word.** Under Siglum this is
+  defect 8, recorded above as *blocked upstream*: the CTAN fetcher discards
+  OpenType fonts, and an adapter cannot compensate for what an engine will not
+  carry. A tree that ships the fonts has nothing to discard.
+- **`letter-formal` compiles.** This is the version-skew case — `lastpage2e`
+  selecting `lastpagemodern` against a 2023 `hyperref` — and it resolves
+  exactly as the decision above predicted: nothing about the engine changed,
+  only that the package set stopped being five vintages at once.
+- **`presentation-beamer` compiles, 5 pages.** `translator.sty` is simply
+  present. ADR-011 measured both its bundle and archive paths stopping at the
+  same wall; the wall was the package set, not the delivery model.
+- **`paper-acm` and `paper-ieee` do not compile**, on `acmart.cls` and
+  `IEEEtran.cls`. Both are in `texmfrepo` and in no local tier, so these are
+  endpoint-shaped failures rather than structural ones — the first real use for
+  a self-hosted TeX Live endpoint, and the next thing to measure.
+
+`report-scientific` produces 9 pages against desktop's 8. That is a new
+fidelity discrepancy, not a pass, and it is unexplained.
+
+### What it costs
+
+Every project took **28–46 s**, against 0.8–5 s for Siglum's warm cases. The
+number is almost entirely the tiers: the corpus driver opens a fresh page per
+project, so each figure includes loading 635 MB of data packages from
+`localhost` before TeX runs. It is a first-load cost measured thirteen times,
+not a compile cost — but it is also the honest shape of this delivery model,
+and 635 MB is far worse than the 41–135 MB ADR-011 calls the problem.
+
+So the coverage and the delivery question have swapped places. Siglum's
+problem was that the package set could not compile the corpus; this one
+compiles it and cannot plausibly ship it whole. ADR-011's indexed archive is
+the same answer as before, now applied to a tree worth indexing — and the
+engine already exposes the per-file hook to receive it: `kpse_remote_register`
+takes a name, a kpathsea format and bytes, and `kpse_remote_register_misses`
+takes a *set* of misses rather than the one-per-pass ADR-011 had to work
+around.
+
+### Fidelity, and a caveat about what improved
+
+32 of 60 pages reproduce desktop word for word, against 30 of 60 — but the
+comparison is over a different set of documents, so the two figures are not a
+clean before-and-after and should not be read as one.
+
+The divergences are more interesting than the count. Four documents diverge
+first on `February -> September`, which is `\today` against a reference built
+in February and not a defect. Most of the rest are hyphenation —
+`together -> to-`, `polynomial -> polyno-`, `consensus -> con-`,
+`neural -> neu-` — which is the missing-babel finding above showing up again,
+in a package set where the fix is available.
+
 ## Still to measure
 
 The CTAN path is answered: **11/13, with 10 of 11 matching desktop's page
 count**, up from 9/13 and 8/9 once the two fixable failures above were resolved.
-What remains is fidelity beyond page count, performance, and the two structural
-failures.
+The offline path is now answered too, and at the same score: **11/13 on a
+single TeX Live 2026 tree with no network at all**, which closes the two
+failures this ADR had recorded as structural. What remains is delivery — 635 MB
+of tiers is not shippable — and the two template classes no local tier carries.
 
 - [x] Stand up a self-hosted CTAN proxy and re-run the corpus with `--ctan`.
 - [x] Compare page counts against the committed reference PDFs.
@@ -843,6 +935,17 @@ failures.
       carry nondeterministic metadata. 30/60 pages match word for word.
 - [ ] Compare diagnostics, which needs desktop Tectonic's logs committed
       alongside the reference PDFs. There is nothing to compare against today.
+- [x] Re-run the corpus on a single TeX Live vintage. `texlyre-busytex` 1.4.0,
+      no network: 11/13, and `cv-modern`, `letter-formal` and
+      `presentation-beamer` all compile.
+- [ ] Stand up a self-hosted TeX Live endpoint and settle `paper-acm` and
+      `paper-ieee`. Both classes are in `texmfrepo`; neither is in a local tier.
+      This is the only remaining coverage gap, and it is not structural.
+- [ ] Index the TeX Live 2026 tree the way ADR-011 indexes the others, and
+      measure a first load that is not 635 MB. `kpse_remote_register` takes one
+      file at a time, and `kpse_remote_register_misses` takes a set — so the
+      one-missing-file-per-pass cost measured on `paper-acm` may not apply here.
+- [ ] Explain `report-scientific` at 9 pages against desktop's 8.
 - [x] Diagnose the four remaining failures. Two were font-asset gaps, one is
       version skew, one was a format built without babel. Two are fixed.
 - [x] Investigate `paper-acm`: 22 full XeTeX passes, one missing package
@@ -915,3 +1018,17 @@ rather than a Phase 0 instrument.
 `EngineIdentity` carries the package-set version on every result, which the
 pinned asset release makes meaningful: a compile can name exactly the TeX Live
 snapshot that produced it.
+
+The port earned itself a second time over. A whole second engine — a different
+package set, a different resolution model, a different cancellation story —
+went in behind `LatexCompiler` without anything above it changing, and the two
+can now be run against the same corpus on the same afternoon. That is the
+difference between comparing engines and arguing about them.
+
+And the version-skew decision was right, but its conclusion was too narrow.
+"Own the package tree" was reached from the premise that nobody ships one tree;
+somebody now does, and the three failures this ADR had written off — an
+upstream font defect, a skew failure, and beamer's missing `translator` — all
+disappeared at once when the tree stopped being five vintages. What is left to
+own is not the tree but its *delivery*, which is ADR-011's question and not
+this one's.

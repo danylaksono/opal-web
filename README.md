@@ -15,15 +15,24 @@ PLAN.md keeps it until the questions below are closed.
 1. **Renderer — settled.** MuPDF.js, verified booting in a plain browser module
    worker on a static host, with per-line text geometry good enough for review
    anchoring (ADR-004). This makes the app AGPL-3.0-or-later (ADR-002).
-2. **LaTeX engine — open.** Every maintained browser TeX distribution wraps the
-   same BusyTeX TeX Live build, so the question is package delivery, not engine
-   fidelity. `@siglum/engine` now compiles **11 of 13** corpus projects with a
-   self-hosted, version-pinned CTAN proxy, 10 of those matching desktop
-   Tectonic's page count and 30 of 60 pages reproducing its text word for word.
-   Eleven engine defects were found doing it; ten are absorbed by the adapter
-   (ADR-003).
-3. **Package delivery — proposed.** Bundles are fetched whole, so a first
-   compile transfers 41–135 MB. Tectonic's indexed-archive model, verified
+2. **LaTeX engine — open, but the shape of the answer changed.** Every
+   maintained browser TeX distribution wraps the same BusyTeX TeX Live build, so
+   the question is package delivery, not engine fidelity. `@siglum/engine`
+   compiles **11 of 13** corpus projects with a self-hosted, version-pinned CTAN
+   proxy — and **2 of 13** without one. `texlyre-busytex`, the same engine built
+   from a single TeX Live 2026 tree, compiles **11 of 13 with no network at
+   all**, including the three ADR-003 had written off: `cv-modern` (an upstream
+   font defect), `letter-formal` (version skew) and `presentation-beamer`
+   (`translator.sty`). The two it misses, `paper-acm` and `paper-ieee`, need
+   `acmart` and `IEEEtran` from a self-hosted endpoint rather than anything
+   structural. Eleven engine defects were found on Siglum; ten are absorbed by
+   the adapter (ADR-003).
+3. **Package delivery — proposed, and now the binding constraint.** Bundles are
+   fetched whole, so a first compile transfers 41–135 MB — and the TeX Live 2026
+   tree that fixes coverage costs 635 MB to preload, so delivery is what stands
+   between a corpus that compiles and a product that ships. Tectonic's bundle
+   repository was archived in October 2024, so the tree to index is no longer
+   its 2022 one (ADR-011). Tectonic's indexed-archive model, verified
    against its live bundle, would make that 17–21 MB: `presentation-beamer`
    reads 2.1 MB of TeX files and currently downloads 118.9 MB to get them.
    Fetching those as 142 range requests costs 575 ms on a 150 ms link — but only

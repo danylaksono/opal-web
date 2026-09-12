@@ -3,7 +3,7 @@
 - **Status:** Proposed — format verified against the live Tectonic bundle, the
   delivery measured on a local archive, and file-level injection working behind
   `texArchiveUrl`; the engine's own bundle path is not yet replaced
-- **Date:** 2026-09-03
+- **Date:** 2026-09-03, revised 2026-09-12
 - **Deciders:** danylaksono
 
 ## Context
@@ -319,6 +319,48 @@ Three properties make this the right shape rather than merely a smaller one:
 - **It is the tree desktop uses.** Comparing our output against desktop
   Tectonic's stops comparing two package sets as well as two engines.
 
+### Revision: the tree to index is no longer Tectonic's
+
+Two things found while measuring `texlyre-busytex` for ADR-003 change which
+tree this decision should be applied to, without changing the decision.
+
+**Tectonic's bundle repository is archived.** `tectonic-texlive-bundles` was
+made read-only on 2 October 2024 with no successor named, and the only release
+published there is `tlextras-2021.3r1`. The `tlextras-2022.0r0` tree this ADR
+pins is served from `data1.fullyjustified.net`, a single host outside our
+control, now unmaintained — and unreachable from at least one environment we
+build in. "It is the tree desktop uses" is still true and still valuable for
+comparison; "it is a tree we can keep getting" no longer is. A frozen 2022
+vintage is also a widening gap against the documents users will bring.
+
+**A maintained single-vintage tree ships with an engine we already measure.**
+`texlyre-busytex` 1.4.0 carries TeX Live 2026 as three cumulative data tiers
+and a `texmfrepo.txt` index of 8,418 revision-pinned packages. ADR-003 measures
+that package set compiling **11 of 13 corpus projects with no network at all**.
+Everything this ADR says about indexed delivery applies to it unchanged — it is
+a tree, it has one vintage, and it is served from our origin.
+
+What is new is the receiving end. This ADR had to work around TeX naming one
+missing file per run, which cost a full pass per file and made `paper-acm` 57 s.
+That engine exposes the hook directly:
+
+```js
+Module.kpse_remote_register(name, format, contents);  // one file, by format
+Module.kpse_remote_register_misses(keys);             // misses as a SET
+```
+
+Per-file registration at the kpathsea level, and misses reported as a set
+rather than one at a time. The finding above — that file-level injection "works,
+and is not enough", because it could only supplement Siglum's own resolution and
+never replace it — is a property of *that* engine, not of this delivery model.
+Here `remoteEndpoint` is a first-class compile option with no bundle path behind
+it to fight.
+
+None of this is measured yet, and it should not be adopted on the strength of an
+API surface: what is measured is that the tiers compile 11/13 offline and cost
+635 MB to load. Indexing that tree, and measuring a first load against the
+41–135 MB this ADR set out to fix, is the next step and is listed below.
+
 ## What this does not decide
 
 **It is not a decision to use Tectonic's engine.** No WebAssembly build of
@@ -361,6 +403,11 @@ happens to ship both.
       **77.1 MB of font bundles at init**, before TeX runs and independently of
       the document, so no font is ever reported missing. Answering this needs
       the engine's font loading replaced, not measured.
+- [ ] Index the TeX Live 2026 tree and measure a first load against the
+      41–135 MB above. The tiers compile the corpus offline at 635 MB, which is
+      coverage bought at a delivery cost this ADR exists to remove.
+- [ ] Measure `kpse_remote_register_misses` with a set of misses, against the
+      one-file-per-pass cost recorded above.
 - [x] Whether a tree scoped to plausible documents is small enough to serve from
       the same static host as the app. **Only the narrowest tier is.** Measured
       from the pinned tree's index: corpus 4.8 MB, all runtime macros 249 MB,
