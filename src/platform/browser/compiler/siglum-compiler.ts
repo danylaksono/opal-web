@@ -1,6 +1,5 @@
 import { SiglumCompiler } from "@siglum/engine/compiler";
 import type {
-  CompileDiagnostic,
   CompileFailureCategory,
   CompileRequest,
   CompileResult,
@@ -13,7 +12,7 @@ import {
   missingFontPackages,
   unresolvableFonts,
 } from "./font-resolution";
-import { needsRerun, parseTexLog } from "./log-diagnostics";
+import { categoriseFailure, needsRerun, parseTexLog } from "./log-diagnostics";
 
 /**
  * `LatexCompiler` implemented over @siglum/engine (ADR-003 spike).
@@ -477,7 +476,7 @@ export class SiglumLatexCompiler implements LatexCompiler {
         return {
           ok: false,
           revision: request.revision,
-          category: categorise(result.error ?? "", log, diagnostics),
+          category: categoriseFailure(result.error ?? "", log, diagnostics),
           summary:
             fonts.length > 0
               ? `This engine cannot load ${fonts.join(", ")}`
@@ -683,28 +682,4 @@ export class SiglumLatexCompiler implements LatexCompiler {
     this.#compiler = null;
     this.#initPromise = null;
   }
-}
-
-/**
- * Map an engine failure onto the categories the desktop UI already renders.
- * A missing package is called out separately from a generic missing file
- * because on Siglum it usually means the CTAN path failed, not that the user
- * mistyped a filename — a distinction the user can act on.
- */
-function categorise(
-  error: string,
-  log: string,
-  diagnostics: readonly CompileDiagnostic[],
-): CompileFailureCategory {
-  const haystack = `${error}\n${log}`;
-  if (/Undefined control sequence/i.test(haystack)) return "undefined-command";
-  if (/shell escape|\\write18/i.test(haystack)) return "shell-escape-refused";
-  if (/out of memory|allocation failed/i.test(haystack)) return "out-of-memory";
-  if (/File `[^']+\.(sty|cls|bst)' not found|not installed/i.test(haystack)) {
-    return "missing-package";
-  }
-  if (/File `[^']+' not found|cannot find/i.test(haystack))
-    return "missing-file";
-  if (diagnostics.some((d) => d.severity === "error")) return "syntax";
-  return "unknown";
 }

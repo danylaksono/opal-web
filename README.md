@@ -63,8 +63,11 @@ pnpm install
 pnpm spike:corpus   # regenerate the corpus from a sibling tectonic-editor checkout
 pnpm spike:coverage docs/evidence/wasmtex-0.1.1/manifest.json
 ./scripts/download-siglum-assets.sh   # 225 MB of engine assets, gitignored
+./scripts/download-texlyre-assets.sh  # 700 MB, the TeX Live 2026 comparison
 pnpm spike:siglum xelatex             # corpus coverage against those bundles
 pnpm spike:corpus-run xelatex --ctan  # compile all 13, needs a running preview
+pnpm spike:corpus-run xelatex --texlyre           # the same 13 on TeX Live 2026
+pnpm spike:corpus-run xelatex --texlyre --tiers 2 # ... truncated to 294 MB
 pnpm spike:perf                       # init, cold, warm, memory, cancellation
 pnpm spike:firstload                  # bytes a cold first compile transfers
 pnpm spike:tex-archive                # indexed TeX archive built from the bundles

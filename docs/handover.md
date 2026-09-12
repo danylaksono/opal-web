@@ -24,7 +24,7 @@ sequence and why.
 
 ## What is not in the repository
 
-About 780 MB of it, all gitignored, all regenerable. Nothing here is a source of
+About 1.5 GB of it, all gitignored, all regenerable. Nothing here is a source of
 truth; the corpus reference PDFs *are*, and those are committed because they
 cannot be regenerated without the desktop repo and a native toolchain.
 
@@ -32,7 +32,8 @@ cannot be regenerated without the desktop repo and a native toolchain.
 | --- | ---: | --- |
 | `node_modules/` | — | `pnpm install` |
 | Playwright's browsers | — | `npx playwright install chromium` |
-| `public/engines/` | 225 MB | `./scripts/download-siglum-assets.sh` |
+| `public/engines/siglum/` | 225 MB | `./scripts/download-siglum-assets.sh` |
+| `public/engines/texlyre/` | 700 MB | `./scripts/download-texlyre-assets.sh` |
 | `spike-results/` | small | `pnpm spike:corpus-run xelatex --ctan` (needs a preview running) |
 | `public/tex/` | 259 MB | `pnpm spike:tex-archive` (needs `public/engines`) |
 | `.cache/tectonic/index.txt` | 4.9 MB | see below |

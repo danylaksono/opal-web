@@ -10,7 +10,12 @@
  * vite preview --port 4173`. Results are written to spike-results/, which is
  * gitignored; the summary is what belongs in the ADR.
  *
- * Usage: pnpm spike:corpus-run [engine] [--ctan] [--only a,b,c]
+ * Usage: pnpm spike:corpus-run [engine] [--ctan] [--texlyre] [--tiers n]
+ *        [--only a,b,c]
+ *
+ * `--texlyre` measures the TeX Live 2026 package set instead of Siglum's
+ * five-vintage bundles (ADR-003); `--tiers` truncates it to a depth, which is
+ * how the size/coverage curve is read.
  *
  * `--only` narrows the run to named projects and is how a failure gets
  * diagnosed: the full engine log for each project is written to
@@ -182,6 +187,18 @@ async function main(): Promise<void> {
     ? "xelatex"
     : (process.argv[2] ?? "xelatex");
   const useCtan = flags.includes("--ctan");
+  const useTexlyre = flags.includes("--texlyre");
+  const tiersIndex = process.argv.indexOf("--tiers");
+  const tierDepth =
+    tiersIndex === -1 ? null : Number(process.argv[tiersIndex + 1]);
+  // Part of every output name: a texlyre run and a Siglum run measure
+  // different package sets, and one silently overwriting the other would
+  // leave an ADR citing a file that no longer says what it said.
+  const suffix = useTexlyre
+    ? `-texlyre${tierDepth !== null ? `-${tierDepth}` : ""}`
+    : useCtan
+      ? "-ctan"
+      : "";
   const onlyIndex = process.argv.indexOf("--only");
   const only =
     onlyIndex === -1
@@ -221,6 +238,15 @@ async function main(): Promise<void> {
 
     try {
       await page.goto(PREVIEW_URL);
+      if (useTexlyre) {
+        await page.selectOption('[data-testid="backend-select"]', "texlyre");
+        if (tierDepth !== null) {
+          await page.selectOption(
+            '[data-testid="tier-select"]',
+            String(tierDepth),
+          );
+        }
+      }
       await page.selectOption('[data-testid="engine-select"]', engine);
       if (useCtan) await page.check('[data-testid="ctan-toggle"]');
       await page.setInputFiles(
@@ -296,7 +322,7 @@ async function main(): Promise<void> {
     } finally {
       await page.close();
       await writeFile(
-        resolve(LOG_DIR, `${project}-${engine}${useCtan ? "-ctan" : ""}.log`),
+        resolve(LOG_DIR, `${project}-${engine}${suffix}.log`),
         `${engineLog.join("\n")}\n`,
         "utf8",
       );
@@ -384,11 +410,21 @@ ${whole}/${measured.length} documents and ${exactPages}/${comparedPages} pages` 
   // overwrite the whole-corpus record the ADR is written from.
   const file = resolve(
     OUT_DIR,
-    `corpus-${engine}${useCtan ? "-ctan" : ""}${only ? "-partial" : ""}.json`,
+    `corpus-${engine}${suffix}${only ? "-partial" : ""}.json`,
   );
   await writeFile(
     file,
-    `${JSON.stringify({ engine, useCtan, outcomes }, null, 2)}\n`,
+    `${JSON.stringify(
+      {
+        engine,
+        useCtan,
+        backend: useTexlyre ? "texlyre" : "siglum",
+        tierDepth,
+        outcomes,
+      },
+      null,
+      2,
+    )}\n`,
     "utf8",
   );
   console.log(`\nWritten to ${file}`);

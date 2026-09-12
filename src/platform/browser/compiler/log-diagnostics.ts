@@ -199,3 +199,32 @@ const RERUN_REQUEST =
 export function needsRerun(log: string): boolean {
   return RERUN_REQUEST.test(log);
 }
+
+/**
+ * Map an engine failure onto the categories the desktop UI already renders.
+ *
+ * A missing package is called out separately from a generic missing file
+ * because on every browser engine measured so far it means the package set is
+ * short of the document, not that the user mistyped a filename — a distinction
+ * the user can act on. Shared by the adapters: the categories are the port's,
+ * not any one engine's, and two engines disagreeing about what counts as a
+ * missing package would show up as an engine difference in the corpus results
+ * when it was only an adapter difference.
+ */
+export function categoriseFailure(
+  error: string,
+  log: string,
+  diagnostics: readonly CompileDiagnostic[],
+): CompileFailureCategory {
+  const haystack = `${error}\n${log}`;
+  if (/Undefined control sequence/i.test(haystack)) return "undefined-command";
+  if (/shell escape|\\write18/i.test(haystack)) return "shell-escape-refused";
+  if (/out of memory|allocation failed/i.test(haystack)) return "out-of-memory";
+  if (/File `[^']+\.(sty|cls|bst)' not found|not installed/i.test(haystack)) {
+    return "missing-package";
+  }
+  if (/File `[^']+' not found|cannot find/i.test(haystack))
+    return "missing-file";
+  if (diagnostics.some((d) => d.severity === "error")) return "syntax";
+  return "unknown";
+}

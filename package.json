@@ -34,6 +34,7 @@
     "mupdf": "^1.28.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
+    "texlyre-busytex": "^1.4.0",
     "zustand": "^5.0.10"
   },
   "devDependencies": {

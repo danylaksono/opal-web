@@ -2,6 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { CompileDiagnostic } from "@/core/compiler/types";
 import { projectPath } from "@/core/project/ids";
 import { SiglumLatexCompiler } from "@/platform/browser/compiler/siglum-compiler";
+import {
+  TEXLYRE_TIERS,
+  TexlyreLatexCompiler,
+} from "@/platform/browser/compiler/texlyre-compiler";
 import { MupdfRenderer } from "@/platform/browser/pdf/mupdf-renderer";
 import type { DocumentComparison } from "@/spikes/fidelity/compare";
 import { compareDocuments } from "@/spikes/fidelity/run";
@@ -76,8 +80,16 @@ export function CompilerSpike() {
   const [engine, setEngine] = useState<"xelatex" | "pdflatex" | "lualatex">(
     "xelatex",
   );
+  // Which engine implementation to measure. Both wrap the same BusyTeX
+  // build; what differs is the package set behind them (ADR-003).
+  const [backend, setBackend] = useState<"siglum" | "texlyre">("siglum");
+  // How much of the single-vintage tree to preload. Cumulative, so this is
+  // a depth rather than a selection.
+  const [tierDepth, setTierDepth] = useState(TEXLYRE_TIERS.length);
   const [fidelity, setFidelity] = useState<FidelityState>({ status: "idle" });
-  const compilerRef = useRef<SiglumLatexCompiler | null>(null);
+  const compilerRef = useRef<SiglumLatexCompiler | TexlyreLatexCompiler | null>(
+    null,
+  );
   const rendererRef = useRef<MupdfRenderer | null>(null);
   /**
    * The compiled PDF, kept so a reference can be compared against it later.
@@ -109,8 +121,22 @@ export function CompilerSpike() {
    * much other work the driver was doing. Mirroring into a ref costs nothing
    * and removes the race rather than making it less likely.
    */
-  const optionsRef = useRef({ useCtan, useArchive, archiveUrl, engine });
-  optionsRef.current = { useCtan, useArchive, archiveUrl, engine };
+  const optionsRef = useRef({
+    useCtan,
+    useArchive,
+    archiveUrl,
+    engine,
+    backend,
+    tierDepth,
+  });
+  optionsRef.current = {
+    useCtan,
+    useArchive,
+    archiveUrl,
+    engine,
+    backend,
+    tierDepth,
+  };
 
   const run = useCallback(async (fileList: FileList) => {
     setResult({ status: "initialising" });
@@ -121,21 +147,34 @@ export function CompilerSpike() {
     // cannot poison the next measurement.
     await compilerRef.current?.dispose();
     const options = optionsRef.current;
-    const compiler = new SiglumLatexCompiler({
-      engine: options.engine,
-      verbose: true,
-      ...(options.useCtan ? { ctanProxyUrl: "/ctan" } : {}),
-      ...(options.useArchive ? { texArchiveUrl: options.archiveUrl } : {}),
-      // Engine chatter goes to the console rather than React state: it is
-      // high-volume, and this is a measurement harness where the browser
-      // console is where you actually read it.
-      onLog: (line) => console.log("[siglum]", line),
-      onProgress: (stage, detail) =>
-        setResult((previous) => ({
-          ...previous,
-          stage: detail ? `${stage}: ${detail}` : stage,
-        })),
-    });
+    // Engine chatter goes to the console rather than React state: it is
+    // high-volume, and this is a measurement harness where the browser
+    // console is where you actually read it.
+    const onProgress = (stage: string, detail?: string) =>
+      setResult((previous) => ({
+        ...previous,
+        stage: detail ? `${stage}: ${detail}` : stage,
+      }));
+
+    const compiler =
+      options.backend === "texlyre"
+        ? new TexlyreLatexCompiler({
+            engine: options.engine,
+            verbose: true,
+            tiers: TEXLYRE_TIERS.slice(0, options.tierDepth),
+            onLog: (line) => console.log("[texlyre]", line),
+            onProgress,
+          })
+        : new SiglumLatexCompiler({
+            engine: options.engine,
+            verbose: true,
+            ...(options.useCtan ? { ctanProxyUrl: "/ctan" } : {}),
+            ...(options.useArchive
+              ? { texArchiveUrl: options.archiveUrl }
+              : {}),
+            onLog: (line) => console.log("[siglum]", line),
+            onProgress,
+          });
     compilerRef.current = compiler;
 
     try {
@@ -232,6 +271,39 @@ export function CompilerSpike() {
       </p>
 
       <label style={{ display: "block", marginBottom: "0.75rem" }}>
+        Package set{" "}
+        <select
+          data-testid="backend-select"
+          value={backend}
+          onChange={(event) => setBackend(event.target.value as typeof backend)}
+        >
+          <option value="siglum">Siglum bundles (TeX Live 2020–2025)</option>
+          <option value="texlyre">texlyre-busytex (TeX Live 2026)</option>
+        </select>{" "}
+        Same BusyTeX engine either way; what differs is the package set behind
+        it. Siglum's spans five vintages, which ADR-003 records as structural.
+      </label>
+
+      {backend === "texlyre" && (
+        <label style={{ display: "block", marginBottom: "0.75rem" }}>
+          Tiers{" "}
+          <select
+            data-testid="tier-select"
+            value={tierDepth}
+            onChange={(event) => setTierDepth(Number(event.target.value))}
+          >
+            {TEXLYRE_TIERS.map((_, index) => (
+              <option key={TEXLYRE_TIERS[index]} value={index + 1}>
+                {TEXLYRE_TIERS.slice(0, index + 1).join(" + ")}
+              </option>
+            ))}
+          </select>{" "}
+          Cumulative, so this is a depth. Everything selected is present before
+          TeX starts, so no package name leaves the machine.
+        </label>
+      )}
+
+      <label style={{ display: "block", marginBottom: "0.75rem" }}>
         Engine{" "}
         <select
           data-testid="engine-select"
@@ -244,7 +316,12 @@ export function CompilerSpike() {
         </select>
       </label>
 
-      <label style={{ display: "block", marginBottom: "0.75rem" }}>
+      <label
+        style={{
+          display: backend === "siglum" ? "block" : "none",
+          marginBottom: "0.75rem",
+        }}
+      >
         <input
           type="checkbox"
           data-testid="ctan-toggle"
@@ -256,7 +333,12 @@ export function CompilerSpike() {
         it reveals which packages a document uses.
       </label>
 
-      <label style={{ display: "block", marginBottom: "0.75rem" }}>
+      <label
+        style={{
+          display: backend === "siglum" ? "block" : "none",
+          marginBottom: "0.75rem",
+        }}
+      >
         <input
           type="checkbox"
           data-testid="archive-toggle"
