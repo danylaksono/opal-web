@@ -12,9 +12,10 @@
  * 6.1 is explicit that this must be visible rather than buried.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CodeEditor } from "@/app/editor/CodeEditor";
 import { Workspace } from "@/app/workspace/Workspace";
+import { buildProjectIndex } from "@/core/latex/project-index";
 import {
   ArchiveRejectedError,
   packProject,
@@ -31,6 +32,30 @@ import type {
   ProjectRepository,
   ProjectSummary,
 } from "@/core/project/repository";
+
+/**
+ * Extensions whose bytes are text the index can read.
+ *
+ * Anything else is held as an empty string rather than skipped: a project's
+ * images are not readable here, but `\includegraphics{plot}` resolves against
+ * their *paths*, and a file the index cannot see is a file it reports missing.
+ */
+const TEXT_FILE = /\.(tex|ltx|cls|sty|bib|txt|md)$/i;
+
+async function readSources(
+  repository: ProjectRepository,
+  id: ProjectId,
+  files: readonly ProjectPath[],
+): Promise<Record<string, string>> {
+  const decoder = new TextDecoder();
+  const sources: Record<string, string> = {};
+  for (const path of files) {
+    sources[path] = TEXT_FILE.test(path)
+      ? decoder.decode(await repository.readFile(id, path))
+      : "";
+  }
+  return sources;
+}
 
 interface StorageStatus {
   persisted: boolean | null;
@@ -100,9 +125,23 @@ export function ProjectsPanel({
     mainFile: ProjectPath;
     /** Every file in the project, so one can be switched to without a re-open. */
     files: readonly ProjectPath[];
+    /**
+     * Every text file's content, kept in memory.
+     *
+     * The semantic index spans files — a `\ref` here resolves to a `\label`
+     * there — so it needs all of them, and re-reading a project from OPFS on
+     * every keystroke would trade a 1 ms index for storage traffic. Binary
+     * files are held as empty strings: their *paths* are what
+     * `\includegraphics` resolves against, and their bytes mean nothing here.
+     */
+    sources: Readonly<Record<string, string>>;
     content: string;
   } | null>(null);
   const [newFileName, setNewFileName] = useState("");
+  /** An outline click: which line to show, and a nonce so a repeat click works. */
+  const [reveal, setReveal] = useState<{ line: number; nonce: number } | null>(
+    null,
+  );
   const [saveStatus, setSaveStatus] = useState<SaveStatus | null>(null);
   const autosaveRef = useRef<Autosave | null>(null);
 
@@ -240,10 +279,9 @@ export function ProjectsPanel({
         setEditing(null);
         return;
       }
-      const content = new TextDecoder().decode(
-        await repository.readFile(id, path),
-      );
-      setEditing({ id, path, mainFile: path, files, content });
+      const sources = await readSources(repository, id, files);
+      const content = sources[path] ?? "";
+      setEditing({ id, path, mainFile: path, files, sources, content });
       setSaveStatus({ state: "idle", revision: record.revision });
       startAutosave(id, record.revision);
     },
@@ -264,7 +302,12 @@ export function ProjectsPanel({
       const content = new TextDecoder().decode(
         await repository.readFile(editing.id, path),
       );
-      setEditing({ ...editing, path, content });
+      setEditing({
+        ...editing,
+        path,
+        content,
+        sources: { ...editing.sources, [path]: content },
+      });
     },
     [editing, repository],
   );
@@ -290,7 +333,13 @@ export function ProjectsPanel({
         new Uint8Array(),
       );
       const files = await repository.listFiles(editing.id);
-      setEditing({ ...editing, path, files, content: "" });
+      setEditing({
+        ...editing,
+        path,
+        files,
+        content: "",
+        sources: { ...editing.sources, [path]: "" },
+      });
       // The write advanced the revision out from under the autosave, whose
       // writes are conditional on the one it was built with. Left alone, the
       // next keystroke would be reported to the user as "this project changed
@@ -320,11 +369,41 @@ export function ProjectsPanel({
       const content = new TextDecoder().decode(
         await repository.readFile(editing.id, next),
       );
-      setEditing({ ...editing, path: next, files, content });
+      const sources = { ...editing.sources };
+      delete sources[path];
+      setEditing({ ...editing, path: next, files, content, sources });
       autosaveRef.current?.adopt(revision);
       await refresh();
     },
     [editing, repository, refresh],
+  );
+
+  /**
+   * The project's cross-file structure, recomputed as it is typed.
+   *
+   * Cheap enough to do on every keystroke — the corpus's largest project
+   * indexes in about a millisecond — so there is no debounce and no staleness
+   * to reason about. The alternative, an incremental index, would need
+   * invalidating correctly, and a wrong index is worse than a slow one.
+   */
+  const index = useMemo(() => {
+    if (!editing) return null;
+    return buildProjectIndex(
+      Object.entries(editing.sources).map(([path, content]) => ({
+        path: path as ProjectPath,
+        content,
+      })),
+      editing.mainFile,
+    );
+  }, [editing]);
+
+  /** Open a file if it is not already open, then put the cursor on a line. */
+  const goTo = useCallback(
+    async (path: ProjectPath, line: number) => {
+      if (editing && path !== editing.path) await openFile(path);
+      setReveal({ line, nonce: Date.now() });
+    },
+    [editing, openFile],
   );
 
   // A tab closing mid-edit is exactly when a debounce is a liability.
@@ -529,13 +608,79 @@ export function ProjectsPanel({
             </button>
           </form>
 
+          {index && index.problems.length > 0 && (
+            <details data-testid="project-health" open>
+              {/*
+                Open by default and above the editor, unlike the compiler's
+                diagnostics: these are answers to questions a person cannot
+                check by looking — whether a `\ref` resolves anywhere in the
+                project — and they are available without compiling at all.
+              */}
+              <summary>
+                Project health: {index.problems.length}{" "}
+                {index.problems.length === 1 ? "problem" : "problems"}
+              </summary>
+              <ul>
+                {index.problems.slice(0, 50).map((problem) => (
+                  <li
+                    key={`${problem.kind}:${problem.file}:${problem.line}:${problem.subject}`}
+                    className="optional-missing"
+                  >
+                    <button
+                      type="button"
+                      data-testid="problem-go-to"
+                      onClick={() => {
+                        void act(() => goTo(problem.file, problem.line));
+                      }}
+                    >
+                      {problem.file}:{problem.line}
+                    </button>{" "}
+                    {problem.message}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+
+          {index && index.outline.length > 0 && (
+            <details data-testid="outline">
+              <summary>Outline ({index.outline.length})</summary>
+              <ul style={{ listStyle: "none", paddingLeft: 0 }}>
+                {index.outline.map((entry) => (
+                  <li
+                    key={`${entry.file}:${entry.line}:${entry.title}`}
+                    // Indented by sectioning level, which is the only thing an
+                    // outline has to get right to be readable.
+                    style={{ paddingLeft: `${entry.level * 0.75}rem` }}
+                  >
+                    <button
+                      type="button"
+                      data-testid="outline-entry"
+                      data-level={entry.level}
+                      onClick={() => {
+                        void act(() => goTo(entry.file, entry.line));
+                      }}
+                    >
+                      {entry.title || "(untitled)"}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+
           <h3 style={{ marginBottom: "0.25rem" }}>{editing.path}</h3>
           <CodeEditor
             key={`${editing.id}:${editing.path}`}
             label={`Contents of ${editing.path}`}
             value={editing.content}
+            reveal={reveal}
             onChange={(content) => {
-              setEditing({ ...editing, content });
+              setEditing({
+                ...editing,
+                content,
+                sources: { ...editing.sources, [editing.path]: content },
+              });
               autosaveRef.current?.queue(
                 editing.path,
                 new TextEncoder().encode(content),

@@ -39,9 +39,23 @@ interface CodeEditorProps {
   value: string;
   onChange: (value: string) => void;
   label: string;
+  /**
+   * A line to put the cursor on and scroll into view.
+   *
+   * Carries a nonce because the request is an event, not a state: clicking the
+   * same outline entry twice, having scrolled away in between, must move the
+   * view both times, and a bare line number would compare equal and do nothing
+   * the second time.
+   */
+  reveal?: { line: number; nonce: number } | null;
 }
 
-export function CodeEditor({ value, onChange, label }: CodeEditorProps) {
+export function CodeEditor({
+  value,
+  onChange,
+  label,
+  reveal,
+}: CodeEditorProps) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   /**
@@ -113,6 +127,20 @@ export function CodeEditor({ value, onChange, label }: CodeEditorProps) {
       changes: { from: 0, to: current.length, insert: value },
     });
   }, [value]);
+
+  useEffect(() => {
+    const instance = view.current;
+    if (!instance || !reveal) return;
+    // Clamped: an outline entry is only as fresh as the last index, and a line
+    // that has since been deleted must not throw inside a dispatch.
+    const line = Math.min(Math.max(reveal.line, 1), instance.state.doc.lines);
+    const found = instance.state.doc.line(line);
+    instance.dispatch({
+      selection: { anchor: found.from },
+      effects: EditorView.scrollIntoView(found.from, { y: "center" }),
+    });
+    instance.focus();
+  }, [reveal]);
 
   return (
     <div
