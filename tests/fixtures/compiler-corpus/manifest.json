@@ -2,8 +2,26 @@
   "$schema": "./manifest.schema.json",
   "generatedFrom": "../tectonic-editor",
   "generatedAt": "2026-09-01",
-  "entryCount": 13,
+  "entryCount": 14,
   "entries": [
+    {
+      "id": "article-no-fontenc",
+      "mainFile": "main.tex",
+      "files": ["main.tex"],
+      "documentClass": "article",
+      "classOptions": [],
+      "packages": [],
+      "heavyPackages": [],
+      "heavyDocumentClass": false,
+      "needsBibliography": false,
+      "bibliographyEngine": "none",
+      "hasReferencePdf": false,
+      "local": true,
+      "notes": [
+        "Locally authored, not from the desktop examples: every other project loads fontenc, so XeTeX's default Unicode font path was never exercised.",
+        "No reference PDF; answers whether it compiles and renders, not whether it matches desktop."
+      ]
+    },
     {
       "id": "blank",
       "mainFile": "main.tex",

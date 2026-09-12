@@ -82,6 +82,28 @@ every request and then a block lasting minutes. Anything above a thousand files
 streams the archive once instead, which the builder chooses on its own; do not
 raise the concurrency to make a large tier faster.
 
+## The corpus has a bias, and one entry exists to cover it
+
+Twelve of the thirteen projects taken from the desktop examples load
+`fontenc`, which routes XeTeX through TFM metrics and Type 1 fonts. The
+thirteenth, `paper-acm`, has never compiled because `acmart` is in no tier. So
+**XeTeX's default Unicode font path was never executed by any corpus run** —
+and the first document typed into the product found the hole immediately: the
+font resolved through the endpoint, was saved under a name carrying no
+extension, and `xdvipdfmx` could not identify it.
+
+`article-no-fontenc` is written here rather than taken from the examples, and
+it uses roman, italic, bold and monospaced text so more than one face has to
+resolve. It has **no reference PDF** — those come from desktop Tectonic and
+cannot be produced here — so it answers "does it compile and render", not
+"does it match desktop". That is weaker than the rest of the corpus and it is
+the point: the failure it covers was total, not subtle.
+
+It carries `"local": true` in the manifest, and `pnpm spike:corpus` keeps such
+entries rather than regenerating them away. Without that, the next person to
+regenerate the corpus from the desktop repo would silently delete the only
+cover for this path.
+
 ## Traps that have cost time
 
 - **Git Bash rewrites a leading-slash argument into a Windows path.**

@@ -178,6 +178,34 @@ async function main(): Promise<void> {
     });
   }
 
+  /**
+   * Keep entries this repository wrote itself.
+   *
+   * The corpus is generated from the desktop examples, so anything not in them
+   * disappears on the next regeneration — including `article-no-fontenc`, which
+   * exists precisely because the desktop examples all load `fontenc` and so
+   * never exercise XeTeX's default font path. Dropping it would remove the only
+   * cover for a failure that has already happened once, silently, on the first
+   * document typed into the product.
+   *
+   * Marked with `local: true` rather than inferred, so the set is explicit and
+   * a locally authored entry can be deleted by deleting it.
+   */
+  const previous = await readFile(join(corpusRoot, "manifest.json"), "utf8")
+    .then(
+      (text) =>
+        JSON.parse(text) as { entries?: { id: string; local?: boolean }[] },
+    )
+    .catch(() => ({ entries: [] as { id: string; local?: boolean }[] }));
+  const generated = new Set(entries.map((entry) => entry.id));
+  for (const entry of previous.entries ?? []) {
+    if (entry.local && !generated.has(entry.id)) {
+      entries.push(entry as (typeof entries)[number]);
+      console.log(`Kept locally authored entry: ${entry.id}`);
+    }
+  }
+  entries.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+
   const manifest = {
     $schema: "./manifest.schema.json",
     generatedFrom: relative(resolve("."), desktopRoot).replace(/\\/g, "/"),

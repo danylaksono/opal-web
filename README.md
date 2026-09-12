@@ -70,7 +70,7 @@ PLAN.md keeps it until the questions below are closed.
 | [src/platform/browser/](src/platform/browser/) | Capability probes and the MuPDF renderer adapter behind those ports. |
 | [src/workers/pdf/](src/workers/pdf/) | Versioned PDF worker protocol and the MuPDF worker. |
 | [src/spikes/](src/spikes/) | Measurement surfaces. The renderer spike loads a PDF through the port; the compiler spike builds a project, opens the result through the renderer, and compares it against desktop's reference on words, ink and pixels; the performance spike times init, cold, warm and cancellation, and samples memory. |
-| [tests/fixtures/compiler-corpus/](tests/fixtures/compiler-corpus/) | 13 projects pinned from the desktop examples, with a generated manifest and desktop Tectonic's reference output. The instrument both spikes are measured against. |
+| [tests/fixtures/compiler-corpus/](tests/fixtures/compiler-corpus/) | 13 projects pinned from the desktop examples, with a generated manifest and desktop Tectonic's reference output, plus one written here. The instrument both spikes are measured against. |
 
 ## Getting started
 

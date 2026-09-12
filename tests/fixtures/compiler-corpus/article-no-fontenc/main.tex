@@ -1,0 +1,40 @@
+% Locally authored, not taken from the desktop examples.
+%
+% Every other corpus project loads fontenc, which routes XeTeX through TFM
+% metrics and Type 1 fonts. This one deliberately does not, so XeTeX takes its
+% default Unicode path and resolves Latin Modern as an actual OpenType file.
+% That path had never been executed by any corpus run, and the first document
+% typed into the product found it: the font resolved remotely, was saved under
+% a name carrying no extension, and xdvipdfmx could not identify it.
+%
+% There is no reference PDF: those come from desktop Tectonic and cannot be
+% produced here. This entry answers "does it compile and render", not "does it
+% match desktop".
+\documentclass{article}
+
+\title{Default font path}
+\author{Opal Web}
+
+\begin{document}
+\maketitle
+
+\section{Text}
+
+Ordinary text, \emph{emphasised text}, and \textbf{bold text}, so the roman,
+italic and bold faces are all resolved rather than only the first.
+
+\section{Mathematics}
+
+Inline $a^2 + b^2 = c^2$ and displayed:
+\[
+  \int_0^1 x^2 \, \mathrm{d}x = \frac{1}{3}
+\]
+
+\section{A list}
+
+\begin{itemize}
+  \item A first item.
+  \item A second item, with a \texttt{monospaced} word in it.
+\end{itemize}
+
+\end{document}

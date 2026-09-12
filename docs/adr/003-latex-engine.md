@@ -940,6 +940,33 @@ once they arrive.
 The timings halve with the tier size, which confirms what dominates them: these
 are load figures with a compile inside, not compile figures.
 
+### The corpus did not test the default font path at all
+
+Worth recording against the numbers above, because it qualifies them.
+
+Twelve of the thirteen corpus projects load `fontenc`, which routes XeTeX
+through TFM metrics and Type 1 fonts. The thirteenth is `paper-acm`, which has
+never compiled. So every "11/13" in this ADR was measured without XeTeX's
+**default** font path — the one a document gets by writing
+`\documentclass{article}` and nothing else — executing even once.
+
+The first document typed into the product found it. The font resolved through
+the endpoint, `kpse_remote_register` saved it as `47_lmroman10-regular` with no
+extension, and `xdvipdfmx` failed with "Cannot proceed without the font" on a
+file it had just been handed. Two fixes followed: Latin Modern's OpenType faces
+are mounted in the boot set, and the boot package ships an `ls-R`, without which
+nothing under `texmf-dist` is visible to kpathsea at all (ADR-011).
+
+`article-no-fontenc` now covers it, written here rather than taken from the
+desktop examples and therefore without a reference PDF. It answers whether a
+default document compiles and renders, not whether it matches desktop, which is
+weaker than the rest of the corpus and adequate for a failure that was total.
+
+The general point is about the instrument rather than the engine: **a corpus
+inherited from another product tests what that product's examples happened to
+do.** This one inherited a `fontenc` habit, and the coverage figures it produced
+were confident and narrower than they looked.
+
 ### `presentation-beamer` is cheap, not expensive
 
 Worth stating separately, because the intuition runs the other way and a
