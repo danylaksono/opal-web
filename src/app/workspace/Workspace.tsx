@@ -46,8 +46,18 @@ interface PreviewState {
 
 const ENCODER = new TextEncoder();
 
-/** Enough to read at, without making a 16-page thesis a memory problem. */
-const PREVIEW_SCALE = 1.25;
+/**
+ * Zoom steps, in CSS pixels per PDF point before device pixel ratio.
+ *
+ * Rendering happens at the chosen scale rather than by stretching a bitmap, so
+ * text stays sharp when zoomed in — which is the reason to have zoom at all on
+ * a document you are proof-reading. The ceiling is where a 16-page thesis
+ * starts to cost real memory per page.
+ */
+const ZOOM_STEPS = [0.75, 1, 1.25, 1.5, 2, 3] as const;
+const MIN_ZOOM = ZOOM_STEPS[0];
+const MAX_ZOOM = ZOOM_STEPS[ZOOM_STEPS.length - 1] as number;
+const DEFAULT_ZOOM = 1.25;
 
 function severityClass(diagnostic: CompileDiagnostic): string {
   return diagnostic.severity === "error" ? "unavailable" : "optional-missing";
@@ -76,10 +86,24 @@ export function Workspace({
   const sessionRef = useRef<CompileSession | null>(null);
   const rendererRef = useRef<MupdfRenderer | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [zoom, setZoom] = useState<number>(DEFAULT_ZOOM);
   /** Kept so page navigation can redraw without recompiling. */
   const documentRef = useRef<Awaited<
     ReturnType<MupdfRenderer["openDocument"]>
   > | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  /**
+   * Where the reader was, read at compile time rather than captured in a
+   * closure.
+   *
+   * A recompile replaces the document, and redrawing from page one throws away
+   * the reader's position on every keystroke-to-compile cycle — the thing that
+   * makes a preview feel like it is fighting you. `run` would otherwise need
+   * `preview` as a dependency and would then compile against whichever page was
+   * showing when the callback was last built, which is the stale-closure bug
+   * the compiler spike documents having already been bitten by.
+   */
+  const viewRef = useRef({ pageIndex: 0, scrollTop: 0, scrollLeft: 0 });
 
   useEffect(() => {
     const renderer = new MupdfRenderer();
@@ -108,28 +132,32 @@ export function Workspace({
     };
   }, []);
 
-  const drawPage = useCallback(async (pageIndex: number) => {
-    const handle = documentRef.current;
-    const canvas = canvasRef.current;
-    if (!handle || !canvas) return;
+  const drawPage = useCallback(
+    async (pageIndex: number, scale = zoom) => {
+      const handle = documentRef.current;
+      const canvas = canvasRef.current;
+      if (!handle || !canvas) return;
 
-    const rendered = await handle.renderPage({
-      pageIndex,
-      scale: PREVIEW_SCALE,
-      devicePixelRatio: window.devicePixelRatio,
-    });
-    canvas.width = rendered.widthPx;
-    canvas.height = rendered.heightPx;
-    canvas.getContext("2d")?.drawImage(rendered.bitmap, 0, 0);
-    // The bitmap is the caller's once transferred, and the canvas has its own
-    // copy by now.
-    rendered.bitmap.close();
-    setPreview({
-      status: "ready",
-      pageCount: handle.pageCount,
-      pageIndex,
-    });
-  }, []);
+      const rendered = await handle.renderPage({
+        pageIndex,
+        scale,
+        devicePixelRatio: window.devicePixelRatio,
+      });
+      canvas.width = rendered.widthPx;
+      canvas.height = rendered.heightPx;
+      canvas.getContext("2d")?.drawImage(rendered.bitmap, 0, 0);
+      // The bitmap is the caller's once transferred, and the canvas has its own
+      // copy by now.
+      rendered.bitmap.close();
+      viewRef.current.pageIndex = pageIndex;
+      setPreview({
+        status: "ready",
+        pageCount: handle.pageCount,
+        pageIndex,
+      });
+    },
+    [zoom],
+  );
 
   const run = useCallback(async () => {
     const session = sessionRef.current;
@@ -159,11 +187,24 @@ export function Workspace({
     try {
       const renderer = rendererRef.current;
       if (!renderer) return;
+      // Read before the document is replaced: after that, the old page count
+      // is gone and so is any sense of where the reader was.
+      const container = scrollRef.current;
+      const wanted = viewRef.current.pageIndex;
+      const scrollTop = container?.scrollTop ?? 0;
+      const scrollLeft = container?.scrollLeft ?? 0;
+
       await documentRef.current?.close();
-      documentRef.current = await renderer.openDocument(
-        new Uint8Array(result.pdf),
-      );
-      await drawPage(0);
+      const handle = await renderer.openDocument(new Uint8Array(result.pdf));
+      documentRef.current = handle;
+
+      // Clamped rather than assumed: an edit that deletes a chapter makes the
+      // page the reader was on stop existing.
+      await drawPage(Math.min(wanted, handle.pageCount - 1));
+      if (container) {
+        container.scrollTop = scrollTop;
+        container.scrollLeft = scrollLeft;
+      }
     } catch (error) {
       setPreview({
         status: "error",
@@ -272,6 +313,36 @@ export function Workspace({
         {preview.status === "error" && (
           <p className="unavailable">Preview failed: {preview.error}</p>
         )}
+        {preview.status === "ready" && (
+          <p className="note">
+            <button
+              type="button"
+              data-testid="zoom-out"
+              disabled={zoom <= MIN_ZOOM}
+              onClick={() => {
+                const next =
+                  [...ZOOM_STEPS].reverse().find((step) => step < zoom) ?? zoom;
+                setZoom(next);
+                void drawPage(preview.pageIndex ?? 0, next);
+              }}
+            >
+              −
+            </button>{" "}
+            <span data-testid="zoom-level">{Math.round(zoom * 100)}%</span>{" "}
+            <button
+              type="button"
+              data-testid="zoom-in"
+              disabled={zoom >= MAX_ZOOM}
+              onClick={() => {
+                const next = ZOOM_STEPS.find((step) => step > zoom) ?? zoom;
+                setZoom(next);
+                void drawPage(preview.pageIndex ?? 0, next);
+              }}
+            >
+              +
+            </button>
+          </p>
+        )}
         {preview.status === "ready" && preview.pageCount !== undefined && (
           <p className="note">
             <button
@@ -293,11 +364,22 @@ export function Workspace({
             </button>
           </p>
         )}
-        <canvas
-          ref={canvasRef}
-          data-testid="preview-canvas"
-          style={{ maxWidth: "100%", border: "1px solid var(--line, #ccc)" }}
-        />
+        {/*
+          A scroll container rather than a page that grows: zoomed in, a page is
+          wider and taller than the viewport, and the position inside it is what
+          has to survive a recompile.
+        */}
+        <div
+          ref={scrollRef}
+          data-testid="preview-scroll"
+          style={{
+            overflow: "auto",
+            maxHeight: "70vh",
+            border: "1px solid var(--line, #ccc)",
+          }}
+        >
+          <canvas ref={canvasRef} data-testid="preview-canvas" />
+        </div>
       </div>
     </section>
   );

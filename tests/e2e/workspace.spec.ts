@@ -121,6 +121,66 @@ test.describe("compile and preview", () => {
     expect(inked).toBeGreaterThan(1000);
   });
 
+  test("the reader's page survives a recompile", async ({ page }) => {
+    await openWorkspace(page);
+    // Three pages, so there is somewhere to be other than the first.
+    await page
+      .getByTestId("editor-content")
+      .fill(
+        "\\documentclass{article}\n\\begin{document}\nOne\n\\newpage\nTwo\n\\newpage\nThree\n\\end{document}\n",
+      );
+    await page.getByTestId("compile-button").click();
+    await expect(page.getByTestId("preview")).toHaveAttribute(
+      "data-status",
+      "ready",
+      { timeout: 280_000 },
+    );
+    await expect(page.getByTestId("preview")).toContainText("Page 1 of 3");
+
+    await page.getByTestId("next-page").click();
+    await expect(page.getByTestId("preview")).toContainText("Page 2 of 3");
+
+    // Recompiling is what a user does after every edit. Landing back on page 1
+    // each time is the behaviour that makes a preview feel like it is fighting
+    // you, and it is what this asserts against.
+    await page.getByTestId("compile-button").click();
+    await expect(page.getByTestId("workspace-status")).toHaveAttribute(
+      "data-status",
+      "done",
+      { timeout: 280_000 },
+    );
+    await expect(page.getByTestId("preview")).toContainText("Page 2 of 3");
+  });
+
+  test("zoom re-renders the page rather than stretching it", async ({
+    page,
+  }) => {
+    await openWorkspace(page);
+    await page.getByTestId("compile-button").click();
+    await expect(page.getByTestId("preview")).toHaveAttribute(
+      "data-status",
+      "ready",
+      { timeout: 280_000 },
+    );
+
+    const width = () =>
+      page.evaluate(
+        () =>
+          (
+            document.querySelector(
+              '[data-testid="preview-canvas"]',
+            ) as HTMLCanvasElement
+          ).width,
+      );
+    const before = await width();
+    await page.getByTestId("zoom-in").click();
+    await expect(page.getByTestId("zoom-level")).toHaveText("150%");
+
+    // The canvas itself is larger, which is the difference between rendering
+    // at a scale and scaling a bitmap: only one of them stays sharp.
+    await expect.poll(width).toBeGreaterThan(before);
+  });
+
   test("cancelling returns control instead of hanging", async ({ page }) => {
     await openWorkspace(page);
     await page.getByTestId("compile-button").click();
