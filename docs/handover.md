@@ -35,8 +35,10 @@ something they cover was broken at some point during the work: the default font
 path, cancellation, a preview that jumped back to page 1 on every recompile.
 
 The two numbers Phase 1 could ignore were the reason this phase waited, and both
-moved first: a warm compile is 0.9–3.2 s rather than 23 s, and a first compile
-is 21.8–23.4 MB rather than 41–135 MB. What is still missing from the phase is
+moved first: a warm compile is 1.2–4.8 s rather than 23 s, and a first compile
+is 21.8–23.4 MB rather than 41–135 MB. A third, measured since: peak memory is
+440–445 MB and does not grow with the document or with the number of compiles,
+so the engine recycle that cost Siglum its warm compile is not needed here. What is still missing from the phase is
 the corpus in CI (it needs 700 MB of gitignored assets, so CI runs the unit and
 e2e suites and not `spike:corpus-run`) and `paper-acm`/`paper-ieee`, which need
 a second source for `acmart` and `IEEEtran`.
@@ -144,9 +146,15 @@ cover for this path.
   and every browser-driven spike fails with "Executable doesn't exist" before
   anything runs. Set `OPAL_CHROMIUM_PATH` to a Chromium already on disk;
   unset means "let Playwright decide", which is the ordinary case.
-- **`spike:perf` needs real Chrome and cross-origin isolation.**
-  `measureUserAgentSpecificMemory` is the only API that sees the engine's WASM
-  heap; Playwright's bundled Chromium has it present but disabled.
+- **`spike:perf` needs cross-origin isolation — not real Chrome.** This entry
+  used to say both, and the Chrome half was a wrong diagnosis that stood for
+  weeks and cost a measurement. `measureUserAgentSpecificMemory` is the only API
+  that sees the engine's WASM heap, and it is gated on the *page* being
+  cross-origin isolated; probed directly, Playwright's Chromium exposes it with
+  default flags and returns a breakdown. Build and preview with `OPAL_COI=1`,
+  and the column appears whichever browser drives it. The timings in a memory
+  run are 10–20% higher than in a plain one, because the API forces a collection
+  before it reports — compare memory runs with memory runs.
 
 ## Where the reasoning lives
 

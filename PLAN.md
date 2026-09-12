@@ -46,7 +46,8 @@ with.
 | Page counts matching desktop | 10 of 11 | **11 of 11** |
 | First compile | 41–135 MB | **21.8–23.4 MB** |
 | Spread across documents | 94 MB | **1.6 MB** |
-| Warm compile | 0.8–12.2 s, or 41–87 s with the memory recycle | **0.9–3.2 s** |
+| Warm compile | 0.8–12.2 s, or 41–87 s with the memory recycle | **1.2–4.8 s** |
+| Peak memory | 907–1231 MB, or 34–49 MB with the recycle | **440–445 MB, no recycle** |
 | Cancellation | 0–16 ms | **1 ms** |
 
 The corpus itself grew: `article-no-fontenc` is the fourteenth project, added
@@ -55,7 +56,21 @@ never take the default font path — which is the path the first document a *use
 creates does take, and which was broken.
 
 Warm compiles are measured on `blank`, `book-standard` and `thesis-standard`
-(893 ms, 2131 ms, 3235 ms), not the whole corpus; engine init is ~0.7 s.
+(1152 ms, 2921 ms, 4282 ms), not the whole corpus; engine init is ~0.9 s. An
+earlier run of the same three was 893/2131/3235 ms, which is the run-to-run
+spread on one machine and worth remembering before reading 10% into anything.
+
+**Memory is the finding, and this time it is the absence of one.** Siglum
+retained ~418 MB per compile — two compiles reached 907 MB, and the fix was to
+recycle the engine after each one, which doubled warm compiles corpus-wide.
+`texlyre-busytex` peaks at **439.9 MB for `blank` and 444.9 MB for
+`thesis-standard`**, after four compiles of each, holding 109 MB after init: a
+16-page document and a 1-page document cost the same, and four compiles cost
+what one does. At Siglum's retention rate those four would have been 1.7 GB.
+So the recycle is not needed here, which is *why* the warm compile is seconds
+rather than a minute — the two figures are the same decision, not two wins.
+What four compiles cannot answer is whether a long session grows slowly; that
+needs a longer run than this spike does.
 
 ### How the engine is fed
 
@@ -95,9 +110,9 @@ Warm compiles are measured on `blank`, `book-standard` and `thesis-standard`
 - **`paper-acm` and `paper-ieee`.** `acmart` and `IEEEtran` are in `texmfrepo`,
   which indexes the full archive rather than the tiers, so they need a second
   source. Not structural, and not reachable from this container's egress policy.
-- **Peak memory on this engine is unmeasured.** Siglum retained ~418 MB per
-  compile; whether the same is true here needs a cross-origin-isolated page, and
-  a product that compiles all day cannot leave that unknown.
+- **Memory over a long session.** Four compiles are flat (above), which rules
+  out Siglum's retention; a writer's afternoon is hundreds, and nothing has run
+  that long.
 - **Nothing has run outside desktop Chromium.** Firefox, Safari, and a
   constrained-memory device are all untested, and Safari's WASM limits are the
   ones most likely to bite.
@@ -109,19 +124,17 @@ Warm compiles are measured on `blank`, `book-standard` and `thesis-standard`
 
 ### Next, in order
 
-1. Measure peak memory on `texlyre-busytex` with a cross-origin-isolated page.
-   It is the one Phase 0 question the engine change reopened, and the answer
-   decides whether the adapter needs Siglum's recycle — which would cost the
-   0.9–3.2 s warm compile that makes the loop usable.
-2. Run the corpus and the e2e suite on Firefox and Safari.
-3. Phase 3's authoring surface: CodeMirror, the file tree, tabs. The loop is the
+1. Run the corpus and the e2e suite on Firefox and Safari. Nothing has run
+   outside desktop Chromium, and Safari's WASM limits are the ones most likely
+   to bite a 32 MB engine.
+2. Phase 3's authoring surface: CodeMirror, the file tree, tabs. The loop is the
    thing it plugs into, and it is built.
-4. `paper-acm` and `paper-ieee` from `texmfrepo`, on a machine that can reach a
+3. `paper-acm` and `paper-ieee` from `texmfrepo`, on a machine that can reach a
    TeX Live mirror.
-5. Deploy, and confirm brotli and the first-load figure on a real host.
-6. Commit desktop Tectonic's logs beside the reference PDFs, so diagnostics can
+4. Deploy, and confirm brotli and the first-load figure on a real host.
+5. Commit desktop Tectonic's logs beside the reference PDFs, so diagnostics can
    be compared as well as output.
-7. The AGPL section 13 source offer, before any public deployment.
+6. The AGPL section 13 source offer, before any public deployment.
 
 ## Progress as of 2026-09-03 (superseded, kept as the evidence)
 

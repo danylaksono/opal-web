@@ -1077,8 +1077,20 @@ classes no local tier carries.
 - [x] **Bring peak memory down from ~1 GB.** It was a retention leak, ~418 MB
       per compile. Recycling the engine after each compile caps it at 34–49 MB,
       at the cost of doubling warm compiles.
-- [ ] Get the warm cost back by having the engine release instances instead of
-      the adapter terminating workers. Needs an upstream change to Siglum.
+- [x] Get the warm cost back by having the engine release instances instead of
+      the adapter terminating workers. This wanted an upstream change to Siglum;
+      what actually answered it was changing engines. `texlyre-busytex` needs no
+      recycle, so the warm cost never has to be paid back.
+- [x] Measure peak memory on `texlyre-busytex`, which the engine change
+      reopened. **439.9 MB on `blank`, 441.7 MB on `book-standard`, 444.9 MB on
+      `thesis-standard`**, holding 109.0 MB after init — flat across a 1-page
+      and a 16-page document, and flat across the four compiles each run
+      performs. At Siglum's ~418 MB per compile those four would have been
+      1.7 GB. The retention is Siglum's, not BusyTeX's, and the adapter
+      therefore keeps its engine between compiles: that is the same decision as
+      the 1.2–4.8 s warm compile, not a second win.
+      Unanswered: whether hundreds of compiles in one session grow slowly. Four
+      cannot say.
 - [x] Why recovery after an abort is not reliably clean. The recycle answers it:
       recovery now runs against a fresh engine rather than one whose TeX run was
       terminated under it.

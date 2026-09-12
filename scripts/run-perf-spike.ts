@@ -9,7 +9,8 @@
  * Requires a server already running at PREVIEW_URL. Peak memory needs
  * `measureUserAgentSpecificMemory`, which needs a cross-origin-isolated page,
  * so build and preview with `OPAL_COI=1` to get that column; without it the
- * run still reports every timing and says why memory is missing.
+ * run still reports every timing and says why memory is missing. It does *not*
+ * need Chrome: the isolation headers are the whole requirement.
  *
  * Usage: pnpm spike:perf [--only a,b,c] [--no-ctan] [--texlyre]
  */
@@ -67,20 +68,20 @@ async function main(): Promise<void> {
     .filter((name) => !only || only.has(name))
     .sort();
 
-  // Real Chrome, not bundled Chromium: `measureUserAgentSpecificMemory` is the
-  // only API that sees the engine's WASM heap, and Chromium's test build has it
-  // present but disabled. Falls back so the timings still run without Chrome
-  // installed; only the memory column is lost.
+  // `measureUserAgentSpecificMemory` is the only API that sees the engine's
+  // WASM heap. This once read "real Chrome, not bundled Chromium: Chromium's
+  // test build has it present but disabled", and that was the wrong diagnosis:
+  // probed directly, Playwright's Chromium exposes it with default flags and
+  // returns a breakdown. What it needs is the *page* — the API is gated on
+  // cross-origin isolation, so a run against a preview without COOP/COEP loses
+  // the column whichever browser it drives. Chrome is still preferred when
+  // installed, because it is what a user runs.
   let browser: Awaited<ReturnType<typeof chromium.launch>>;
-  let memoryCapable = true;
   try {
     browser = await chromium.launch({ channel: "chrome" });
   } catch {
-    console.log(
-      "Chrome not found; falling back to Chromium, memory unavailable",
-    );
+    console.log("Chrome not found; using Chromium (memory still measurable)");
     browser = await chromium.launch(chromiumLaunchOptions);
-    memoryCapable = false;
   }
   const outcomes: PerfOutcome[] = [];
 
@@ -191,8 +192,11 @@ async function main(): Promise<void> {
       `  ${o.project.padEnd(22)} ${o.memoryAfterInit.padEnd(12)} ${o.memory}`,
     );
   }
-  if (!memoryCapable) {
-    console.log("  (Chromium fallback: install Chrome for this column)");
+  if (outcomes.some((o) => o.memory.startsWith("unavailable"))) {
+    console.log(
+      "  (rebuild and preview with OPAL_COI=1: the API needs a " +
+        "cross-origin-isolated page)",
+    );
   }
 
   await mkdir(OUT_DIR, { recursive: true });
