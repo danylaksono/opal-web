@@ -78,6 +78,35 @@ describe("createAutosave", () => {
     expect(autosave.status().state).toBe("saved");
   });
 
+  it("adopts a revision this session caused, keeping what is queued", async () => {
+    // The panel writes directly when a file is added, which advances the
+    // revision this scheduler is writing against. Without `adopt` the next
+    // keystroke is a conflict with ourselves; without keeping the queue, the
+    // keystroke typed while the file was being created is simply lost.
+    const repository = new MemoryProjectRepository();
+    const created = await project(repository);
+    const autosave = createAutosave({
+      repository,
+      projectId: created.id,
+      revision: created.revision,
+      debounceMs: 100,
+    });
+
+    autosave.queue(main, bytes("typed while a file was being added"));
+    const revision = await repository.writeFile(
+      created.id,
+      projectPath("added.tex"),
+      bytes(""),
+    );
+    autosave.adopt(revision);
+
+    await vi.advanceTimersByTimeAsync(150);
+    expect(autosave.status().state).toBe("saved");
+    expect(text(await repository.readFile(created.id, main))).toBe(
+      "typed while a file was being added",
+    );
+  });
+
   it("collapses a burst of edits into one revision", async () => {
     // The reason for the debounce: a revision per keystroke would make the
     // number meaningless and the history unreadable.

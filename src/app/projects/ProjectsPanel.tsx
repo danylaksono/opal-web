@@ -13,6 +13,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { CodeEditor } from "@/app/editor/CodeEditor";
 import { Workspace } from "@/app/workspace/Workspace";
 import {
   ArchiveRejectedError,
@@ -293,12 +294,13 @@ export function ProjectsPanel({
       // The write advanced the revision out from under the autosave, whose
       // writes are conditional on the one it was built with. Left alone, the
       // next keystroke would be reported to the user as "this project changed
-      // elsewhere" — which it did, by us.
-      startAutosave(editing.id, revision);
+      // elsewhere" — which it did, by us. Told rather than rebuilt, because a
+      // rebuild drops anything typed while this was in flight.
+      autosaveRef.current?.adopt(revision);
       setNewFileName("");
       await refresh();
     },
-    [editing, repository, refresh, startAutosave],
+    [editing, repository, refresh],
   );
 
   const deleteFile = useCallback(
@@ -319,10 +321,10 @@ export function ProjectsPanel({
         await repository.readFile(editing.id, next),
       );
       setEditing({ ...editing, path: next, files, content });
-      startAutosave(editing.id, revision);
+      autosaveRef.current?.adopt(revision);
       await refresh();
     },
-    [editing, repository, refresh, startAutosave],
+    [editing, repository, refresh],
   );
 
   // A tab closing mid-edit is exactly when a debounce is a liability.
@@ -528,14 +530,11 @@ export function ProjectsPanel({
           </form>
 
           <h3 style={{ marginBottom: "0.25rem" }}>{editing.path}</h3>
-          <textarea
-            data-testid="editor-content"
-            aria-label={`Contents of ${editing.path}`}
+          <CodeEditor
+            key={`${editing.id}:${editing.path}`}
+            label={`Contents of ${editing.path}`}
             value={editing.content}
-            rows={6}
-            style={{ width: "100%", fontFamily: "monospace" }}
-            onChange={(event) => {
-              const content = event.target.value;
+            onChange={(content) => {
               setEditing({ ...editing, content });
               autosaveRef.current?.queue(
                 editing.path,

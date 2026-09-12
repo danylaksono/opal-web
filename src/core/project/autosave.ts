@@ -70,6 +70,22 @@ export interface AutosaveOptions {
 export interface Autosave {
   /** Record an edit. Overwrites any queued edit for the same path. */
   queue(path: ProjectPath, bytes: Uint8Array): void;
+  /**
+   * Take up a revision this session caused but did not write through here.
+   *
+   * Adding or deleting a file advances the project's revision, and the
+   * conditional write exists to catch *other* writers — so without this the
+   * next keystroke is reported to the user as a conflict with themselves.
+   *
+   * The alternative, rebuilding the scheduler at the new revision, throws away
+   * whatever is queued: the edit typed in the moment between pressing "Add
+   * file" and the write landing. That window is one storage round trip, which
+   * is rare enough to survive review and not rare enough to survive users.
+   *
+   * Ignored once stopped: a conflict means a genuine second writer, and a
+   * revision from this tab says nothing about theirs.
+   */
+  adopt(revision: number): void;
   /** Write everything queued now, and wait for it. Safe to call when idle. */
   flush(): Promise<void>;
   status(): SaveStatus;
@@ -162,6 +178,11 @@ export function createAutosave(options: AutosaveOptions): Autosave {
         publish({ state: "pending", revision: status.revision });
       }
       schedule();
+    },
+
+    adopt(revision) {
+      if (stopped) return;
+      publish({ state: status.state, revision });
     },
 
     async flush() {

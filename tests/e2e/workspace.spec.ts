@@ -217,7 +217,7 @@ test.describe("compile and preview", () => {
     const editor = page.getByTestId("editor-content");
     await editor.click();
     await editor.pressSequentially("% typed while compiling", { delay: 20 });
-    await expect(editor).toHaveValue(/% typed while compiling/);
+    await expect(editor).toContainText("% typed while compiling");
 
     // And the edit is not merely on screen: autosave runs on the same thread
     // and has to have got its turn too, or the keystrokes are lost on reload.
@@ -249,7 +249,7 @@ test.describe("compile and preview", () => {
     // "worker failures recover without losing edits", from the outside. The
     // editor still holding the source is half of it; a page coming back is the
     // other half.
-    await expect(editor).toHaveValue(/\\error/);
+    await expect(editor).toContainText("\\error");
     await editor.fill(
       "\\documentclass{article}\n\\begin{document}\nRecovered\n\\end{document}\n",
     );
@@ -287,8 +287,8 @@ test.describe("compile and preview", () => {
     await page
       .locator('[data-testid="file-open"][data-path="main.tex"]')
       .click();
-    await expect(page.getByTestId("editor-content")).toHaveValue(
-      /documentclass/,
+    await expect(page.getByTestId("editor-content")).toContainText(
+      "documentclass",
     );
     await page
       .getByTestId("editor-content")
@@ -328,8 +328,8 @@ test.describe("compile and preview", () => {
     await expect(page.getByTestId("file-open")).toHaveCount(1);
     // Deleting the open file falls back to the main file rather than to a
     // blank editor with nowhere to go.
-    await expect(page.getByTestId("editor-content")).toHaveValue(
-      /documentclass/,
+    await expect(page.getByTestId("editor-content")).toContainText(
+      "documentclass",
     );
   });
 
