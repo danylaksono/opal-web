@@ -10,9 +10,9 @@ have cost time before.
 **Phase 0 — feasibility gates.** Renderer settled (ADR-004). Engine open
 (ADR-003): `@siglum/engine` compiles 11 of 13 corpus projects with a self-hosted
 CTAN proxy, and 2 of 13 without one; `texlyre-busytex`, the same engine on a
-single TeX Live 2026 tree, compiles 11 of 13 with no network at all. Delivery
+single TeX Live 2026 tree, compiles 12 of 14 with no network at all. Delivery
 measured end to end (ADR-011): a self-hosted endpoint over the tree's own index
-reaches the same 11 of 13 from a 41.24 MB boot set instead of 636 MB of tiers,
+reaches the same 12 of 14 from a 41.24 MB boot set instead of 636 MB of tiers,
 with every page count matching desktop Tectonic.
 Pre-compressed, a first compile is 21.8–23.4 MB against
 the 41–135 MB Phase 0 measured — and 22.7 MB of that is fixed cost shared by
@@ -25,10 +25,21 @@ transactional autosave, ZIP import and export, an error boundary and design
 tokens. Every exit criterion has a test that runs against real storage rather
 than a stand-in; `PLAN.md` 14 names which test shows which criterion.
 
-**Phase 2 — compile and preview** is next, and is where the two numbers that
-Phase 1 could ignore start to matter to a person: a 23 s warm compile on
-`paper-acm`, and a 41–135 MB first load. `PLAN.md` "Next, in order" holds the
-sequence and why.
+**Phase 2 — compile and preview: the loop is built.** `Workspace.tsx` opens a
+project, compiles what is on screen through `LatexCompiler`, and draws the
+result through `PdfRenderer`; `compile-session.ts` owns the sequencing, so the
+exit criteria that are about ordering — stale output, cancellation, recovery
+after a worker failure — are unit-testable without rendering a component.
+Seven e2e tests drive it through the product, and most exist because
+something they cover was broken at some point during the work: the default font
+path, cancellation, a preview that jumped back to page 1 on every recompile.
+
+The two numbers Phase 1 could ignore were the reason this phase waited, and both
+moved first: a warm compile is 0.9–3.2 s rather than 23 s, and a first compile
+is 21.8–23.4 MB rather than 41–135 MB. What is still missing from the phase is
+the corpus in CI (it needs 700 MB of gitignored assets, so CI runs the unit and
+e2e suites and not `spike:corpus-run`) and `paper-acm`/`paper-ieee`, which need
+a second source for `acmart` and `IEEEtran`.
 
 ## What is not in the repository
 
@@ -42,7 +53,7 @@ cannot be regenerated without the desktop repo and a native toolchain.
 | Playwright's browsers | — | `npx playwright install chromium` |
 | `public/engines/siglum/` | 225 MB | `./scripts/download-siglum-assets.sh` |
 | `public/engines/texlyre/` | 700 MB | `./scripts/download-texlyre-assets.sh` |
-| `texlive-min-*` (boot set) | 34 MB | `pnpm spike:texlive-min xelatex --write` |
+| `texlive-min-*` (boot set) | 41 MB | `pnpm spike:texlive-min xelatex --write` |
 | `*.br` (pre-compressed) | 22 MB | `pnpm spike:brotli --write` (after `vite build`) |
 | `spike-results/` | small | `pnpm spike:corpus-run xelatex --ctan` (needs a preview running) |
 | `public/tex/` | 259 MB | `pnpm spike:tex-archive` (needs `public/engines`) |

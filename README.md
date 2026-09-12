@@ -5,12 +5,15 @@ projects on the user's device, and sends no document content to an Opal server.
 Sibling product to the [Opal desktop editor](https://github.com/danylaksono/opal-editor),
 not a port of it.
 
-**Status: Phase 1 — product skeleton and storage core.** Phase 0's measurement
+**Status: Phase 2 — compile and preview.** Phase 0's measurement
 instrumentation, ports and decision records are still here and still run; on top
-of them there is now a storage layer that keeps projects on the device, autosaves
-them, and exports them as ZIPs. There is no editor beyond a textarea and no
-compiler in the product path yet — the compiler still lives in the spikes, where
-PLAN.md keeps it until the questions below are closed.
+of them there is a storage layer that keeps projects on the device, autosaves
+them and exports them as ZIPs, and now an edit-compile-preview loop that runs
+the engine in the product path rather than in a spike. Create a project, press
+Compile, and a page is rasterised from a PDF the browser produced. The editor is
+still a textarea — CodeMirror, the file tree and tabs are Phase 3 — and the two
+questions below are still open, but they are no longer between the engine and a
+person using it.
 
 1. **Renderer — settled.** MuPDF.js, verified booting in a plain browser module
    worker on a static host, with per-line text geometry good enough for review
@@ -20,7 +23,7 @@ PLAN.md keeps it until the questions below are closed.
    the question is package delivery, not engine fidelity. `@siglum/engine`
    compiles **11 of 13** corpus projects with a self-hosted, version-pinned CTAN
    proxy — and **2 of 13** without one. `texlyre-busytex`, the same engine built
-   from a single TeX Live 2026 tree, compiles **11 of 13 with no network at
+   from a single TeX Live 2026 tree, compiles **12 of 14 with no network at
    all**, including the three ADR-003 had written off: `cv-modern` (an upstream
    font defect), `letter-formal` (version skew) and `presentation-beamer`
    (`translator.sty`). The two it misses, `paper-acm` and `paper-ieee`, need
@@ -28,7 +31,7 @@ PLAN.md keeps it until the questions below are closed.
    structural. Truncating its tiers to 294 MB drops it to 4 of 13: the 341.6 MB
    top tier is bought for three packages — `enumitem`, `titlesec`, `tcolorbox`.
    Beamer is not among them; it compiles in the 294 MB tier. Served instead
-   from a self-hosted endpoint over the tree's own index, the same 11 of 13
+   from a self-hosted endpoint over the tree's own index, the same documents
    compile from a **41.24 MB boot set of 183 files**, with every page count
    matching desktop Tectonic. Pre-compressed, a first compile transfers **21.8–23.4 MB** against
    the 41–135 MB Phase 0 measured, 22.7 MB of it fixed cost shared by every

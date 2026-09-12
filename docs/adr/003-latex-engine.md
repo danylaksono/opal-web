@@ -1,8 +1,9 @@
 # ADR-003: LaTeX WASM engine and package distribution
 
 - **Status:** Open — Siglum reaches 11/13 *with* a CTAN proxy; texlyre-busytex
-  reaches 11/13 from a 33.84 MB boot set plus our own endpoint, at 21.8–23.4 MB
-  a first compile (ADR-011). What is left is the engine and ICU, not packages.
+  reaches **12/14 offline**, from a 41.24 MB boot set plus our own endpoint, at
+  21.8–23.4 MB a first compile (ADR-011), with **every page count matching
+  desktop**. What is left is the engine and ICU, not packages.
 - **Date:** 2026-09-01, last measured 2026-09-12
 - **Deciders:** danylaksono
 
@@ -1013,10 +1014,13 @@ in a package set where the fix is available.
 
 The CTAN path is answered: **11/13, with 10 of 11 matching desktop's page
 count**, up from 9/13 and 8/9 once the two fixable failures above were resolved.
-The offline path is now answered too, and at the same score: **11/13 on a
-single TeX Live 2026 tree with no network at all**, which closes the two
-failures this ADR had recorded as structural. What remains is delivery — 636 MB
-of tiers is not shippable — and the two template classes no local tier carries.
+The offline path is now answered too, and better: **12/14 on a single TeX Live
+2026 tree with no network at all**, which closes the two failures this ADR had
+recorded as structural. The denominator moved because the corpus did — the
+fourteenth project is `article-no-fontenc`, added after a defect that twelve of
+the thirteen original documents were structurally unable to reach (below). What
+remains is delivery — 636 MB of tiers is not shippable — and the two template
+classes no local tier carries.
 
 - [x] Stand up a self-hosted CTAN proxy and re-run the corpus with `--ctan`.
 - [x] Compare page counts against the committed reference PDFs.
@@ -1028,10 +1032,16 @@ of tiers is not shippable — and the two template classes no local tier carries
       no network: 11/13, and `cv-modern`, `letter-formal` and
       `presentation-beamer` all compile.
 - [x] Stand up a self-hosted TeX Live endpoint. Built over the tree's own
-      index: **11/13 from a 33.84 MB boot set of 110 files**, the same coverage
-      and the same fidelity as 636 MB of tiers, and faster than either
-      (ADR-011). The floor is now the engine, ICU and the format file, not the
-      package tree.
+      index: **12/14 from a 41.24 MB boot set of 183 files**, the same coverage
+      and better fidelity than 636 MB of tiers, and faster than either
+      (ADR-011). The boot set was 33.84 MB and 110 files when first measured;
+      Latin Modern and an `ls-R` account for the difference, and both were
+      found by compiling a document rather than by running the corpus. The floor
+      is now the engine, ICU and the format file, not the package tree.
+- [x] Compile a document that does not load `fontenc`. Twelve of the thirteen
+      original corpus projects do, which routed every one of them past the
+      default font path; the first document a *user* creates does not.
+      `article-no-fontenc` is that case, committed so it cannot regress.
 - [ ] Settle `paper-acm` and `paper-ieee`. Both classes are in `texmfrepo`,
       which indexes the full 8,418-package archive rather than the tiers, so
       they need a second source. Not structural.

@@ -570,7 +570,7 @@ invisibly.
 |---|---:|---:|
 | First compile, range | 41–135 MB | **21.8–23.4 MB** |
 | Spread across documents | 94 MB | **1.6 MB** |
-| Compiled | 9/13 (CTAN on) | 11/13 (no network) |
+| Compiled | 9/13 (CTAN on) | 12/14 (no network) |
 
 The range is the more interesting half. **22.66 MB of every successful first
 load is fixed** — 8.2 MB of engine, 9.9 MB of boot set, 3.6 MB of renderer and

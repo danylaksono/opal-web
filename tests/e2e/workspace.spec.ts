@@ -202,6 +202,68 @@ test.describe("compile and preview", () => {
     await expect(page.getByTestId("compile-button")).toBeEnabled();
   });
 
+  test("typing is not blocked while the engine works", async ({ page }) => {
+    await openWorkspace(page);
+    await page.getByTestId("compile-button").click();
+    await expect(page.getByTestId("workspace-status")).toHaveAttribute(
+      "data-status",
+      "compiling",
+    );
+
+    // Typed a key at a time rather than filled: each keystroke needs its own
+    // turn of the main thread, so this fails by timing out if the engine ever
+    // moves off its worker — which is the only way "the UI stays responsive
+    // during compilation" (PLAN.md 14, Phase 2) can be observed from outside.
+    const editor = page.getByTestId("editor-content");
+    await editor.click();
+    await editor.pressSequentially("% typed while compiling", { delay: 20 });
+    await expect(editor).toHaveValue(/% typed while compiling/);
+
+    // And the edit is not merely on screen: autosave runs on the same thread
+    // and has to have got its turn too, or the keystrokes are lost on reload.
+    await expect(page.getByTestId("save-status")).toContainText("Saved at", {
+      timeout: 15_000,
+    });
+    await expect(page.getByTestId("workspace-status")).toHaveAttribute(
+      "data-status",
+      "done",
+      { timeout: 280_000 },
+    );
+  });
+
+  test("a failed compile is recoverable without losing the edit", async ({
+    page,
+  }) => {
+    await openWorkspace(page);
+    const editor = page.getByTestId("editor-content");
+    await editor.fill(
+      "\\documentclass{article}\n\\begin{document}\n\\error\n\\end{document}\n",
+    );
+    await page.getByTestId("compile-button").click();
+    await expect(page.getByTestId("workspace-status")).toContainText("Failed", {
+      timeout: 280_000,
+    });
+
+    // The engine is torn down and rebuilt after a failure it did not model, so
+    // the question this answers is whether the *next* compile runs at all —
+    // "worker failures recover without losing edits", from the outside. The
+    // editor still holding the source is half of it; a page coming back is the
+    // other half.
+    await expect(editor).toHaveValue(/\\error/);
+    await editor.fill(
+      "\\documentclass{article}\n\\begin{document}\nRecovered\n\\end{document}\n",
+    );
+    await page.getByTestId("compile-button").click();
+    await expect(page.getByTestId("preview")).toHaveAttribute(
+      "data-status",
+      "ready",
+      { timeout: 280_000 },
+    );
+    await expect(page.getByTestId("workspace-status")).toContainText(
+      "Compiled",
+    );
+  });
+
   test("a failed compile shows the engine log", async ({ page }) => {
     await openWorkspace(page);
     // `\error` is not a control sequence, so TeX stops. The point is not the
