@@ -26,7 +26,7 @@ import { categoriseFailure, firstError, parseTexLog } from "./log-diagnostics";
  * data packages — basic, recommended, extra — and whichever are preloaded are
  * simply present in the filesystem before TeX starts. There is no resolution
  * step to go wrong, and no package name leaves the machine, which is what
- * ADR-001 asks for. The cost is bytes: the three total roughly 635 MB.
+ * ADR-001 asks for. The cost is bytes: the three total roughly 636 MB.
  *
  * **`remoteEndpoint` is first-class.** The engine reads
  * `TEXLIVE_REMOTE_ENDPOINT` inside kpathsea and registers files by name and

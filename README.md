@@ -25,11 +25,13 @@ PLAN.md keeps it until the questions below are closed.
    font defect), `letter-formal` (version skew) and `presentation-beamer`
    (`translator.sty`). The two it misses, `paper-acm` and `paper-ieee`, need
    `acmart` and `IEEEtran` from a self-hosted endpoint rather than anything
-   structural. Eleven engine defects were found on Siglum; ten are absorbed by
+   structural. Truncating its tiers to 294 MB drops it to 4 of 13: the 341.6 MB
+   top tier is bought for three packages — `enumitem`, `titlesec`, `tcolorbox`.
+   Beamer is not among them; it compiles in the 294 MB tier. Eleven engine defects were found on Siglum; ten are absorbed by
    the adapter (ADR-003).
 3. **Package delivery — proposed, and now the binding constraint.** Bundles are
    fetched whole, so a first compile transfers 41–135 MB — and the TeX Live 2026
-   tree that fixes coverage costs 635 MB to preload, so delivery is what stands
+   tree that fixes coverage costs 636 MB to preload, so delivery is what stands
    between a corpus that compiles and a product that ships. Tectonic's bundle
    repository was archived in October 2024, so the tree to index is no longer
    its 2022 one (ADR-011). Tectonic's indexed-archive model, verified

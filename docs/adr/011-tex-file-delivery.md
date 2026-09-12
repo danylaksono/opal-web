@@ -356,9 +356,17 @@ never replace it — is a property of *that* engine, not of this delivery model.
 Here `remoteEndpoint` is a first-class compile option with no bundle path behind
 it to fight.
 
+Truncating the tiers puts a number on what this ADR is for. At `basic` +
+`recommended`, 294 MB, the corpus compiles 4/13. Adding `extra`, 341.6 MB more,
+takes it to 11/13 — and every one of those seven documents is unblocked by
+`enumitem`, `titlesec` or `tcolorbox`. **341.6 MB is fetched for three `.sty`
+files.** That is the same failure this ADR opens with — `presentation-beamer`
+downloading 118.9 MB to read 2.1 MB — an order of magnitude worse, and on a
+tree where the files are demonstrably sufficient once they arrive.
+
 None of this is measured yet, and it should not be adopted on the strength of an
 API surface: what is measured is that the tiers compile 11/13 offline and cost
-635 MB to load. Indexing that tree, and measuring a first load against the
+636 MB to load. Indexing that tree, and measuring a first load against the
 41–135 MB this ADR set out to fix, is the next step and is listed below.
 
 ## What this does not decide
@@ -404,7 +412,7 @@ happens to ship both.
       the document, so no font is ever reported missing. Answering this needs
       the engine's font loading replaced, not measured.
 - [ ] Index the TeX Live 2026 tree and measure a first load against the
-      41–135 MB above. The tiers compile the corpus offline at 635 MB, which is
+      41–135 MB above. The tiers compile the corpus offline at 636 MB, which is
       coverage bought at a delivery cost this ADR exists to remove.
 - [ ] Measure `kpse_remote_register_misses` with a set of misses, against the
       one-file-per-pass cost recorded above.

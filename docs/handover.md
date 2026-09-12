@@ -12,7 +12,7 @@ have cost time before.
 CTAN proxy, and 2 of 13 without one; `texlyre-busytex`, the same engine on a
 single TeX Live 2026 tree, compiles 11 of 13 with no network at all. Delivery
 proposed and measured (ADR-011), and now the binding constraint: the tree that
-fixes coverage costs 635 MB to preload.
+fixes coverage costs 636 MB to preload.
 
 **Phase 1 — product skeleton and storage core: complete.** Projects live on the
 device — bytes in OPFS, metadata in IndexedDB — with conditional writes,

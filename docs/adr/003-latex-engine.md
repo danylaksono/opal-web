@@ -862,7 +862,8 @@ tiers.
 | Matching desktop's page count | 2 / 2 | 10 / 11 | 10 / 11 |
 | Pages word for word | — | 30 / 60 | **32 / 60** |
 
-**The same score, without the network.** That is the finding. Siglum needs a
+**The same score, without the network.** That is the finding — at 636 MB of
+preloaded tiers, which is the price and is dealt with below. Siglum needs a
 CTAN proxy — a request per missing package, revealing which packages a document
 uses, which ADR-001 makes opt-in for exactly that reason — to reach 11/13.
 This reaches it with nothing but files already on disk before TeX starts.
@@ -893,10 +894,10 @@ fidelity discrepancy, not a pass, and it is unexplained.
 
 Every project took **28–46 s**, against 0.8–5 s for Siglum's warm cases. The
 number is almost entirely the tiers: the corpus driver opens a fresh page per
-project, so each figure includes loading 635 MB of data packages from
+project, so each figure includes loading 636 MB of data packages from
 `localhost` before TeX runs. It is a first-load cost measured thirteen times,
 not a compile cost — but it is also the honest shape of this delivery model,
-and 635 MB is far worse than the 41–135 MB ADR-011 calls the problem.
+and 636 MB is far worse than the 41–135 MB ADR-011 calls the problem.
 
 So the coverage and the delivery question have swapped places. Siglum's
 problem was that the package set could not compile the corpus; this one
@@ -906,6 +907,46 @@ engine already exposes the per-file hook to receive it: `kpse_remote_register`
 takes a name, a kpathsea format and bytes, and `kpse_remote_register_misses`
 takes a *set* of misses rather than the one-per-pass ADR-011 had to work
 around.
+
+### What the top tier buys, and what it costs
+
+The tiers are cumulative, so the corpus can be run at a depth. Truncating to
+`basic` + `recommended` — 294 MB instead of 636 MB — was expected to show a
+gentle coverage curve. It does not:
+
+| Tiers | Size | Compiled | Cold per project |
+|---|---:|---:|---:|
+| `basic` + `recommended` | 294 MB | 4 / 13 | 14–23 s |
+| + `extra` | 636 MB | 11 / 13 | 28–46 s |
+
+**341.6 MB of `extra` buys seven documents, and it is bought for three
+packages.** Every one of the seven fails on `enumitem` (3 documents),
+`titlesec` (3) or `tcolorbox` (1). Nothing else in the tier is reached by the
+corpus at all.
+
+That is the strongest argument in this ADR for ADR-011's delivery model, and
+the first time the cost has been this stark. Fetching whole tiers to obtain
+three `.sty` files is the same failure ADR-011 names for bundles —
+`presentation-beamer` downloading 118.9 MB to read 2.1 MB — one order of
+magnitude worse, and now on a tree where the files are demonstrably sufficient
+once they arrive.
+
+The timings halve with the tier size, which confirms what dominates them: these
+are load figures with a compile inside, not compile figures.
+
+### `presentation-beamer` is cheap, not expensive
+
+Worth stating separately, because the intuition runs the other way and a
+product decision was very nearly made on it. Beamer is one of the **four**
+documents that compile at 294 MB, with the same 5 pages and the same fidelity
+as at 636 MB. Everything it needs — `beamer`, `translator.sty`, the pgf chain —
+is in `recommended`.
+
+So dropping beamer support would save nothing. The documents that force the top
+tier are a CV, a letter, a newsletter, a poster, two reports and a thesis, and
+they force it for `enumitem`, `titlesec` and `tcolorbox`. Under Siglum beamer
+looked like the problem case because it failed loudest — 142 files, 20 s, and a
+wall at `translator.sty`; that was the package set, and it is gone.
 
 ### Fidelity, and a caveat about what improved
 
@@ -926,7 +967,7 @@ The CTAN path is answered: **11/13, with 10 of 11 matching desktop's page
 count**, up from 9/13 and 8/9 once the two fixable failures above were resolved.
 The offline path is now answered too, and at the same score: **11/13 on a
 single TeX Live 2026 tree with no network at all**, which closes the two
-failures this ADR had recorded as structural. What remains is delivery — 635 MB
+failures this ADR had recorded as structural. What remains is delivery — 636 MB
 of tiers is not shippable — and the two template classes no local tier carries.
 
 - [x] Stand up a self-hosted CTAN proxy and re-run the corpus with `--ctan`.
@@ -941,8 +982,11 @@ of tiers is not shippable — and the two template classes no local tier carries
 - [ ] Stand up a self-hosted TeX Live endpoint and settle `paper-acm` and
       `paper-ieee`. Both classes are in `texmfrepo`; neither is in a local tier.
       This is the only remaining coverage gap, and it is not structural.
+- [x] Read the size-versus-coverage curve by truncating the tiers. It is not a
+      curve: 294 MB compiles 4/13, and the 341.6 MB top tier buys seven more
+      documents for three packages — `enumitem`, `titlesec`, `tcolorbox`.
 - [ ] Index the TeX Live 2026 tree the way ADR-011 indexes the others, and
-      measure a first load that is not 635 MB. `kpse_remote_register` takes one
+      measure a first load that is not 636 MB. `kpse_remote_register` takes one
       file at a time, and `kpse_remote_register_misses` takes a set — so the
       one-missing-file-per-pass cost measured on `paper-acm` may not apply here.
 - [ ] Explain `report-scientific` at 9 pages against desktop's 8.
