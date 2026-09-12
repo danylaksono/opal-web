@@ -11,7 +11,7 @@
  * so build and preview with `OPAL_COI=1` to get that column; without it the
  * run still reports every timing and says why memory is missing.
  *
- * Usage: pnpm spike:perf [--only a,b,c] [--no-ctan]
+ * Usage: pnpm spike:perf [--only a,b,c] [--no-ctan] [--texlyre]
  */
 import { readdirSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -59,6 +59,7 @@ async function main(): Promise<void> {
       ? null
       : new Set((process.argv[onlyIndex + 1] ?? "").split(",").filter(Boolean));
   const useCtan = !process.argv.includes("--no-ctan");
+  const useTexlyre = process.argv.includes("--texlyre");
 
   const projects = readdirSync(CORPUS_ROOT, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
@@ -89,7 +90,14 @@ async function main(): Promise<void> {
     const page = await browser.newPage();
     try {
       await page.goto(PREVIEW_URL);
-      if (!useCtan) await page.uncheck('[data-testid="perf-ctan-toggle"]');
+      if (useTexlyre) {
+        await page.selectOption(
+          '[data-testid="perf-backend-select"]',
+          "texlyre",
+        );
+      } else if (!useCtan) {
+        await page.uncheck('[data-testid="perf-ctan-toggle"]');
+      }
       await page.setInputFiles(
         '[data-testid="perf-input"]',
         projectFiles(project),

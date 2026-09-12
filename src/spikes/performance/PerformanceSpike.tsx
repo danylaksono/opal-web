@@ -1,6 +1,11 @@
 import { useCallback, useRef, useState } from "react";
+import type { LatexCompiler } from "@/core/compiler/types";
 import { projectPath } from "@/core/project/ids";
 import { SiglumLatexCompiler } from "@/platform/browser/compiler/siglum-compiler";
+import {
+  TEXLYRE_BOOT_TIER,
+  TexlyreLatexCompiler,
+} from "@/platform/browser/compiler/texlyre-compiler";
 
 /**
  * ADR-003 performance surface: what a compile costs, and whether one can be
@@ -174,7 +179,10 @@ function appendComment(content: Uint8Array, tag: string): Uint8Array {
 export function PerformanceSpike() {
   const [state, setState] = useState<State>({ status: "idle" });
   const [useCtan, setUseCtan] = useState(true);
-  const compilerRef = useRef<SiglumLatexCompiler | null>(null);
+  // Which package set to time. The warm figure is the one a UI has to be
+  // designed around, and the two engines reach it very differently.
+  const [backend, setBackend] = useState<"siglum" | "texlyre">("siglum");
+  const compilerRef = useRef<LatexCompiler | null>(null);
 
   const run = useCallback(
     async (fileList: FileList) => {
@@ -191,13 +199,21 @@ export function PerformanceSpike() {
           files.find((file) => file.path.endsWith(".tex"))?.path;
         if (!mainFile) throw new Error("No .tex file selected");
 
-        const build = () =>
-          new SiglumLatexCompiler({
-            engine: "xelatex",
-            verbose: true,
-            ...(useCtan ? { ctanProxyUrl: "/ctan" } : {}),
-            onLog: (line) => console.log("[siglum]", line),
-          });
+        const build = (): LatexCompiler =>
+          backend === "texlyre"
+            ? new TexlyreLatexCompiler({
+                engine: "xelatex",
+                verbose: true,
+                tiers: [TEXLYRE_BOOT_TIER],
+                remoteEndpoint: `${window.location.origin}/texlive`,
+                onLog: (line) => console.log("[texlyre]", line),
+              })
+            : new SiglumLatexCompiler({
+                engine: "xelatex",
+                verbose: true,
+                ...(useCtan ? { ctanProxyUrl: "/ctan" } : {}),
+                onLog: (line) => console.log("[siglum]", line),
+              });
 
         // A fresh compiler for the timing run, so "cold" means cold.
         await compilerRef.current?.dispose();
@@ -324,7 +340,7 @@ export function PerformanceSpike() {
         });
       }
     },
-    [useCtan],
+    [useCtan, backend],
   );
 
   const { timing, cancellation } = state;
@@ -339,6 +355,23 @@ export function PerformanceSpike() {
       </p>
 
       <label style={{ display: "block", marginBottom: "0.75rem" }}>
+        Package set{" "}
+        <select
+          data-testid="perf-backend-select"
+          value={backend}
+          onChange={(event) => setBackend(event.target.value as typeof backend)}
+        >
+          <option value="siglum">Siglum bundles + CTAN</option>
+          <option value="texlyre">texlyre boot set + endpoint</option>
+        </select>
+      </label>
+
+      <label
+        style={{
+          display: backend === "siglum" ? "block" : "none",
+          marginBottom: "0.75rem",
+        }}
+      >
         <input
           type="checkbox"
           data-testid="perf-ctan-toggle"
