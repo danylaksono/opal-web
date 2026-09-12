@@ -14,9 +14,9 @@ single TeX Live 2026 tree, compiles 11 of 13 with no network at all. Delivery
 measured end to end (ADR-011): a self-hosted endpoint over the tree's own index
 reaches the same 11 of 13 from a 33.84 MB boot set instead of 636 MB of tiers.
 Pre-compressed, a first compile is 21.8–23.4 MB against
-the 41–135 MB Phase 0 measured — and 18.1 MB of that is the engine and the boot
-set, identical for every document, so delivery is no longer where the bytes
-are.
+the 41–135 MB Phase 0 measured — and 22.7 MB of that is fixed cost shared by
+every document (engine, boot set, renderer), so delivery is no longer where the
+bytes are.
 
 **Phase 1 — product skeleton and storage core: complete.** Projects live on the
 device — bytes in OPFS, metadata in IndexedDB — with conditional writes,

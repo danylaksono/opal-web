@@ -31,7 +31,7 @@ PLAN.md keeps it until the questions below are closed.
    from a self-hosted endpoint over the tree's own index, the same 11 of 13
    compile from a **33.84 MB boot set of 110 files**, with fidelity identical to
    the digit. Pre-compressed, a first compile transfers **21.8–23.4 MB** against
-   the 41–135 MB Phase 0 measured, 18.1 MB of it fixed cost shared by every
+   the 41–135 MB Phase 0 measured, 22.7 MB of it fixed cost shared by every
    document (ADR-011). Eleven engine defects were found on Siglum; ten are absorbed by
    the adapter (ADR-003).
 3. **Package delivery — proposed, and now the binding constraint.** Bundles are

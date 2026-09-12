@@ -572,9 +572,12 @@ invisibly.
 | Spread across documents | 94 MB | **1.6 MB** |
 | Compiled | 9/13 (CTAN on) | 11/13 (no network) |
 
-The range is the more interesting half. **18.1 MB of every first load is now
-fixed** — 8.2 MB of engine and 9.9 MB of boot set, identical for every document
-— and only 0.2–1.7 MB varies with what the document actually uses. The delivery
+The range is the more interesting half. **22.66 MB of every successful first
+load is fixed** — 8.2 MB of engine, 9.9 MB of boot set, 3.6 MB of renderer and
+the app — identical for every document, with only 0.2–1.8 MB varying with what
+the document actually uses. Before a PDF exists the fixed part is 19.03 MB: the
+renderer is fetched only once there is something to show, which is why
+`paper-acm` and `paper-ieee` stop there. The delivery
 problem this ADR opened with was that `presentation-beamer` cost 118.9 MB and
 `blank` cost 41 MB, a 3× spread driven entirely by which bundles happened to be
 pulled. That spread is gone: the two documents now differ by 0.8 MB.
@@ -669,9 +672,12 @@ happens to ship both.
       the format file, none of which this model can address.
 - [x] Apply brotli. **A first compile is 21.8–23.4 MB, from 57.8 MB**, and the
       spread across the corpus fell from 94 MB to 1.6 MB. See above.
-- [ ] Shrink the engine and ICU, which are what is left: 18.1 MB of every load
-      is fixed and 8.2 + 9.9 MB of it is those two. Both are engine build
-      questions rather than delivery ones (ADR-003).
+- [ ] Shrink the engine and ICU, which are what is left: of 22.66 MB fixed,
+      8.2 MB is the engine and 9.9 MB the boot set (22 MB of it ICU). Both are
+      engine *build* questions rather than delivery ones — `engineMode` already
+      selects `<mode>.wasm`, but only the combined `busytex.wasm` ships, so a
+      xetex-only binary is a supported configuration with no artifact behind it
+      (ADR-003).
 - [ ] Serve `acmart` and `IEEEtran` from the `texmfrepo` archive, which is a
       different and larger source than the tiers indexed here.
 - [ ] Measure `kpse_remote_register_misses` with a set of misses, against the
