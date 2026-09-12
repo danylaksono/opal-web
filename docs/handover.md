@@ -25,6 +25,13 @@ transactional autosave, ZIP import and export, an error boundary and design
 tokens. Every exit criterion has a test that runs against real storage rather
 than a stand-in; `PLAN.md` 14 names which test shows which criterion.
 
+**Phase 3 — authoring: begun.** CodeMirror 6 replaced the textarea (line
+numbers, undo, `stex` highlighting, one instance per document so undo stops at
+the file), and a flat file list does add, switch and delete — which is what
+makes the compile path's multi-file support reachable at all. Outstanding:
+rename, the semantic index and everything that needs it, asset views, and the
+accessibility pass.
+
 **Phase 2 — compile and preview: the loop is built.** `Workspace.tsx` opens a
 project, compiles what is on screen through `LatexCompiler`, and draws the
 result through `PdfRenderer`; `compile-session.ts` owns the sequencing, so the
@@ -140,6 +147,12 @@ cover for this path.
 - **Local and deployed behaviour have diverged twice**, both times on
   `busytex.wasm` and both times invisibly. `vite.config.ts` is the reference for
   what `netlify.toml` should say; change them together.
+- **This container cannot install a second browser.** `playwright install
+  firefox` fails at the download: the browser CDN is unreachable from here, so
+  Chromium at `OPAL_CHROMIUM_PATH` is the only engine available and the
+  Firefox/Safari item in PLAN.md needs a different machine rather than more
+  effort. It is not a repository problem and no amount of configuration fixes
+  it from inside.
 - **Playwright resolves browsers by build number.** On a machine whose
   preinstalled Chromium is a different build than the pinned
   `@playwright/test` — or one that cannot reach the browser CDN — every test

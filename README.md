@@ -5,15 +5,15 @@ projects on the user's device, and sends no document content to an Opal server.
 Sibling product to the [Opal desktop editor](https://github.com/danylaksono/opal-editor),
 not a port of it.
 
-**Status: Phase 2 — compile and preview.** Phase 0's measurement
-instrumentation, ports and decision records are still here and still run; on top
-of them there is a storage layer that keeps projects on the device, autosaves
-them and exports them as ZIPs, and now an edit-compile-preview loop that runs
-the engine in the product path rather than in a spike. Create a project, press
-Compile, and a page is rasterised from a PDF the browser produced. The editor is
-still a textarea — CodeMirror, the file tree and tabs are Phase 3 — and the two
-questions below are still open, but they are no longer between the engine and a
-person using it.
+**Status: Phase 3 begun — an editor on a working compile loop.** Phase 0's
+measurement instrumentation, ports and decision records are still here and still
+run; on top of them there is a storage layer that keeps projects on the device,
+autosaves them and exports them as ZIPs, an edit-compile-preview loop that runs
+the engine in the product path rather than in a spike, and now a CodeMirror
+editor over a project that can hold more than one file. Create a project, write
+LaTeX across a `main.tex` and a chapter, press Compile, and a page is rasterised
+from a PDF the browser produced. The two questions below are still open, but
+they are no longer between the engine and a person using it.
 
 1. **Renderer — settled.** MuPDF.js, verified booting in a plain browser module
    worker on a static host, with per-line text geometry good enough for review

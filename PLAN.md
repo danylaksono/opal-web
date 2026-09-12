@@ -1,6 +1,6 @@
 # Opal Web: architecture investigation and initial plan
 
-Status: Phase 2 — the compile-preview loop is in the product; engine at 12/14  
+Status: Phase 3 begun — editor and file list on top of a working compile loop  
 Prepared: 2026-07-23  
 Last updated: 2026-09-12  
 Target product: `opal-web`, a separate repository and independently deployable product
@@ -20,9 +20,10 @@ Target product: `opal-web`, a separate repository and independently deployable p
 
 Repository: <https://github.com/danylaksono/opal-web>, AGPL-3.0-or-later.
 
-**Phase 1 is complete and Phase 2's loop is built.** A user creates a project,
-types, presses Compile, and reads a rasterised page — all of it on the device,
-with the engine on a worker and the renderer on another. The two numbers that
+**Phase 1 is complete, Phase 2's loop is built, and Phase 3 has started.** A
+user creates a project, writes LaTeX in a real editor across as many files as
+they like, presses Compile, and reads a rasterised page — all of it on the
+device, with the engine on a worker and the renderer on another. The two numbers that
 made Phase 2 wait have both moved by an order of magnitude, and neither was
 moved by optimising: both were structural.
 
@@ -111,9 +112,13 @@ hundred compiles rather than every one, at 0.9 s each.
   `Workspace.tsx` owns the pixels: engine stages and a download percentage while
   it works, the log when it fails, page navigation, zoom that re-renders rather
   than stretches, and a reading position that survives a recompile.
-- **Multi-file compiles** work through `ProjectRepository`; what is missing is a
-  way to *create* a second file, which is Phase 3's file tree.
-- 193 unit tests and 21 Playwright e2e tests. The e2e suite is the part that
+- **The editing surface (Phase 3, begun):** CodeMirror 6 with line numbers,
+  undo and LaTeX highlighting, one instance per document so undo cannot follow
+  a user between files; and a flat file list with add, switch and delete, which
+  is what finally makes the compile path's multi-file support reachable — a
+  project can `\input` a chapter and it compiles. Flat rather than a tree
+  because no project in this repository has a directory in it.
+- 194 unit tests and 24 Playwright e2e tests. The e2e suite is the part that
   matters here: four defects found during Phase 2 — the default font path, a
   boot package with no `ls-R`, a stale pre-compressed asset, and cancellation
   returning after 180 s — would each have passed every test that existed before
@@ -141,9 +146,14 @@ hundred compiles rather than every one, at 0.9 s each.
 
 1. Run the corpus and the e2e suite on Firefox and Safari. Nothing has run
    outside desktop Chromium, and Safari's WASM limits are the ones most likely
-   to bite a 32 MB engine.
-2. Phase 3's authoring surface: CodeMirror, the file tree, tabs. The loop is the
-   thing it plugs into, and it is built.
+   to bite a 32 MB engine. **Needs a different machine**: the container this was
+   built in cannot reach the Playwright browser CDN, so Chromium is the only
+   engine installable on it.
+2. The rest of Phase 3: rename, completion, cross-references, an outline, and
+   gutter diagnostics. Rename wants a decision first — two revisions with a
+   window where both names exist, or `renameFile` on the port. The others want
+   the semantic index, which is the real next piece of work rather than a pile
+   of CodeMirror extensions.
 3. `paper-acm` and `paper-ieee` from `texmfrepo`, on a machine that can reach a
    TeX Live mirror.
 4. Deploy, and confirm brotli and the first-load figure on a real host.
@@ -1368,6 +1378,13 @@ Exit criteria:
 - worker failures recover without losing edits.
 
 ### Phase 3 — Opal authoring experience
+
+> Begun. CodeMirror is in with line numbers, undo and highlighting; the file
+> list does add, switch and delete. Not done: rename, the semantic index and
+> everything that depends on it (completion, cross-references, outline, gutter
+> diagnostics), asset views, and the keyboard and accessibility pass. The
+> editor is CodeMirror configured fresh rather than ported — desktop Opal's
+> configuration is in a repository this one cannot see.
 
 Deliverables:
 
