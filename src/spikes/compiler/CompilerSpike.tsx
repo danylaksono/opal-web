@@ -3,6 +3,7 @@ import type { CompileDiagnostic } from "@/core/compiler/types";
 import { projectPath } from "@/core/project/ids";
 import { SiglumLatexCompiler } from "@/platform/browser/compiler/siglum-compiler";
 import {
+  TEXLYRE_BOOT_TIER,
   TEXLYRE_TIERS,
   TexlyreLatexCompiler,
 } from "@/platform/browser/compiler/texlyre-compiler";
@@ -85,7 +86,7 @@ export function CompilerSpike() {
   const [backend, setBackend] = useState<"siglum" | "texlyre">("siglum");
   // How much of the single-vintage tree to preload. Cumulative, so this is
   // a depth rather than a selection.
-  const [tierDepth, setTierDepth] = useState(TEXLYRE_TIERS.length);
+  const [tierDepth, setTierDepth] = useState<number>(TEXLYRE_TIERS.length);
   // The self-hosted TeX Live endpoint. Off by default: ADR-001 makes
   // on-demand fetching opt-in even when the origin is ours.
   const [useEndpoint, setUseEndpoint] = useState(false);
@@ -166,7 +167,11 @@ export function CompilerSpike() {
         ? new TexlyreLatexCompiler({
             engine: options.engine,
             verbose: true,
-            tiers: TEXLYRE_TIERS.slice(0, options.tierDepth),
+            // -1 is the built boot set rather than a depth into the tiers.
+            tiers:
+              options.tierDepth === -1
+                ? [TEXLYRE_BOOT_TIER]
+                : TEXLYRE_TIERS.slice(0, options.tierDepth),
             ...(options.useEndpoint
               ? { remoteEndpoint: `${window.location.origin}/texlive` }
               : {}),
@@ -315,6 +320,8 @@ export function CompilerSpike() {
             value={tierDepth}
             onChange={(event) => setTierDepth(Number(event.target.value))}
           >
+            <option value={-1}>boot set only (29 files)</option>
+            <option value={0}>none (everything from the endpoint)</option>
             {TEXLYRE_TIERS.map((_, index) => (
               <option key={TEXLYRE_TIERS[index]} value={index + 1}>
                 {TEXLYRE_TIERS.slice(0, index + 1).join(" + ")}

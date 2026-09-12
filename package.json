@@ -27,7 +27,8 @@
     "spike:range-fetch": "tsx scripts/run-range-fetch-spike.ts",
     "spike:pinned-archive": "tsx scripts/build-pinned-archive.ts",
     "serve:tex-archive": "tsx scripts/serve-tex-archive.ts",
-    "spike:texlive-index": "tsx scripts/build-texlive-index.ts"
+    "spike:texlive-index": "tsx scripts/build-texlive-index.ts",
+    "spike:texlive-min": "tsx scripts/build-texlive-min.ts"
   },
   "dependencies": {
     "@siglum/engine": "^0.1.4",

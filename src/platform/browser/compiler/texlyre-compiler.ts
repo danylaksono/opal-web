@@ -40,14 +40,26 @@ import { categoriseFailure, firstError, parseTexLog } from "./log-diagnostics";
 
 export type TexlyreEngineName = "xelatex" | "pdflatex" | "lualatex";
 
-/** The cumulative data packages the assets ship, smallest first. */
-export type TexlyreTier = "basic" | "recommended" | "extra";
+/**
+ * A data package to mount before compiling.
+ *
+ * The three the assets ship are cumulative and named; anything else is a
+ * package we built, and `spike:texlive-min` builds one — a boot set of 29
+ * files rather than a tier of 7,185 (ADR-011).
+ */
+export type TexlyreTier = "basic" | "recommended" | "extra" | (string & {});
 
 export const TEXLYRE_TIERS: readonly TexlyreTier[] = [
   "basic",
   "recommended",
   "extra",
 ];
+
+/**
+ * The boot set: what cannot come from the endpoint because it is read before
+ * kpathsea exists or named by absolute path. Built by `pnpm spike:texlive-min`.
+ */
+export const TEXLYRE_BOOT_TIER = "min-xelatex";
 
 export interface TexlyreCompilerOptions {
   engine?: TexlyreEngineName;
@@ -127,7 +139,9 @@ export class TexlyreLatexCompiler implements LatexCompiler {
       // The tiers are part of the package set: the same tree truncated at
       // `recommended` resolves a different set of names than at `extra`, and a
       // result that did not say so could not be compared with one that did.
-      packageSetVersion: `${TEXLIVE_VINTAGE}/texlyre-1.4.0/${tiers.join("+")}`,
+      packageSetVersion: `${TEXLIVE_VINTAGE}/texlyre-1.4.0/${
+        tiers.length > 0 ? tiers.join("+") : "none"
+      }`,
     };
   }
 
