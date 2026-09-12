@@ -16,6 +16,7 @@
 
 import { projectPath } from "@/core/project/ids";
 import {
+  FileExistsError,
   FileNotFoundError,
   ProjectConflictError,
   ProjectNotFoundError,
@@ -227,6 +228,87 @@ export const repositoryContract: RepositoryCase[] = [
       const revision = await repository.deleteFile(project.id, main);
       ok(revision > project.revision, "delete did not advance the revision");
       equal(await repository.listFiles(project.id), [], "remaining files");
+    },
+  },
+  {
+    name: "renames a file as one revision, keeping its bytes",
+    run: async (repository) => {
+      const project = await repository.create({
+        title: "Draft",
+        files: [{ path: main, bytes: bytes("content") }],
+      });
+      const revision = await repository.renameFile(project.id, main, chapter);
+
+      equal(revision, project.revision + 1, "one revision, not two");
+      equal(await repository.listFiles(project.id), [chapter], "files");
+      equal(
+        text(await repository.readFile(project.id, chapter)),
+        "content",
+        "bytes",
+      );
+    },
+  },
+  {
+    name: "moves the project's root file with it",
+    run: async (repository) => {
+      // Otherwise the rename leaves a project that cannot compile and nothing
+      // that says why.
+      const project = await repository.create({
+        title: "Draft",
+        files: [{ path: main, bytes: bytes("content") }],
+        rootTexPath: main,
+      });
+      await repository.renameFile(project.id, main, chapter);
+
+      equal(
+        (await repository.get(project.id)).rootTexPath,
+        chapter,
+        "rootTexPath",
+      );
+    },
+  },
+  {
+    name: "refuses a rename onto a file that exists, and changes nothing",
+    run: async (repository) => {
+      const project = await repository.create({
+        title: "Draft",
+        files: [
+          { path: main, bytes: bytes("first") },
+          { path: chapter, bytes: bytes("second") },
+        ],
+      });
+
+      const error = await throws(() =>
+        repository.renameFile(project.id, main, chapter),
+      );
+      ok(
+        error instanceof FileExistsError,
+        `expected FileExistsError, got ${String(error)}`,
+      );
+      equal(
+        text(await repository.readFile(project.id, chapter)),
+        "second",
+        "the file that was nearly overwritten",
+      );
+      equal(
+        text(await repository.readFile(project.id, main)),
+        "first",
+        "the file that was nearly moved",
+      );
+    },
+  },
+  {
+    name: "raises rather than renaming a file the project does not have",
+    run: async (repository) => {
+      const project = await repository.create({ title: "Draft" });
+      const error = await throws(() =>
+        repository.renameFile(project.id, main, chapter),
+      );
+      ok(
+        error instanceof FileNotFoundError,
+        `expected FileNotFoundError, got ${String(error)}`,
+      );
+      equal(await repository.listFiles(project.id), [], "files");
     },
   },
   {

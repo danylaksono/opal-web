@@ -144,6 +144,51 @@ test.describe("outline and project health", () => {
     await expect(marker).toHaveCount(0);
   });
 
+  test("renaming the main file keeps the project compiling", async ({
+    page,
+  }) => {
+    const editor = page.getByTestId("editor-content");
+    await editor.fill("\\section{One}\n");
+
+    await page.getByTestId("rename-to").fill("paper.tex");
+    await page.getByTestId("rename-file").click();
+
+    await expect(
+      page.locator('[data-testid="file-open"][data-path="paper.tex"]'),
+    ).toHaveAttribute("aria-current", "true");
+    await expect(page.getByTestId("file-open")).toHaveCount(1);
+    // The star marks the compile target, and the record's root file follows a
+    // rename — otherwise the button would point at a name nothing has.
+    await expect(page.getByTestId("file-open")).toHaveText("paper.tex ★");
+    await expect(page.getByTestId("compile-target")).toHaveText("paper.tex");
+    await expect(editor).toContainText("section{One}");
+
+    // And it is still there after a reload, which is the part a rename that
+    // wrote the new name without removing the old one would also pass — so the
+    // file count above is the assertion that matters.
+    await page.reload();
+    await page.getByTestId("open-project").first().click();
+    await expect(page.getByTestId("file-open")).toHaveText("paper.tex ★");
+  });
+
+  test("a rename onto an existing file is refused", async ({ page }) => {
+    await page.getByTestId("new-file-name").fill("notes.tex");
+    await page.getByTestId("create-file").click();
+    await expect(
+      page.locator('[data-testid="file-open"][data-path="notes.tex"]'),
+    ).toHaveAttribute("aria-current", "true");
+
+    await page.getByTestId("rename-to").fill("main.tex");
+    await page.getByTestId("rename-file").click();
+
+    // Refused rather than silently overwriting `main.tex`, and said out loud:
+    // the user who typed the name is the one who can pick another.
+    await expect(page.getByTestId("projects-error")).toContainText(
+      "already has main.tex",
+    );
+    await expect(page.getByTestId("file-open")).toHaveCount(2);
+  });
+
   test("a reference resolves against a label in another file", async ({
     page,
   }) => {

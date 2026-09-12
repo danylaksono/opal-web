@@ -140,6 +140,7 @@ export function ProjectsPanel({
     content: string;
   } | null>(null);
   const [newFileName, setNewFileName] = useState("");
+  const [renameTo, setRenameTo] = useState("");
   /** An outline click: which line to show, and a nonce so a repeat click works. */
   const [reveal, setReveal] = useState<{ line: number; nonce: number } | null>(
     null,
@@ -351,6 +352,45 @@ export function ProjectsPanel({
       // rebuild drops anything typed while this was in flight.
       autosaveRef.current?.adopt(revision);
       setNewFileName("");
+      await refresh();
+    },
+    [editing, repository, refresh],
+  );
+
+  /**
+   * Rename the open file.
+   *
+   * One repository call rather than a write and a delete: the port makes it one
+   * revision, so a tab that closes mid-rename leaves the project with one name
+   * or the other and never with both.
+   */
+  const renameOpenFile = useCallback(
+    async (name: string) => {
+      if (!editing) return;
+      const to = projectPath(name);
+      if (to === editing.path) return;
+      await autosaveRef.current?.flush();
+      const revision = await repository.renameFile(
+        editing.id,
+        editing.path,
+        to,
+      );
+
+      const files = await repository.listFiles(editing.id);
+      const sources = { ...editing.sources };
+      sources[to] = sources[editing.path] ?? "";
+      delete sources[editing.path];
+      setEditing({
+        ...editing,
+        path: to,
+        // The record's root file follows a rename, so this has to as well or
+        // the compile button would point at a name that no longer exists.
+        mainFile: editing.mainFile === editing.path ? to : editing.mainFile,
+        files,
+        sources,
+      });
+      autosaveRef.current?.adopt(revision);
+      setRenameTo("");
       await refresh();
     },
     [editing, repository, refresh],
@@ -712,7 +752,33 @@ export function ProjectsPanel({
             </details>
           )}
 
-          <h3 style={{ marginBottom: "0.25rem" }}>{editing.path}</h3>
+          <h3 style={{ marginBottom: "0.25rem" }}>
+            {editing.path}{" "}
+            <form
+              style={{ display: "inline" }}
+              onSubmit={(event) => {
+                event.preventDefault();
+                const name = renameTo.trim();
+                if (name) void act(() => renameOpenFile(name));
+              }}
+            >
+              <input
+                data-testid="rename-to"
+                aria-label={`Rename ${editing.path} to`}
+                value={renameTo}
+                placeholder={editing.path}
+                style={{ fontSize: "0.8rem" }}
+                onChange={(event) => setRenameTo(event.target.value)}
+              />{" "}
+              <button
+                type="submit"
+                data-testid="rename-file"
+                style={{ fontSize: "0.8rem" }}
+              >
+                Rename
+              </button>
+            </form>
+          </h3>
           <CodeEditor
             key={`${editing.id}:${editing.path}`}
             label={`Contents of ${editing.path}`}

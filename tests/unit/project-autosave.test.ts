@@ -42,6 +42,8 @@ function withOverrides(
     rename: (id, title) => base.rename(id, title),
     listFiles: (id) => base.listFiles(id),
     readFile: (id, path) => base.readFile(id, path),
+    renameFile: (id, from, to, revision) =>
+      base.renameFile(id, from, to, revision),
     writeFile: (id, path, content, revision) =>
       base.writeFile(id, path, content, revision),
     writeFiles: (id, files, revision) => base.writeFiles(id, files, revision),
