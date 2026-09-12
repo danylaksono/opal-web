@@ -118,6 +118,17 @@ hundred compiles rather than every one, at 0.9 s each.
   is what finally makes the compile path's multi-file support reachable — a
   project can `\input` a chapter and it compiles. Flat rather than a tree
   because no project in this repository has a directory in it.
+- **Diagnostics where the writing is:** the engine's, and the index's, in the
+  same gutter. Building it found that every diagnostic in a project's main file
+  had been attributed to a file that does not exist — TeX prints `(./main.tex`
+  and then continues on the same line with no space, so the parser read
+  `main.texLaTeX2e`. It had been wrong since the parser was written, because
+  printing a wrong filename looks fine and the gutter was the first thing that
+  had to use one.
+- **Rename on the port** (`renameFile`), one revision rather than a write and a
+  delete, refusing to overwrite and carrying the project's root file with it.
+  Four contract cases run it against both the in-memory repository and real
+  OPFS.
 - **A semantic index**, recomputed on every keystroke in about a millisecond:
   labels, references, citations, `\bibitem` keys, inputs, graphics, packages
   and sections, scanned character by character rather than by regular
@@ -126,7 +137,7 @@ hundred compiles rather than every one, at 0.9 s each.
   compiling, and completion for labels and citation keys. It reports **zero
   problems across all fourteen corpus projects**, which is a test: they compile,
   so anything it reports is its own defect.
-- 234 unit tests and 29 Playwright e2e tests. The e2e suite is the part that
+- 239 unit tests and 33 Playwright e2e tests. The e2e suite is the part that
   matters here: four defects found during Phase 2 — the default font path, a
   boot package with no `ls-R`, a stale pre-compressed asset, and cancellation
   returning after 180 s — would each have passed every test that existed before
@@ -157,13 +168,10 @@ hundred compiles rather than every one, at 0.9 s each.
    to bite a 32 MB engine. **Needs a different machine**: the container this was
    built in cannot reach the Playwright browser CDN, so Chromium is the only
    engine installable on it.
-2. The rest of Phase 3. The index is in and has paid for the outline, project
-   health and completion; what is left on top of it is compiler diagnostics in
-   the gutter — the log's line numbers are already parsed, so this is mapping
-   rather than analysis. Beside it: rename, which wants a decision first (two
-   revisions with a window where both names exist, or `renameFile` on the
-   port), asset views for images and PDFs, and the keyboard and accessibility
-   pass, which nothing has looked at yet.
+2. The rest of Phase 3: asset views for images and PDFs, which is the last
+   deliverable with nothing behind it; structured editors and templates; and the
+   keyboard and accessibility pass, which nothing has looked at yet and which
+   the roadmap treats as an exit criterion rather than a nicety.
 3. `paper-acm` and `paper-ieee` from `texmfrepo`, on a machine that can reach a
    TeX Live mirror.
 4. Deploy, and confirm brotli and the first-load figure on a real host.
@@ -1390,10 +1398,11 @@ Exit criteria:
 ### Phase 3 — Opal authoring experience
 
 > Begun. CodeMirror is in with line numbers, undo and highlighting; the file
-> list does add, switch and delete; and the semantic index carries an outline,
-> project health and completion for labels and citation keys. Not done: gutter
-> diagnostics from the compiler's log, rename, asset views, structured editors
-> and templates, and the keyboard and accessibility pass. The editor is
+> list does add, switch, rename and delete; and the semantic index carries an
+> outline, project health, completion for labels and citation keys, and gutter
+> marks from both the index and the engine's log. Not done: asset views,
+> structured editors and templates, and the keyboard and accessibility pass,
+> which nothing has looked at yet. The editor is
 > CodeMirror configured fresh rather than ported — desktop Opal's configuration
 > is in a repository this one cannot see.
 

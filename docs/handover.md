@@ -36,8 +36,10 @@ list and completion, and it is recomputed from memory on every keystroke
 (~1 ms), which is why `ProjectsPanel` keeps every text file's content in state
 rather than re-reading OPFS. `tests/unit/latex-corpus-index.test.ts` runs it
 over all fourteen corpus projects and asserts it finds nothing: they compile, so
-a finding there is the index's bug. Outstanding: gutter diagnostics, rename,
-asset views, and the accessibility pass.
+a finding there is the index's bug. Both the index's problems and the engine's
+diagnostics are marked in the editor's gutter; `renameFile` is on the port so a
+rename is one revision rather than a write and a delete. Outstanding: asset
+views, structured editors and templates, and the accessibility pass.
 
 **Phase 2 — compile and preview: the loop is built.** `Workspace.tsx` opens a
 project, compiles what is on screen through `LatexCompiler`, and draws the
