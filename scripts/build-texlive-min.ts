@@ -68,6 +68,15 @@ function bootSet(path: string, engine: string): boolean {
   if (path === FORMATS[engine]) return true;
   // ICU's data file is opened by name from inside the XeTeX binary.
   if (path.endsWith("icudt78l.dat")) return true;
+  // Loaded unconditionally by every compile rather than because of anything in
+  // the document, so serving them per file is pure repetition: measured on the
+  // corpus, `pdftex.map` alone was fetched twelve times for 66.5 MB of the
+  // 96.2 MB total. Mounting them trades 5.8 MB of boot set for that.
+  if (path.endsWith("/pdftex.map")) return true;
+  if (path.includes("/fonts/map/dvipdfmx/")) return true;
+  if (path.endsWith("dvipdfmx.cfg")) return true;
+  if (/glyphlist\.txt$/.test(path)) return true;
+  if (path.endsWith(".tec")) return true;
   return false;
 }
 
