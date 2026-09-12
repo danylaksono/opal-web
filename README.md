@@ -30,7 +30,9 @@ PLAN.md keeps it until the questions below are closed.
    Beamer is not among them; it compiles in the 294 MB tier. Served instead
    from a self-hosted endpoint over the tree's own index, the same 11 of 13
    compile from a **33.84 MB boot set of 110 files**, with fidelity identical to
-   the digit and faster than either tier configuration (ADR-011). Eleven engine defects were found on Siglum; ten are absorbed by
+   the digit. Pre-compressed, a first compile transfers **21.8–23.4 MB** against
+   the 41–135 MB Phase 0 measured, 18.1 MB of it fixed cost shared by every
+   document (ADR-011). Eleven engine defects were found on Siglum; ten are absorbed by
    the adapter (ADR-003).
 3. **Package delivery — proposed, and now the binding constraint.** Bundles are
    fetched whole, so a first compile transfers 41–135 MB — and the TeX Live 2026
@@ -85,6 +87,8 @@ pnpm spike:corpus-run xelatex --texlyre --tiers 2 # ... truncated to 294 MB
 pnpm spike:texlive-index              # size the index over the TeX Live tree
 pnpm spike:texlive-min xelatex --write        # the 110-file boot set
 pnpm spike:corpus-run xelatex --texlyre --tiers -1 --endpoint # per-file delivery
+pnpm spike:brotli --write                    # pre-compress engine, boot set, renderer
+pnpm spike:firstload --texlyre --tiers -1 --endpoint  # bytes a cold compile transfers
 pnpm spike:perf                       # init, cold, warm, memory, cancellation
 pnpm spike:firstload                  # bytes a cold first compile transfers
 pnpm spike:tex-archive                # indexed TeX archive built from the bundles

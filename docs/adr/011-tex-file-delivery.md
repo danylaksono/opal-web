@@ -1,8 +1,8 @@
 # ADR-011: how TeX support files reach the browser
 
 - **Status:** Proposed — and now measured end to end on TeX Live 2026: a
-  self-hosted endpoint over the tree's own index compiles 11/13 from a 33.84 MB
-  boot set, the same coverage the 636 MB tiers reach
+  self-hosted endpoint over a 33.84 MB boot set compiles 11/13, and a first
+  compile transfers **21.8–23.4 MB** against the 41–135 MB this ADR opened with
 - **Date:** 2026-09-03, revised 2026-09-12
 - **Deciders:** danylaksono
 
@@ -526,6 +526,70 @@ format file — **60.4 MB of 69.4 MB is four artifacts**, none of which the
 delivery model can touch. The 17–21 MB this ADR set out to reach is not
 reachable by indexing files, because files are no longer the cost.
 
+### Measured: pre-compressing what is left
+
+The floor analysis above ends by saying the remaining bytes are four artifacts
+delivery cannot touch, and that the lever on them is the transport rather than
+the index. Applied, on `presentation-beamer`:
+
+| | uncompressed | brotli |
+|---|---:|---:|
+| app | 0.1 MB | 0.1 MB |
+| tex engine | 31.1 MB | **8.2 MB** |
+| boot set | 13.8 MB | **9.9 MB** |
+| endpoint files | 3.0 MB | **1.0 MB** |
+| pdf renderer | 10.0 MB | **3.5 MB** |
+| **total** | **57.8 MB** | **22.6 MB** |
+| time | 11.1 s | 6.7 s |
+
+At quality 11: the engine 32.51 MB → 8.50 MB (26%), the boot package
+33.85 MB → 10.28 MB (30%), MuPDF 10.41 MB → 3.60 MB (35%). Compression is
+precomputed, because quality 11 on 33 MB takes around 100 s — once in a build,
+absurd per request.
+
+Two things the measurement found rather than confirmed. Once the engine was
+compressed **the largest single response was MuPDF**, which Vite emits hashed
+into `dist/assets` where nothing was compressing it; and the endpoint's 3.0 MB
+was uncompressed for no better reason than that nobody had looked. The endpoint
+now compresses at **quality 4, not 11** — its files are read by a *synchronous*
+XHR inside the worker, so compression time is time TeX is blocked, and a better
+ratio is the wrong trade.
+
+What is deliberately *not* compressed is as load-bearing. `texlive-extra.data`
+is read by byte offset, and a transport encoding would make it unseekable, so
+the middleware also refuses the pre-compressed path for any request carrying a
+`Range` header: `Range` and `Content-Encoding` together describe a range of the
+*encoded* stream, which is not what any caller here means. Siglum's `.data.gz`
+keeps its raw path, and `Content-Type: application/wasm` is set explicitly —
+ADR-003 records two deployments broken on exactly these two points, both
+invisibly.
+
+### Result: the whole corpus, first compile
+
+| | ADR-011 as written | now |
+|---|---:|---:|
+| First compile, range | 41–135 MB | **21.8–23.4 MB** |
+| Spread across documents | 94 MB | **1.6 MB** |
+| Compiled | 9/13 (CTAN on) | 11/13 (no network) |
+
+The range is the more interesting half. **18.1 MB of every first load is now
+fixed** — 8.2 MB of engine and 9.9 MB of boot set, identical for every document
+— and only 0.2–1.7 MB varies with what the document actually uses. The delivery
+problem this ADR opened with was that `presentation-beamer` cost 118.9 MB and
+`blank` cost 41 MB, a 3× spread driven entirely by which bundles happened to be
+pulled. That spread is gone: the two documents now differ by 0.8 MB.
+
+`paper-acm` and `paper-ieee` appear at 18.2 MB because they fail before the
+renderer loads; they are not a smaller first load, they are an incomplete one.
+
+**Against the target.** This ADR set out to reach 17–21 MB. A first compile is
+21.8–23.4 MB, which is *just* above it, and the honest reading is that the
+target was set against a different cost structure — it assumed the variable
+part, TeX files, was the problem. It no longer is: files are 0.2–1.7 MB of a
+22 MB load. Getting under 17 MB now means a smaller engine or dropping ICU,
+which are engine build questions, not delivery ones, and they are recorded in
+ADR-003 rather than here.
+
 ### The endpoint is a kpathsea implementation, not a file server
 
 Three separate failures during this work were the same defect — the resolver
@@ -603,9 +667,11 @@ happens to ship both.
       compiling the same 11/13 — and a first compile of 69.4 MB against 126.7.
       Established why it cannot go lower: 60.4 MB of that is the engine, ICU and
       the format file, none of which this model can address.
-- [ ] Shrink the engine and ICU, which are now the cost. Brotli takes the engine
-      from 32.5 MB to about 7 MB and is not yet applied; ICU at 22 MB is a
-      build-time question for the engine, not a delivery one.
+- [x] Apply brotli. **A first compile is 21.8–23.4 MB, from 57.8 MB**, and the
+      spread across the corpus fell from 94 MB to 1.6 MB. See above.
+- [ ] Shrink the engine and ICU, which are what is left: 18.1 MB of every load
+      is fixed and 8.2 + 9.9 MB of it is those two. Both are engine build
+      questions rather than delivery ones (ADR-003).
 - [ ] Serve `acmart` and `IEEEtran` from the `texmfrepo` archive, which is a
       different and larger source than the tiers indexed here.
 - [ ] Measure `kpse_remote_register_misses` with a set of misses, against the

@@ -13,8 +13,10 @@ CTAN proxy, and 2 of 13 without one; `texlyre-busytex`, the same engine on a
 single TeX Live 2026 tree, compiles 11 of 13 with no network at all. Delivery
 measured end to end (ADR-011): a self-hosted endpoint over the tree's own index
 reaches the same 11 of 13 from a 33.84 MB boot set instead of 636 MB of tiers.
-A first compile is 69.4 MB, of which 60.4 MB is the engine, ICU and the format
-file — so delivery is no longer where the bytes are.
+Pre-compressed, a first compile is 21.8–23.4 MB against
+the 41–135 MB Phase 0 measured — and 18.1 MB of that is the engine and the boot
+set, identical for every document, so delivery is no longer where the bytes
+are.
 
 **Phase 1 — product skeleton and storage core: complete.** Projects live on the
 device — bytes in OPFS, metadata in IndexedDB — with conditional writes,
@@ -40,6 +42,7 @@ cannot be regenerated without the desktop repo and a native toolchain.
 | `public/engines/siglum/` | 225 MB | `./scripts/download-siglum-assets.sh` |
 | `public/engines/texlyre/` | 700 MB | `./scripts/download-texlyre-assets.sh` |
 | `texlive-min-*` (boot set) | 34 MB | `pnpm spike:texlive-min xelatex --write` |
+| `*.br` (pre-compressed) | 22 MB | `pnpm spike:brotli --write` (after `vite build`) |
 | `spike-results/` | small | `pnpm spike:corpus-run xelatex --ctan` (needs a preview running) |
 | `public/tex/` | 259 MB | `pnpm spike:tex-archive` (needs `public/engines`) |
 | `.cache/tectonic/index.txt` | 4.9 MB | see below |

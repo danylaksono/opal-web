@@ -1,7 +1,8 @@
 # ADR-003: LaTeX WASM engine and package distribution
 
 - **Status:** Open — Siglum reaches 11/13 *with* a CTAN proxy; texlyre-busytex
-  reaches 11/13 from a 33.84 MB boot set plus our own endpoint (ADR-011)
+  reaches 11/13 from a 33.84 MB boot set plus our own endpoint, at 21.8–23.4 MB
+  a first compile (ADR-011). What is left is the engine and ICU, not packages.
 - **Date:** 2026-09-01, last measured 2026-09-12
 - **Deciders:** danylaksono
 
