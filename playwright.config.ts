@@ -1,4 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
+import { chromiumLaunchOptions } from "./scripts/browser";
 
 /**
  * Phase 0 e2e runs against the production build, not the dev server: the
@@ -15,6 +16,7 @@ export default defineConfig({
   timeout: 60_000,
   use: {
     baseURL: "http://localhost:4173",
+    launchOptions: chromiumLaunchOptions,
     trace: "on-first-retry",
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],

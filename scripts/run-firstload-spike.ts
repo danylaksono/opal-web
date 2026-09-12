@@ -23,6 +23,7 @@ import { readdirSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { chromium } from "@playwright/test";
+import { chromiumLaunchOptions } from "./browser";
 
 const PREVIEW_URL = process.env.OPAL_PREVIEW_URL ?? "http://localhost:4173";
 const CORPUS_ROOT = resolve("tests/fixtures/compiler-corpus");
@@ -125,7 +126,7 @@ async function main(): Promise<void> {
     .filter((name) => !only || only.has(name))
     .sort();
 
-  const browser = await chromium.launch();
+  const browser = await chromium.launch(chromiumLaunchOptions);
   const outcomes: FirstLoad[] = [];
 
   for (const project of projects) {

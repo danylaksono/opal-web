@@ -94,6 +94,12 @@ raise the concurrency to make a large tier faster.
 - **Local and deployed behaviour have diverged twice**, both times on
   `busytex.wasm` and both times invisibly. `vite.config.ts` is the reference for
   what `netlify.toml` should say; change them together.
+- **Playwright resolves browsers by build number.** On a machine whose
+  preinstalled Chromium is a different build than the pinned
+  `@playwright/test` — or one that cannot reach the browser CDN — every test
+  and every browser-driven spike fails with "Executable doesn't exist" before
+  anything runs. Set `OPAL_CHROMIUM_PATH` to a Chromium already on disk;
+  unset means "let Playwright decide", which is the ordinary case.
 - **`spike:perf` needs real Chrome and cross-origin isolation.**
   `measureUserAgentSpecificMemory` is the only API that sees the engine's WASM
   heap; Playwright's bundled Chromium has it present but disabled.
