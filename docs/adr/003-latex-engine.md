@@ -1,7 +1,8 @@
 # ADR-003: LaTeX WASM engine and package distribution
 
 - **Status:** Open — Siglum reaches 11/13 *with* a CTAN proxy; texlyre-busytex
-  reaches 11/13 with no network at all
+  reaches 11/13 offline, at 92.8 MB preloaded plus 9.06 MB from our own
+  endpoint (ADR-011)
 - **Date:** 2026-09-01, last measured 2026-09-12
 - **Deciders:** danylaksono
 
@@ -892,6 +893,11 @@ fidelity discrepancy, not a pass, and it is unexplained.
 
 ### What it costs
 
+*Superseded by the endpoint measurement in ADR-011: the same eleven documents
+compile at 92.8 MB preloaded plus 9.06 MB fetched, in 5.6–14.2 s each. What
+follows is the cost of preloading the tiers whole, which is what made the case
+for indexing them.*
+
 Every project took **28–46 s**, against 0.8–5 s for Siglum's warm cases. The
 number is almost entirely the tiers: the corpus driver opens a fresh page per
 project, so each figure includes loading 636 MB of data packages from
@@ -979,9 +985,12 @@ of tiers is not shippable — and the two template classes no local tier carries
 - [x] Re-run the corpus on a single TeX Live vintage. `texlyre-busytex` 1.4.0,
       no network: 11/13, and `cv-modern`, `letter-formal` and
       `presentation-beamer` all compile.
-- [ ] Stand up a self-hosted TeX Live endpoint and settle `paper-acm` and
-      `paper-ieee`. Both classes are in `texmfrepo`; neither is in a local tier.
-      This is the only remaining coverage gap, and it is not structural.
+- [x] Stand up a self-hosted TeX Live endpoint. Built over the tree's own
+      index: **11/13 on the 92.8 MB `basic` tier plus 9.06 MB of files**, the
+      same coverage and the same fidelity as 636 MB of tiers (ADR-011).
+- [ ] Settle `paper-acm` and `paper-ieee`. Both classes are in `texmfrepo`,
+      which indexes the full 8,418-package archive rather than the tiers, so
+      they need a second source. Not structural.
 - [x] Read the size-versus-coverage curve by truncating the tiers. It is not a
       curve: 294 MB compiles 4/13, and the 341.6 MB top tier buys seven more
       documents for three packages — `enumitem`, `titlesec`, `tcolorbox`.

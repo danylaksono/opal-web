@@ -11,8 +11,9 @@ have cost time before.
 (ADR-003): `@siglum/engine` compiles 11 of 13 corpus projects with a self-hosted
 CTAN proxy, and 2 of 13 without one; `texlyre-busytex`, the same engine on a
 single TeX Live 2026 tree, compiles 11 of 13 with no network at all. Delivery
-proposed and measured (ADR-011), and now the binding constraint: the tree that
-fixes coverage costs 636 MB to preload.
+measured end to end (ADR-011): a self-hosted endpoint over the tree's own index
+reaches the same 11 of 13 on a 92.8 MB base tier plus 9.06 MB of files, instead
+of 636 MB of tiers.
 
 **Phase 1 — product skeleton and storage core: complete.** Projects live on the
 device — bytes in OPFS, metadata in IndexedDB — with conditional writes,
