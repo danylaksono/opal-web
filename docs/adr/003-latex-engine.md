@@ -1,8 +1,7 @@
 # ADR-003: LaTeX WASM engine and package distribution
 
 - **Status:** Open — Siglum reaches 11/13 *with* a CTAN proxy; texlyre-busytex
-  reaches 11/13 offline, at 92.8 MB preloaded plus 9.06 MB from our own
-  endpoint (ADR-011)
+  reaches 11/13 from a 33.84 MB boot set plus our own endpoint (ADR-011)
 - **Date:** 2026-09-01, last measured 2026-09-12
 - **Deciders:** danylaksono
 
@@ -986,8 +985,10 @@ of tiers is not shippable — and the two template classes no local tier carries
       no network: 11/13, and `cv-modern`, `letter-formal` and
       `presentation-beamer` all compile.
 - [x] Stand up a self-hosted TeX Live endpoint. Built over the tree's own
-      index: **11/13 on the 92.8 MB `basic` tier plus 9.06 MB of files**, the
-      same coverage and the same fidelity as 636 MB of tiers (ADR-011).
+      index: **11/13 from a 33.84 MB boot set of 110 files**, the same coverage
+      and the same fidelity as 636 MB of tiers, and faster than either
+      (ADR-011). The floor is now the engine, ICU and the format file, not the
+      package tree.
 - [ ] Settle `paper-acm` and `paper-ieee`. Both classes are in `texmfrepo`,
       which indexes the full 8,418-package archive rather than the tiers, so
       they need a second source. Not structural.

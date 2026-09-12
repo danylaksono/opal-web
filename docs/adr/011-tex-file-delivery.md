@@ -1,8 +1,8 @@
 # ADR-011: how TeX support files reach the browser
 
 - **Status:** Proposed — and now measured end to end on TeX Live 2026: a
-  self-hosted endpoint over the tree's own index compiles 11/13 at 9.06 MB of
-  files, the same coverage the 636 MB tiers reach
+  self-hosted endpoint over the tree's own index compiles 11/13 from a 33.84 MB
+  boot set, the same coverage the 636 MB tiers reach
 - **Date:** 2026-09-03, revised 2026-09-12
 - **Deciders:** danylaksono
 
@@ -445,14 +445,109 @@ Anything the local resolver does implicitly has to be done here explicitly, and
 a gap shows up as a document failing somewhere unrelated rather than as a 404
 anybody notices.
 
-### What this does not yet solve
+### Cutting the floor: what actually has to be mounted
 
-The floor is now the `basic` tier, not the tree: a first compile is the 32.5 MB
-engine plus 92.8 MB of tier plus about 1.35 MB of document. That is 636 MB down
-to roughly 126 MB, which is real but is not the 17–21 MB this ADR set out to
-reach. Whether `basic` can be served the same way — or how much of it the engine
-genuinely needs mounted before TeX starts, given the format files and
-`texmf.cnf` — is the next measurement and is listed below.
+The `basic` tier was never the answer to "what must be preloaded", only the
+smallest thing that happened to be lying around. Preloading *nothing* says what
+the real constraint is: the engine dies before kpathsea exists, on
+
+```
+lstat(/bin) failed: /bin: No such file or directory
+kpathsea: Can't get directory of program name: /bin/busytex
+```
+
+having asked the endpoint for nothing whatsoever. So the floor is a set of
+files, not a tier, and it has four members:
+
+1. **Read before the resolver exists.** `/bin/busytex` — one byte, and kpathsea
+   derives its own location from it — plus `texmf.cnf` and fontconfig's `/etc`
+   files.
+2. **Named by absolute path rather than looked up.** The format file, passed to
+   the binary as `--fmt /texlive/.../xelatex.fmt`.
+3. **Opened from inside the binary.** `icudt78l.dat`, 22 MB, which XeTeX reads
+   directly rather than through kpathsea.
+4. **Loaded unconditionally by every compile.** Not a hard requirement but a
+   delivery one: `pdftex.map` is 5.54 MB and dvipdfmx loads it whatever the
+   document says, so serving it per file is repetition, not delivery. Measured
+   before it was mounted, the corpus fetched it twelve times — **66.5 MB of a
+   96.2 MB total**.
+
+That set is **110 files and 33.84 MB**, against `basic`'s 7,185 files and
+156.87 MB uncompressed. It is built by `pnpm spike:texlive-min`, which emits a
+real Emscripten data package without Emscripten: the `.data` is written as LZ4
+chunks that are all *stored* rather than compressed, which `successes[i] = 0`
+allows, and the loader `.js` is the shipped one with three substitutions.
+
+### Result
+
+| | tiers only | `basic` + endpoint | boot set + endpoint |
+|---|---:|---:|---:|
+| Preloaded | 636 MB | 92.8 MB | **33.84 MB** |
+| Fetched, whole corpus | — | 9.06 MB | 29.70 MB |
+| Compiled | 11 / 13 | 11 / 13 | **11 / 13** |
+| Pages word for word | 32 / 60 | 32 / 60 | 32 / 60 |
+| Cold per project | 28–46 s | 5.6–14.2 s | **3.0–8.6 s** |
+
+Three configurations, the same eleven documents, the same fidelity to the
+digit. What changes is where the bytes come from and how many of them there
+are.
+
+The total fetched *rises* from 9.06 MB to 29.70 MB, and that is not a
+regression: with only the boot set mounted, fonts and maps cross the wire too,
+where the `basic` tier had them on disk already. The number that matters is the
+first compile, and it falls:
+
+| | engine | preloaded | document | total |
+|---|---:|---:|---:|---:|
+| `basic` + endpoint | 32.5 MB | 92.8 MB | 1.35 MB | 126.7 MB |
+| boot set + endpoint | 32.5 MB | 33.84 MB | 3.07 MB | **69.4 MB** |
+
+`presentation-beamer` is the document in both rows, and it is this ADR's own
+reference case: Siglum fetched **118.9 MB** of bundles for it. It now costs
+3.07 MB over 171 requests on top of a boot set every document shares.
+
+### ICU is 22 MB and there is no way around it
+
+Two thirds of the boot set is one file, so it was worth asking whether XeTeX
+really needs it. It does: without `icudt78l.dat` the boot set is **11.89 MB**
+and the corpus compiles **0 of 13**, every document dying on
+
+```
+internal error; cannot read font names
+```
+
+before it reads a line of the document. It cannot be served either — XeTeX
+opens it from inside the binary, so no amount of resolver improvement reaches
+it. 33.84 MB is the floor for xelatex, and 22 MB of it is ICU.
+
+That also bounds what is left. Of a 69.4 MB first compile, 32.5 MB is the engine
+(7 MB brotli, per this ADR's own measurement), 22 MB is ICU and 5.9 MB is the
+format file — **60.4 MB of 69.4 MB is four artifacts**, none of which the
+delivery model can touch. The 17–21 MB this ADR set out to reach is not
+reachable by indexing files, because files are no longer the cost.
+
+### The endpoint is a kpathsea implementation, not a file server
+
+Three separate failures during this work were the same defect — the resolver
+knowing fewer of kpathsea's conventions than the engine assumes — and not one
+of them named the endpoint:
+
+| Symptom | Reported as | Actually |
+|---|---|---|
+| `presentation-beamer` stops | `missing-file` | asked for `beamerbasenavigationsymbols`, file is `…​.tex` |
+| `thesis-standard` stops | `syntax` | asked for `lipsum.ltd`, file is `lipsum.ltd.tex` |
+| every document stops | `! Font …​ not loadable` | asked for `lmroman12-regular` under formats 47, 36 and 32, file is `…​.otf` |
+
+kpathsea resolves a name by trying it and then trying the extensions its
+*format* implies, and the engine asks a remote resolver exactly as it asks a
+local tree. The format code is the only thing that says which file is meant, so
+the endpoint now carries a table keyed by `kpse_file_format_type`. Anything the
+local resolver does implicitly has to be done here explicitly, and a gap shows
+up as a document failing somewhere unrelated rather than as a 404 anybody
+notices. That is the standing cost of this model and it belongs in the decision,
+not in a changelog.
+
+### What this does not yet solve
 
 `paper-acm` and `paper-ieee` are unchanged: `acmart.cls` and `IEEEtran.cls` are
 in no tier, so the endpoint correctly 404s them. They are in `texmfrepo.txt`,
@@ -504,8 +599,13 @@ happens to ship both.
 - [x] Index the TeX Live 2026 tree and measure a first load. **11/13 at 92.8 MB
       preloaded plus 9.06 MB fetched**, the same coverage and the same fidelity
       as 636 MB of tiers. See above.
-- [ ] Cut the preload floor below the `basic` tier, or establish what the engine
-      needs mounted before TeX starts and why. 126 MB is not 17–21 MB.
+- [x] Cut the preload floor below the `basic` tier. **33.84 MB, 110 files**,
+      compiling the same 11/13 — and a first compile of 69.4 MB against 126.7.
+      Established why it cannot go lower: 60.4 MB of that is the engine, ICU and
+      the format file, none of which this model can address.
+- [ ] Shrink the engine and ICU, which are now the cost. Brotli takes the engine
+      from 32.5 MB to about 7 MB and is not yet applied; ICU at 22 MB is a
+      build-time question for the engine, not a delivery one.
 - [ ] Serve `acmart` and `IEEEtran` from the `texmfrepo` archive, which is a
       different and larger source than the tiers indexed here.
 - [ ] Measure `kpse_remote_register_misses` with a set of misses, against the
