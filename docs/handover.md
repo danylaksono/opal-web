@@ -12,7 +12,8 @@ have cost time before.
 CTAN proxy, and 2 of 13 without one; `texlyre-busytex`, the same engine on a
 single TeX Live 2026 tree, compiles 11 of 13 with no network at all. Delivery
 measured end to end (ADR-011): a self-hosted endpoint over the tree's own index
-reaches the same 11 of 13 from a 33.84 MB boot set instead of 636 MB of tiers.
+reaches the same 11 of 13 from a 41.24 MB boot set instead of 636 MB of tiers,
+with every page count matching desktop Tectonic.
 Pre-compressed, a first compile is 21.8–23.4 MB against
 the 41–135 MB Phase 0 measured — and 22.7 MB of that is fixed cost shared by
 every document (engine, boot set, renderer), so delivery is no longer where the

@@ -860,7 +860,7 @@ tiers.
 | | Siglum, CTAN off | Siglum, CTAN on | texlyre, no network |
 |---|---|---|---|
 | Compiled | 2 / 13 | 11 / 13 | **11 / 13** |
-| Matching desktop's page count | 2 / 2 | 10 / 11 | 10 / 11 |
+| Matching desktop's page count | 2 / 2 | 10 / 11 | **11 / 11** |
 | Pages word for word | — | 30 / 60 | **32 / 60** |
 
 **The same score, without the network.** That is the finding — at 636 MB of
@@ -888,8 +888,23 @@ argument:
   endpoint-shaped failures rather than structural ones — the first real use for
   a self-hosted TeX Live endpoint, and the next thing to measure.
 
-`report-scientific` produces 9 pages against desktop's 8. That is a new
-fidelity discrepancy, not a pass, and it is unexplained.
+`report-scientific` produced 9 pages against desktop's 8 — since explained and
+fixed, and the explanation was ours. The adapter decided whether to run bibtex
+by testing the source for `\bibliography`, a *declaration*, rather than for a
+citation. That document declares one and cites nothing: desktop runs no bibtex
+and emits no bibliography, while running it writes an empty `thebibliography`
+that the `report` class renders as a chapter heading on a ninth page. Read out
+of both PDFs page by page rather than inferred — desktop's page 8 ends at
+"Chapter 5 Conclusion", ours had a page 9 reading "Bibliography".
+
+The rule was wrong for four of the corpus documents and visible in one, which
+is why it stood for so long. `paper-standard` also declares a bibliography it
+never cites, and being an `article` it absorbed the empty heading without
+gaining a page. `thesis-standard` has its `\bibliography` **commented out**
+above a hand-written `thebibliography`, and a regex cannot tell code from a
+comment — the second half of the same bug. With citations as the trigger and
+comments stripped first, **every page count in the corpus now matches
+desktop**.
 
 ### What it costs
 
@@ -1027,7 +1042,10 @@ of tiers is not shippable — and the two template classes no local tier carries
       measure a first load that is not 636 MB. `kpse_remote_register` takes one
       file at a time, and `kpse_remote_register_misses` takes a set — so the
       one-missing-file-per-pass cost measured on `paper-acm` may not apply here.
-- [ ] Explain `report-scientific` at 9 pages against desktop's 8.
+- [x] Explain `report-scientific` at 9 pages against desktop's 8. **Ours**: the
+      adapter ran bibtex for a declared bibliography rather than a cited one,
+      and could not tell a commented-out declaration from a live one. 11/11 page
+      counts match now.
 - [x] Diagnose the four remaining failures. Two were font-asset gaps, one is
       version skew, one was a format built without babel. Two are fixed.
 - [x] Investigate `paper-acm`: 22 full XeTeX passes, one missing package

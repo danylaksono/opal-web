@@ -29,8 +29,8 @@ PLAN.md keeps it until the questions below are closed.
    top tier is bought for three packages — `enumitem`, `titlesec`, `tcolorbox`.
    Beamer is not among them; it compiles in the 294 MB tier. Served instead
    from a self-hosted endpoint over the tree's own index, the same 11 of 13
-   compile from a **33.84 MB boot set of 110 files**, with fidelity identical to
-   the digit. Pre-compressed, a first compile transfers **21.8–23.4 MB** against
+   compile from a **41.24 MB boot set of 183 files**, with every page count
+   matching desktop Tectonic. Pre-compressed, a first compile transfers **21.8–23.4 MB** against
    the 41–135 MB Phase 0 measured, 22.7 MB of it fixed cost shared by every
    document (ADR-011). Eleven engine defects were found on Siglum; ten are absorbed by
    the adapter (ADR-003).
