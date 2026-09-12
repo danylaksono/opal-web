@@ -78,6 +78,8 @@ export function Workspace({
         engine: "xelatex",
         tiers: [TEXLYRE_BOOT_TIER],
         remoteEndpoint: `${window.location.origin}/texlive`,
+        verbose: true,
+        onLog: (line) => console.log("[engine]", line),
       }),
       onState: setCompile,
     });

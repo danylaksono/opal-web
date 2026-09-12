@@ -79,6 +79,22 @@ function bootSet(path: string, engine: string): boolean {
   if (path.endsWith("dvipdfmx.cfg")) return true;
   if (/glyphlist\.txt$/.test(path)) return true;
   if (path.endsWith(".tec")) return true;
+  /**
+   * XeTeX's default text font, as an actual OpenType file.
+   *
+   * A document that does not say `[T1]{fontenc}` takes XeTeX's Unicode path and
+   * loads `lmroman10-regular` as a font file rather than through TFM metrics.
+   * That cannot come from the endpoint: `kpse_remote_register` saves what it
+   * fetches as `<format>_<name>`, and the name kpathsea asks for carries no
+   * extension, so xdvipdfmx is handed `/tmp/texlive_remote/47_lmroman10-regular`
+   * and fails with "Cannot proceed without the font". The file is there; its
+   * name no longer says what it is.
+   *
+   * 7.4 MB, and it is the default, so it is mounted rather than resolved.
+   * 12 of the 13 corpus documents use `[T1]{fontenc}` and never reach this
+   * path, which is why 11/13 said nothing about it.
+   */
+  if (path.includes("/fonts/opentype/public/lm/")) return true;
   return false;
 }
 

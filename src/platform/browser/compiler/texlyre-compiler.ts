@@ -275,11 +275,31 @@ export class TexlyreLatexCompiler implements LatexCompiler {
 
       if (!result.success || !result.pdf || result.pdf.byteLength === 0) {
         const error = firstError(diagnostics)?.message ?? "";
+        /**
+         * When TeX itself did not complain, the failure is a later stage.
+         *
+         * The driver runs a chain — xelatex, then xelatex again, then
+         * xdvipdfmx — and reports one entry per binary. A chain that ends in
+         * `exit code 1` with no TeX error in the log failed *after* TeX, and
+         * saying only "exit code 1" hides which stage and why. This finds the
+         * entry that actually failed and quotes it.
+         */
+        const failed = result.logs?.find((entry) => entry.exit_code !== 0);
+        const stage = failed
+          ? `${failed.cmd.split(" ")[0] ?? "engine"}: ${
+              (failed.stderr || failed.stdout || failed.log || "")
+                .trim()
+                .split("\n")
+                .filter(Boolean)
+                .slice(-2)
+                .join(" ") || `exit code ${failed.exit_code}`
+            }`
+          : `exit code ${result.exitCode}`;
         return {
           ok: false,
           revision: request.revision,
           category: categoriseFailure(error, log, diagnostics),
-          summary: error || `exit code ${result.exitCode}`,
+          summary: error || stage,
           log,
           diagnostics,
           engine: this.#identity,
