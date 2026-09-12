@@ -28,7 +28,8 @@
     "spike:pinned-archive": "tsx scripts/build-pinned-archive.ts",
     "serve:tex-archive": "tsx scripts/serve-tex-archive.ts",
     "spike:texlive-index": "tsx scripts/build-texlive-index.ts",
-    "spike:texlive-min": "tsx scripts/build-texlive-min.ts"
+    "spike:texlive-min": "tsx scripts/build-texlive-min.ts",
+    "spike:brotli": "tsx scripts/build-brotli-assets.ts"
   },
   "dependencies": {
     "@siglum/engine": "^0.1.4",

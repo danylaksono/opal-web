@@ -30,3 +30,6 @@ public/tex/
 # Archive built from the pinned TeX Live tree by pnpm spike:pinned-archive.
 public/tex-pinned/
 public/texlive/
+
+# Pre-compressed engine assets, emitted by pnpm spike:brotli.
+public/engines/**/*.br

@@ -40,6 +40,9 @@ const COMPILE_TIMEOUT_MS = 900_000;
 const CATEGORIES: [string, (url: string) => boolean][] = [
   ["tex bundles", (url) => url.includes("/engines/siglum/bundles/")],
   ["tex engine", (url) => url.includes("/engines/siglum/")],
+  ["boot set", (url) => url.includes("texlive-min-")],
+  ["tex engine", (url) => url.includes("/engines/texlyre/")],
+  ["endpoint files", (url) => url.includes("/texlive/")],
   ["ctan packages", (url) => url.includes("/ctan/")],
   ["tex archive", (url) => url.includes("texfiles")],
   ["pdf renderer", (url) => /mupdf.*\.wasm$|mupdf/.test(url)],
@@ -116,6 +119,9 @@ async function main(): Promise<void> {
     : undefined;
   const useCtan = !process.argv.includes("--no-ctan");
   const useArchive = process.argv.includes("--archive");
+  const useTexlyre = process.argv.includes("--texlyre");
+  const useEndpoint = process.argv.includes("--endpoint");
+  const tiers = arg("--tiers");
   // Which archive the page resolves from; the spike surface reads it from the
   // query string so one build can measure either.
   const archiveUrl = normaliseArchiveUrl(arg("--archive-url"));
@@ -179,8 +185,16 @@ async function main(): Promise<void> {
           ? `${PREVIEW_URL}/?archive=${encodeURIComponent(archiveUrl)}`
           : PREVIEW_URL,
       );
-      if (useCtan) await page.check('[data-testid="ctan-toggle"]');
-      if (useArchive) await page.check('[data-testid="archive-toggle"]');
+      if (useTexlyre) {
+        await page.selectOption('[data-testid="backend-select"]', "texlyre");
+        if (tiers !== undefined) {
+          await page.selectOption('[data-testid="tier-select"]', tiers);
+        }
+        if (useEndpoint) await page.check('[data-testid="endpoint-toggle"]');
+      } else {
+        if (useCtan) await page.check('[data-testid="ctan-toggle"]');
+        if (useArchive) await page.check('[data-testid="archive-toggle"]');
+      }
       await page.setInputFiles(
         '[data-testid="tex-input"]',
         projectFiles(project),
