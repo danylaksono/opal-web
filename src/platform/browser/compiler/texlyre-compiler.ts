@@ -211,27 +211,58 @@ export class TexlyreLatexCompiler implements LatexCompiler {
     if (request.signal?.aborted) {
       return this.#failure(request, "cancelled", "cancelled", "", started);
     }
-    // Cancellation is a terminate: the API exposes no way to interrupt a run,
-    // and a TeX pass that has started will otherwise run to completion inside
-    // the worker whatever the caller does with the promise.
-    const onAbort = () => void this.restart();
+    /**
+     * Cancellation is a terminate, and it has to be raced rather than awaited.
+     *
+     * The API exposes no way to interrupt a run, so stopping one means killing
+     * the worker; a TeX pass that has started otherwise runs to completion
+     * inside it whatever the caller does with the promise. But killing the
+     * worker does not settle the promise the caller is already awaiting —
+     * measured, `compile()` returned control **180 s** after the abort, which
+     * is indistinguishable from a hang to anything with a cancel button.
+     *
+     * So the abort resolves a race instead. The engine is torn down so the
+     * work actually stops, and the next `compile()` rebuilds it through
+     * `init()` — lazily, because rebuilding eagerly here competes with the
+     * caller that is about to ask for one.
+     */
+    let markAborted: (() => void) | undefined;
+    const aborted = new Promise<"aborted">((resolve) => {
+      markAborted = () => resolve("aborted");
+    });
+    const onAbort = () => {
+      this.#runner?.terminate();
+      this.#runner = null;
+      this.#initPromise = null;
+      markAborted?.();
+    };
     request.signal?.addEventListener("abort", onAbort, { once: true });
 
     onProgress?.("compiling", engine);
     try {
-      const result = await tool.compile({
-        input: source,
-        mainTexPath: main,
-        additionalFiles,
-        bibtex: BIBLIOGRAPHY.test(source),
-        // TeX decides how many passes it needs and says so in the log; letting
-        // the engine rerun is what makes cross-references and a table of
-        // contents resolve. ADR-003's defect 9 is the opposite arrangement.
-        rerun: true,
-        driver: DRIVERS[engine],
-        verbose: this.#options.verbose ? "info" : "silent",
-        ...(remoteEndpoint ? { remoteEndpoint } : {}),
-      });
+      const outcome = await Promise.race([
+        tool
+          .compile({
+            input: source,
+            mainTexPath: main,
+            additionalFiles,
+            bibtex: BIBLIOGRAPHY.test(source),
+            // TeX decides how many passes it needs and says so in the log; letting
+            // the engine rerun is what makes cross-references and a table of
+            // contents resolve. ADR-003's defect 9 is the opposite arrangement.
+            rerun: true,
+            driver: DRIVERS[engine],
+            verbose: this.#options.verbose ? "info" : "silent",
+            ...(remoteEndpoint ? { remoteEndpoint } : {}),
+          })
+          .then((value) => ({ kind: "result" as const, value })),
+        aborted.then(() => ({ kind: "aborted" as const })),
+      ]);
+
+      if (outcome.kind === "aborted") {
+        return this.#failure(request, "cancelled", "cancelled", "", started);
+      }
+      const result = outcome.value;
 
       const log = result.log ?? "";
       for (const line of log.split("\n")) if (line) onLog?.(`[TeX] ${line}`);
