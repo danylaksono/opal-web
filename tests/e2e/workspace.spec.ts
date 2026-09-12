@@ -264,6 +264,75 @@ test.describe("compile and preview", () => {
     );
   });
 
+  test("a second file compiles into the document", async ({ page }) => {
+    await openWorkspace(page);
+
+    // The compile path has taken every project file since it was written, and
+    // nothing could exercise it: there was no way to make a project with two
+    // files in it. This is that path, end to end.
+    await page.getByTestId("new-file-name").fill("chapter.tex");
+    await page.getByTestId("create-file").click();
+    // Addressed by path, not by position: `listFiles` promises a stable order
+    // and that order is the repository's business, not this test's.
+    await expect(
+      page.locator('[data-testid="file-open"][data-path="chapter.tex"]'),
+    ).toHaveAttribute("aria-current", "true");
+    await page
+      .getByTestId("editor-content")
+      .fill("Chapter one\n\\newpage\nChapter two\n");
+
+    // Switching files flushes the autosave, so the compile reads this chapter
+    // from disk rather than from the editor — which is what makes the page
+    // count below evidence about storage and not just about the textarea.
+    await page
+      .locator('[data-testid="file-open"][data-path="main.tex"]')
+      .click();
+    await expect(page.getByTestId("editor-content")).toHaveValue(
+      /documentclass/,
+    );
+    await page
+      .getByTestId("editor-content")
+      .fill(
+        "\\documentclass{article}\n\\begin{document}\n\\input{chapter}\n\\end{document}\n",
+      );
+
+    // Compiling while `main.tex` is open, and it says so: the button follows
+    // the project's main file, not the editor's.
+    await expect(page.getByTestId("compile-target")).toHaveText("main.tex");
+    await page.getByTestId("compile-button").click();
+    await expect(page.getByTestId("preview")).toHaveAttribute(
+      "data-status",
+      "ready",
+      { timeout: 280_000 },
+    );
+    // Two pages only if `chapter.tex` arrived: the main file's own body is one
+    // \input and nothing else.
+    await expect(page.getByTestId("preview")).toContainText("Page 1 of 2");
+  });
+
+  test("the main file cannot be deleted, and another can", async ({ page }) => {
+    await openWorkspace(page);
+    await page.getByTestId("new-file-name").fill("notes.tex");
+    await page.getByTestId("create-file").click();
+    await expect(page.getByTestId("file-open")).toHaveCount(2);
+
+    // A project whose main file is gone cannot compile and offers no way back,
+    // so the button is not there to press.
+    await expect(
+      page.locator('[data-testid="file-delete"][data-path="main.tex"]'),
+    ).toHaveCount(0);
+
+    await page
+      .locator('[data-testid="file-delete"][data-path="notes.tex"]')
+      .click();
+    await expect(page.getByTestId("file-open")).toHaveCount(1);
+    // Deleting the open file falls back to the main file rather than to a
+    // blank editor with nowhere to go.
+    await expect(page.getByTestId("editor-content")).toHaveValue(
+      /documentclass/,
+    );
+  });
+
   test("a failed compile shows the engine log", async ({ page }) => {
     await openWorkspace(page);
     // `\error` is not a control sequence, so TeX stops. The point is not the

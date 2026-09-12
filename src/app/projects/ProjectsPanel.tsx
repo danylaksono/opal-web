@@ -93,9 +93,15 @@ export function ProjectsPanel({
   const importInput = useRef<HTMLInputElement | null>(null);
   const [editing, setEditing] = useState<{
     id: ProjectId;
+    /** The file in the textarea. */
     path: ProjectPath;
+    /** The file the compile is pointed at, which `path` need not be. */
+    mainFile: ProjectPath;
+    /** Every file in the project, so one can be switched to without a re-open. */
+    files: readonly ProjectPath[];
     content: string;
   } | null>(null);
+  const [newFileName, setNewFileName] = useState("");
   const [saveStatus, setSaveStatus] = useState<SaveStatus | null>(null);
   const autosaveRef = useRef<Autosave | null>(null);
 
@@ -193,32 +199,20 @@ export function ProjectsPanel({
   );
 
   /**
-   * Open a project's main file for editing.
+   * Build the autosave scheduler for a project at a known revision.
    *
-   * The autosave scheduler is rebuilt per open because it holds the revision
-   * this session is writing against, and carrying one over from a different
-   * project would make its conditional writes meaningless.
+   * Rebuilt rather than updated because it holds the revision this session is
+   * writing against: carrying one over from a different project — or from
+   * before a write this panel itself made — would make its conditional writes
+   * meaningless, which is the one thing they exist to prevent.
    */
-  const openForEditing = useCallback(
-    async (id: ProjectId) => {
-      await autosaveRef.current?.flush();
+  const startAutosave = useCallback(
+    (id: ProjectId, revision: number) => {
       autosaveRef.current?.stop();
-
-      const record = await repository.open(id);
-      const path = record.rootTexPath ?? (await repository.listFiles(id))[0];
-      if (!path) {
-        setEditing(null);
-        return;
-      }
-      const content = new TextDecoder().decode(
-        await repository.readFile(id, path),
-      );
-      setEditing({ id, path, content });
-      setSaveStatus({ state: "idle", revision: record.revision });
       autosaveRef.current = createAutosave({
         repository,
         projectId: id,
-        revision: record.revision,
+        revision,
         onStatus: (status) => {
           setSaveStatus(status);
           // A saved revision changes the row's counts, so the list is stale
@@ -228,6 +222,107 @@ export function ProjectsPanel({
       });
     },
     [repository, refresh],
+  );
+
+  /**
+   * Open a project's main file for editing.
+   */
+  const openForEditing = useCallback(
+    async (id: ProjectId) => {
+      await autosaveRef.current?.flush();
+      autosaveRef.current?.stop();
+
+      const record = await repository.open(id);
+      const files = await repository.listFiles(id);
+      const path = record.rootTexPath ?? files[0];
+      if (!path) {
+        setEditing(null);
+        return;
+      }
+      const content = new TextDecoder().decode(
+        await repository.readFile(id, path),
+      );
+      setEditing({ id, path, mainFile: path, files, content });
+      setSaveStatus({ state: "idle", revision: record.revision });
+      startAutosave(id, record.revision);
+    },
+    [repository, startAutosave],
+  );
+
+  /**
+   * Switch which file the editor is showing.
+   *
+   * Flushed first: a queued write is bound to the path it was queued for, so it
+   * would not be lost, but letting it land after the switch means the save
+   * status a user is watching belongs to a file they are no longer looking at.
+   */
+  const openFile = useCallback(
+    async (path: ProjectPath) => {
+      if (!editing) return;
+      await autosaveRef.current?.flush();
+      const content = new TextDecoder().decode(
+        await repository.readFile(editing.id, path),
+      );
+      setEditing({ ...editing, path, content });
+    },
+    [editing, repository],
+  );
+
+  /**
+   * Add a file and open it.
+   *
+   * Empty rather than templated: a `.bib`, a `chapter.tex` and a `\usepackage`
+   * fragment have nothing in common to pre-fill, and a wrong guess is worse
+   * than a blank file because it has to be deleted before it can be replaced.
+   */
+  const createFile = useCallback(
+    async (name: string) => {
+      if (!editing) return;
+      const path = projectPath(name);
+      if (editing.files.includes(path)) {
+        throw new Error(`${path} already exists in this project`);
+      }
+      await autosaveRef.current?.flush();
+      const revision = await repository.writeFile(
+        editing.id,
+        path,
+        new Uint8Array(),
+      );
+      const files = await repository.listFiles(editing.id);
+      setEditing({ ...editing, path, files, content: "" });
+      // The write advanced the revision out from under the autosave, whose
+      // writes are conditional on the one it was built with. Left alone, the
+      // next keystroke would be reported to the user as "this project changed
+      // elsewhere" — which it did, by us.
+      startAutosave(editing.id, revision);
+      setNewFileName("");
+      await refresh();
+    },
+    [editing, repository, refresh, startAutosave],
+  );
+
+  const deleteFile = useCallback(
+    async (path: ProjectPath) => {
+      if (!editing) return;
+      // The compile target is not deletable from here. A project whose main
+      // file is missing cannot compile and offers no way back to one that can.
+      if (path === editing.mainFile) {
+        throw new Error(
+          `${path} is this project's main file; it cannot be deleted here`,
+        );
+      }
+      await autosaveRef.current?.flush();
+      const revision = await repository.deleteFile(editing.id, path);
+      const files = await repository.listFiles(editing.id);
+      const next = path === editing.path ? editing.mainFile : editing.path;
+      const content = new TextDecoder().decode(
+        await repository.readFile(editing.id, next),
+      );
+      setEditing({ ...editing, path: next, files, content });
+      startAutosave(editing.id, revision);
+      await refresh();
+    },
+    [editing, repository, refresh, startAutosave],
   );
 
   // A tab closing mid-edit is exactly when a debounce is a liability.
@@ -371,6 +466,67 @@ export function ProjectsPanel({
 
       {editing && (
         <div style={{ marginTop: "0.75rem" }} data-testid="editor">
+          {/*
+            A flat list rather than a tree. Every corpus project is flat, the
+            archive format allows nested paths and nothing yet creates them, so
+            a tree here would be scaffolding for a shape no project has. It
+            becomes a tree the day a project has a directory in it.
+          */}
+          <div data-testid="file-list" style={{ marginBottom: "0.5rem" }}>
+            {editing.files.map((path) => (
+              <span key={path} style={{ marginRight: "0.5rem" }}>
+                <button
+                  type="button"
+                  data-testid="file-open"
+                  data-path={path}
+                  aria-current={path === editing.path ? "true" : undefined}
+                  style={{
+                    fontWeight: path === editing.path ? "bold" : "normal",
+                  }}
+                  onClick={() => {
+                    void act(() => openFile(path));
+                  }}
+                >
+                  {path}
+                  {path === editing.mainFile ? " ★" : ""}
+                </button>
+                {path !== editing.mainFile && (
+                  <button
+                    type="button"
+                    data-testid="file-delete"
+                    data-path={path}
+                    aria-label={`Delete ${path}`}
+                    onClick={() => {
+                      void act(() => deleteFile(path));
+                    }}
+                  >
+                    ×
+                  </button>
+                )}
+              </span>
+            ))}
+          </div>
+
+          <form
+            style={{ marginBottom: "0.5rem" }}
+            onSubmit={(event) => {
+              event.preventDefault();
+              const name = newFileName.trim();
+              if (name) void act(() => createFile(name));
+            }}
+          >
+            <input
+              data-testid="new-file-name"
+              aria-label="New file name"
+              value={newFileName}
+              placeholder="chapter.tex"
+              onChange={(event) => setNewFileName(event.target.value)}
+            />{" "}
+            <button type="submit" data-testid="create-file">
+              Add file
+            </button>
+          </form>
+
           <h3 style={{ marginBottom: "0.25rem" }}>{editing.path}</h3>
           <textarea
             data-testid="editor-content"
@@ -409,7 +565,8 @@ export function ProjectsPanel({
             key={editing.id}
             repository={repository}
             projectId={editing.id}
-            mainFile={editing.path}
+            mainFile={editing.mainFile}
+            openPath={editing.path}
             content={editing.content}
             onClose={() => {
               setEditing(null);

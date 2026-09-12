@@ -31,7 +31,16 @@ import { MupdfRenderer } from "@/platform/browser/pdf/mupdf-renderer";
 interface WorkspaceProps {
   repository: ProjectRepository;
   projectId: ProjectId;
+  /** What the engine is pointed at, whatever the editor happens to be showing. */
   mainFile: ProjectPath;
+  /**
+   * The file open in the editor, which is not always the one being compiled.
+   *
+   * Editing `chapter.tex` and compiling `main.tex` is the ordinary case for any
+   * document long enough to be split up, and it is the whole reason these are
+   * two props rather than one.
+   */
+  openPath: ProjectPath;
   /** Live editor content, so a compile uses what is on screen, not on disk. */
   content: string;
   onClose: () => void;
@@ -67,6 +76,7 @@ export function Workspace({
   repository,
   projectId,
   mainFile,
+  openPath,
   content,
   onClose,
 }: WorkspaceProps) {
@@ -170,8 +180,11 @@ export function Workspace({
     const files = await Promise.all(
       paths.map(async (path) => ({
         path,
+        // The open file comes from the editor and everything else from disk.
+        // Autosave has probably written it already, but "probably" is a
+        // debounce away from compiling the previous keystroke.
         content:
-          path === mainFile
+          path === openPath
             ? ENCODER.encode(content)
             : await repository.readFile(projectId, path),
       })),
@@ -211,7 +224,7 @@ export function Workspace({
         error: error instanceof Error ? error.message : String(error),
       });
     }
-  }, [repository, projectId, mainFile, content, drawPage]);
+  }, [repository, projectId, mainFile, openPath, content, drawPage]);
 
   const result = compile.status === "done" ? compile.result : null;
   const busy = compile.status === "compiling";
@@ -227,7 +240,12 @@ export function Workspace({
           flexWrap: "wrap",
         }}
       >
-        <strong>{mainFile}</strong>
+        {/*
+          The compile target, not the open file: pressing Compile while looking
+          at `chapter.tex` compiles `main.tex`, and a header that named the open
+          file would be quietly lying about what the button does.
+        */}
+        <strong data-testid="compile-target">{mainFile}</strong>
         <button
           type="button"
           data-testid="compile-button"
