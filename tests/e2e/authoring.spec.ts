@@ -1,4 +1,54 @@
-import { expect, test } from "@playwright/test";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { expect, type Page, test } from "@playwright/test";
+import { zipSync } from "fflate";
+
+/**
+ * A project with a figure and a PDF in it, delivered the way a user gets one.
+ *
+ * Nothing in the product creates a binary file — `Add file` makes empty text —
+ * so an import is the only honest way to have one, and it is also how a real
+ * project arrives. The PDF is the corpus's own reference output, which is a
+ * real PDF rather than a fixture pretending to be one.
+ */
+const PIXEL_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+  "base64",
+);
+
+async function importProjectWithAssets(page: Page) {
+  const archive = zipSync(
+    {
+      "main.tex": new TextEncoder().encode(
+        "\\documentclass{article}\n\\begin{document}\n\\includegraphics{figure.png}\n\\end{document}\n",
+      ),
+      "figure.png": new Uint8Array(PIXEL_PNG),
+      "reference.pdf": new Uint8Array(
+        readFileSync(
+          resolve("tests/fixtures/compiler-corpus/blank/main.reference.pdf"),
+        ),
+      ),
+    },
+    { mtime: Date.UTC(1980, 0, 1) },
+  );
+
+  await page.getByTestId("import-archive").setInputFiles({
+    name: "withassets.zip",
+    mimeType: "application/zip",
+    buffer: Buffer.from(archive),
+  });
+  await expect(page.getByTestId("project-row")).toHaveCount(2);
+  // By title, not by position: the list is ordered most-recently-opened first,
+  // so "the last row" is whichever project this test did not just import.
+  await page
+    .getByTestId("project-row")
+    .filter({ hasText: "withassets" })
+    .getByTestId("open-project")
+    .click();
+  await expect(
+    page.locator('[data-testid="file-open"][data-path="figure.png"]'),
+  ).toBeVisible();
+}
 
 /**
  * The authoring surface over the semantic index (PLAN.md 14, Phase 3).
@@ -169,6 +219,57 @@ test.describe("outline and project health", () => {
     await page.reload();
     await page.getByTestId("open-project").first().click();
     await expect(page.getByTestId("file-open")).toHaveText("paper.tex ★");
+  });
+
+  test("an image opens as a picture, not as text", async ({ page }) => {
+    await importProjectWithAssets(page);
+    await page
+      .locator('[data-testid="file-open"][data-path="figure.png"]')
+      .click();
+
+    // The editor is not merely ugly for a PNG: its bytes would be decoded as
+    // UTF-8, and the first keystroke would autosave that back over the image.
+    await expect(page.getByTestId("asset-view")).toHaveAttribute(
+      "data-kind",
+      "image",
+    );
+    await expect(page.getByTestId("editor-content")).toHaveCount(0);
+    await expect(page.getByTestId("asset-image")).toBeVisible();
+  });
+
+  test("a PDF opens through the renderer the product already has", async ({
+    page,
+  }) => {
+    await importProjectWithAssets(page);
+    await page
+      .locator('[data-testid="file-open"][data-path="reference.pdf"]')
+      .click();
+
+    await expect(page.getByTestId("asset-view")).toHaveAttribute(
+      "data-kind",
+      "pdf",
+    );
+    // Drawn, not merely present: a canvas that was never painted looks exactly
+    // like one whose render failed.
+    await expect(page.getByTestId("asset-view")).toContainText("1 page", {
+      timeout: 30_000,
+    });
+    const inked = await page.evaluate(() => {
+      const canvas = document.querySelector(
+        '[data-testid="asset-canvas"]',
+      ) as HTMLCanvasElement;
+      const pixels = canvas
+        .getContext("2d")
+        ?.getImageData(0, 0, canvas.width, canvas.height).data;
+      if (!pixels) return 0;
+      let count = 0;
+      for (let i = 0; i < pixels.length; i += 4) {
+        if (pixels[i] !== 255 || pixels[i + 1] !== 255 || pixels[i + 2] !== 255)
+          count += 1;
+      }
+      return count;
+    });
+    expect(inked).toBeGreaterThan(0);
   });
 
   test("a rename onto an existing file is refused", async ({ page }) => {

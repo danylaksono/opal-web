@@ -13,6 +13,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AssetView } from "@/app/editor/AssetView";
 import type { EditorProblem } from "@/app/editor/CodeEditor";
 import { CodeEditor } from "@/app/editor/CodeEditor";
 import { Workspace } from "@/app/workspace/Workspace";
@@ -138,6 +139,14 @@ export function ProjectsPanel({
      */
     sources: Readonly<Record<string, string>>;
     content: string;
+    /**
+     * The open file's bytes, when it is not text.
+     *
+     * Set instead of `content`, never as well as it: a file that reaches the
+     * text editor can be autosaved from it, and autosaving a PNG that has been
+     * through `TextDecoder` writes back a different PNG.
+     */
+    asset: Uint8Array | null;
   } | null>(null);
   const [newFileName, setNewFileName] = useState("");
   const [renameTo, setRenameTo] = useState("");
@@ -297,7 +306,15 @@ export function ProjectsPanel({
       }
       const sources = await readSources(repository, id, files);
       const content = sources[path] ?? "";
-      setEditing({ id, path, mainFile: path, files, sources, content });
+      setEditing({
+        id,
+        path,
+        mainFile: path,
+        files,
+        sources,
+        content,
+        asset: null,
+      });
       setSaveStatus({ state: "idle", revision: record.revision });
       startAutosave(id, record.revision);
     },
@@ -315,13 +332,20 @@ export function ProjectsPanel({
     async (path: ProjectPath) => {
       if (!editing) return;
       await autosaveRef.current?.flush();
-      const content = new TextDecoder().decode(
-        await repository.readFile(editing.id, path),
-      );
+      const bytes = await repository.readFile(editing.id, path);
+      if (!TEXT_FILE.test(path)) {
+        // Decoding this would produce U+FFFD wherever the bytes are not valid
+        // UTF-8, which is most of a PNG, and the editor would then be holding a
+        // corrupted copy that autosave is willing to write back.
+        setEditing({ ...editing, path, content: "", asset: bytes });
+        return;
+      }
+      const content = new TextDecoder().decode(bytes);
       setEditing({
         ...editing,
         path,
         content,
+        asset: null,
         sources: { ...editing.sources, [path]: content },
       });
     },
@@ -354,6 +378,7 @@ export function ProjectsPanel({
         path,
         files,
         content: "",
+        asset: null,
         sources: { ...editing.sources, [path]: "" },
       });
       // The write advanced the revision out from under the autosave, whose
@@ -426,7 +451,14 @@ export function ProjectsPanel({
       );
       const sources = { ...editing.sources };
       delete sources[path];
-      setEditing({ ...editing, path: next, files, content, sources });
+      setEditing({
+        ...editing,
+        path: next,
+        files,
+        content,
+        sources,
+        asset: null,
+      });
       setFocusFile(next);
       autosaveRef.current?.adopt(revision);
       await refresh();
@@ -815,29 +847,37 @@ export function ProjectsPanel({
               </button>
             </form>
           </h3>
-          <CodeEditor
-            key={`${editing.id}:${editing.path}`}
-            label={`Contents of ${editing.path}`}
-            completions={{
-              labels: [...(index?.labels.keys() ?? [])],
-              citations: [...(index?.bibliographyKeys ?? [])],
-            }}
-            problems={editorProblems}
-            onSubmit={() => setCompileSignal((signal) => signal + 1)}
-            value={editing.content}
-            reveal={reveal}
-            onChange={(content) => {
-              setEditing({
-                ...editing,
-                content,
-                sources: { ...editing.sources, [editing.path]: content },
-              });
-              autosaveRef.current?.queue(
-                editing.path,
-                new TextEncoder().encode(content),
-              );
-            }}
-          />
+          {/*
+            A binary file never reaches the text editor. Decoding one as
+            UTF-8 to show it would also be what autosave writes back.
+          */}
+          {editing.asset ? (
+            <AssetView path={editing.path} bytes={editing.asset} />
+          ) : (
+            <CodeEditor
+              key={`${editing.id}:${editing.path}`}
+              label={`Contents of ${editing.path}`}
+              completions={{
+                labels: [...(index?.labels.keys() ?? [])],
+                citations: [...(index?.bibliographyKeys ?? [])],
+              }}
+              problems={editorProblems}
+              onSubmit={() => setCompileSignal((signal) => signal + 1)}
+              value={editing.content}
+              reveal={reveal}
+              onChange={(content) => {
+                setEditing({
+                  ...editing,
+                  content,
+                  sources: { ...editing.sources, [editing.path]: content },
+                });
+                autosaveRef.current?.queue(
+                  editing.path,
+                  new TextEncoder().encode(content),
+                );
+              }}
+            />
+          )}
           {/*
             Polite: autosave is continuous, and a save announced over the top of
             what someone is typing would be worse than silence. PLAN.md 13.1
