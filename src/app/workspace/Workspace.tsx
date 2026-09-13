@@ -131,7 +131,7 @@ export function Workspace({
    * showing when the callback was last built, which is the stale-closure bug
    * the compiler spike documents having already been bitten by.
    */
-  const viewRef = useRef({ pageIndex: 0, scrollTop: 0, scrollLeft: 0 });
+  const viewRef = useRef({ pageIndex: 0 });
   /**
    * Read when a compile finishes rather than captured by `run`.
    *

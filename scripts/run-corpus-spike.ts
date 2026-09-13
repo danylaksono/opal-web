@@ -242,6 +242,15 @@ async function main(): Promise<void> {
 
     try {
       await page.goto(PREVIEW_URL);
+      // Asked for explicitly: the page keeps the compiled bytes on `window`
+      // only when this is set, so an ordinary run does not retain a number
+      // array per compile.
+      if (savePdf) {
+        await page.evaluate(() => {
+          (window as unknown as { __opalSavePdf?: boolean }).__opalSavePdf =
+            true;
+        });
+      }
       if (useTexlyre) {
         await page.selectOption('[data-testid="backend-select"]', "texlyre");
         if (useEndpoint) await page.check('[data-testid="endpoint-toggle"]');

@@ -222,9 +222,17 @@ export function CompilerSpike() {
          * guessed: the fidelity comparison only covers the pages both documents
          * have, so an extra page is exactly the page it cannot describe.
          */
-        (
-          window as unknown as { __opalCompiledPdf?: number[] }
-        ).__opalCompiledPdf = Array.from(compiled.pdf);
+        // Only when the driver asked for it. `Array.from` on a PDF is a plain
+        // number array — roughly eight times the bytes — and retaining one per
+        // compile on a page whose neighbouring panel measures memory is a poor
+        // way to keep that measurement honest. `--save-pdf` sets the flag.
+        const host = window as unknown as {
+          __opalSavePdf?: boolean;
+          __opalCompiledPdf?: number[];
+        };
+        if (host.__opalSavePdf) {
+          host.__opalCompiledPdf = Array.from(compiled.pdf);
+        }
         // Round-trip through the renderer: proves the bytes are a PDF a
         // viewer can actually open, not just a non-zero buffer.
         const doc = await rendererRef.current.openDocument(
