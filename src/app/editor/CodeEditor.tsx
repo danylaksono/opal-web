@@ -88,6 +88,15 @@ interface CodeEditorProps {
   /** Marked in the gutter and under the line. */
   problems?: readonly EditorProblem[];
   /**
+   * Ctrl/Cmd+Enter, which is the compile the writer actually wants.
+   *
+   * Tabbing out of a text editor to reach the button means leaving the
+   * document, passing the outline and the problem list, pressing it, and
+   * finding the way back. Reachable is not the same as usable, and both are
+   * part of the keyboard criterion.
+   */
+  onSubmit?: () => void;
+  /**
    * A line to put the cursor on and scroll into view.
    *
    * Carries a nonce because the request is an event, not a state: clicking the
@@ -104,6 +113,7 @@ export function CodeEditor({
   label,
   completions,
   problems,
+  onSubmit,
   reveal,
 }: CodeEditorProps) {
   const host = useRef<HTMLDivElement>(null);
@@ -131,6 +141,8 @@ export function CodeEditor({
   available.current = completions;
   /** What is currently on the document, so identical sets are not re-dispatched. */
   const marked = useRef<string | null>(null);
+  const submit = useRef(onSubmit);
+  submit.current = onSubmit;
 
   /**
    * Offer the project's own keys, and only where one is being written.
@@ -183,7 +195,20 @@ export function CodeEditor({
           autocompletion({
             override: [(context) => complete.current(context)],
           }),
-          keymap.of([...defaultKeymap, ...historyKeymap, ...completionKeymap]),
+          keymap.of([
+            {
+              key: "Mod-Enter",
+              run: () => {
+                submit.current?.();
+                // Handled either way: falling through would insert a newline
+                // as well as compiling.
+                return true;
+              },
+            },
+            ...defaultKeymap,
+            ...historyKeymap,
+            ...completionKeymap,
+          ]),
           StreamLanguage.define(stex),
           EditorView.lineWrapping,
           // On the content element rather than the host: a test — and a screen

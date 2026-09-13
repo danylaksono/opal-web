@@ -450,6 +450,7 @@ export function PerformanceSpike() {
         type="file"
         multiple
         data-testid="perf-input"
+        aria-label="Project files to measure"
         onChange={(event) => {
           const files = event.target.files;
           if (files && files.length > 0) void run(files);

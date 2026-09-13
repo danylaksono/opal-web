@@ -147,6 +147,17 @@ export function ProjectsPanel({
   );
   /** The last compile's diagnostics, kept so the editor can mark them. */
   const [compiled, setCompiled] = useState<readonly CompileDiagnostic[]>([]);
+  /** Bumped by the editor's Ctrl/Cmd+Enter; the workspace compiles on a change. */
+  const [compileSignal, setCompileSignal] = useState(0);
+  /**
+   * A file whose button should take focus once it is rendered.
+   *
+   * Deleting the file you were on removes the button you pressed, and focus
+   * falls to the body — a keyboard user is then at the top of the document with
+   * no idea where they are. Set on delete, cleared when it lands.
+   */
+  const [focusFile, setFocusFile] = useState<ProjectPath | null>(null);
+  const fileList = useRef<HTMLDivElement>(null);
   const [saveStatus, setSaveStatus] = useState<SaveStatus | null>(null);
   const autosaveRef = useRef<Autosave | null>(null);
 
@@ -416,6 +427,7 @@ export function ProjectsPanel({
       const sources = { ...editing.sources };
       delete sources[path];
       setEditing({ ...editing, path: next, files, content, sources });
+      setFocusFile(next);
       autosaveRef.current?.adopt(revision);
       await refresh();
     },
@@ -489,6 +501,15 @@ export function ProjectsPanel({
     [editing, openFile],
   );
 
+  useEffect(() => {
+    if (!focusFile) return;
+    const button = fileList.current?.querySelector<HTMLButtonElement>(
+      `[data-testid="file-open"][data-path="${CSS.escape(focusFile)}"]`,
+    );
+    button?.focus();
+    setFocusFile(null);
+  }, [focusFile]);
+
   // A tab closing mid-edit is exactly when a debounce is a liability.
   useEffect(() => {
     const flush = () => {
@@ -561,8 +582,14 @@ export function ProjectsPanel({
         </label>
       </div>
 
+      {/*
+        `alert` rather than `status`: this is the result of something the user
+        just asked for and it is always a refusal — a rejected archive, a rename
+        onto a name already taken — so it interrupts rather than waiting for a
+        pause.
+      */}
       {error && (
-        <div className="banner bad" data-testid="projects-error">
+        <div className="banner bad" role="alert" data-testid="projects-error">
           {error}
         </div>
       )}
@@ -636,7 +663,11 @@ export function ProjectsPanel({
             a tree here would be scaffolding for a shape no project has. It
             becomes a tree the day a project has a directory in it.
           */}
-          <div data-testid="file-list" style={{ marginBottom: "0.5rem" }}>
+          <div
+            ref={fileList}
+            data-testid="file-list"
+            style={{ marginBottom: "0.5rem" }}
+          >
             {editing.files.map((path) => (
               <span key={path} style={{ marginRight: "0.5rem" }}>
                 <button
@@ -647,11 +678,16 @@ export function ProjectsPanel({
                   style={{
                     fontWeight: path === editing.path ? "bold" : "normal",
                   }}
+                  aria-label={
+                    path === editing.mainFile ? `${path}, main file` : path
+                  }
                   onClick={() => {
                     void act(() => openFile(path));
                   }}
                 >
                   {path}
+                  {/* A star is a picture of "main file" and says nothing out
+                      loud, so the name above carries it instead. */}
                   {path === editing.mainFile ? " ★" : ""}
                 </button>
                 {path !== editing.mainFile && (
@@ -787,6 +823,7 @@ export function ProjectsPanel({
               citations: [...(index?.bibliographyKeys ?? [])],
             }}
             problems={editorProblems}
+            onSubmit={() => setCompileSignal((signal) => signal + 1)}
             value={editing.content}
             reveal={reveal}
             onChange={(content) => {
@@ -801,7 +838,13 @@ export function ProjectsPanel({
               );
             }}
           />
-          <p className="note" data-testid="save-status">
+          {/*
+            Polite: autosave is continuous, and a save announced over the top of
+            what someone is typing would be worse than silence. PLAN.md 13.1
+            asks for save, compile and error to be audible, and these are the
+            three regions that carry them.
+          */}
+          <p className="note" role="status" data-testid="save-status">
             {saveStatus?.state === "conflict"
               ? `Not saved: this project changed elsewhere (revision ${saveStatus.actualRevision}, this tab has ${saveStatus.revision}). Reopen it to continue.`
               : saveStatus?.state === "failed"
@@ -827,6 +870,7 @@ export function ProjectsPanel({
             openPath={editing.path}
             content={editing.content}
             onDiagnostics={setCompiled}
+            compileSignal={compileSignal}
             onClose={() => {
               setEditing(null);
             }}

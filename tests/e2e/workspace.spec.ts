@@ -174,7 +174,7 @@ test.describe("compile and preview", () => {
       );
     const before = await width();
     await page.getByTestId("zoom-in").click();
-    await expect(page.getByTestId("zoom-level")).toHaveText("150%");
+    await expect(page.getByTestId("zoom-level")).toHaveText("Zoom 150%");
 
     // The canvas itself is larger, which is the difference between rendering
     // at a scale and scaling a bitmap: only one of them stays sharp.
@@ -353,6 +353,29 @@ test.describe("compile and preview", () => {
     // writer is looking at. Reading a thousand-line log to find a line number
     // the engine already reported is the thing this removes.
     await expect(page.locator(".cm-lint-marker-error")).toHaveCount(1);
+  });
+
+  test("Ctrl+Enter compiles without leaving the editor", async ({ page }) => {
+    await openWorkspace(page);
+    const editor = page.getByTestId("editor-content");
+    await editor.click();
+
+    // Reaching the button by tabbing means leaving the document, passing the
+    // outline and the problem list, and finding the way back. Reachable is not
+    // the same as usable.
+    await editor.press("Control+Enter");
+
+    await expect(page.getByTestId("workspace-status")).toHaveAttribute(
+      "data-status",
+      "done",
+      { timeout: 280_000 },
+    );
+    await expect(page.getByTestId("workspace-status")).toContainText(
+      "Compiled",
+    );
+    // And it compiled rather than typing: a fall-through would have left a
+    // blank line in the source.
+    await expect(editor).toContainText("documentclass");
   });
 
   test("a failed compile shows the engine log", async ({ page }) => {

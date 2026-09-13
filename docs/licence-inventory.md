@@ -32,6 +32,7 @@ Repeat this audit against pinned versions before any distribution.
 | typescript | 5.9.3 | Apache-2.0 | |
 | vitest | 4.1.11 | MIT | |
 | @playwright/test | 1.62.1 | Apache-2.0 | |
+| @axe-core/playwright, axe-core | 4.13.0 | MPL-2.0 | Accessibility scanning in the e2e suite. MPL is file-level copyleft and this is never distributed, so it reaches no shipped artifact — but it is the only non-permissive licence outside MuPDF, which is why it is named rather than lumped in. |
 | @biomejs/biome | 2.5.11 | MIT OR Apache-2.0 | |
 | @vitejs/plugin-react | 4.7.0 | MIT | |
 | tsx | 4.23.13 | MIT | |

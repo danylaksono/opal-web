@@ -51,6 +51,14 @@ interface WorkspaceProps {
    * they are: the panel learns *that there are diagnostics*, not how to compile.
    */
   onDiagnostics?: (diagnostics: readonly CompileDiagnostic[]) => void;
+  /**
+   * A compile asked for from outside — the editor's Ctrl/Cmd+Enter.
+   *
+   * A number rather than a boolean, because it is an event: pressing the
+   * shortcut twice has to compile twice, and any value that can be equal to
+   * itself would swallow the second press.
+   */
+  compileSignal?: number;
   onClose: () => void;
 }
 
@@ -87,6 +95,7 @@ export function Workspace({
   openPath,
   content,
   onDiagnostics,
+  compileSignal,
   onClose,
 }: WorkspaceProps) {
   const [compile, setCompile] = useState<CompileState>({ status: "idle" });
@@ -251,6 +260,22 @@ export function Workspace({
   const result = compile.status === "done" ? compile.result : null;
   const busy = compile.status === "compiling";
 
+  /**
+   * Compile when the signal changes, and never on mount.
+   *
+   * `run` is in the dependencies because it must be the current one — it closes
+   * over the content being compiled — but a change to *it* must not start a
+   * compile, or every keystroke would. The remembered signal is what decides.
+   */
+  const lastSignal = useRef(compileSignal);
+  useEffect(() => {
+    if (compileSignal === undefined || compileSignal === lastSignal.current) {
+      return;
+    }
+    lastSignal.current = compileSignal;
+    void run();
+  }, [compileSignal, run]);
+
   return (
     <section data-testid="workspace">
       <header
@@ -287,7 +312,17 @@ export function Workspace({
         <button type="button" onClick={onClose}>
           Close
         </button>
-        <span data-testid="workspace-status" data-status={compile.status}>
+        {/*
+          Polite rather than assertive: a compile takes seconds to minutes and
+          its stages update throughout, so an assertive region would talk over
+          everything else for the whole run. The result still lands here, which
+          is what PLAN.md 13.1 asks to be audible.
+        */}
+        <span
+          role="status"
+          data-testid="workspace-status"
+          data-status={compile.status}
+        >
           {compile.status === "idle" && "Not compiled yet"}
           {busy && (stage ? `Compiling… ${stage}` : "Compiling…")}
           {result?.ok &&
@@ -351,13 +386,20 @@ export function Workspace({
 
       <div data-testid="preview" data-status={preview.status}>
         {preview.status === "error" && (
-          <p className="unavailable">Preview failed: {preview.error}</p>
+          <p className="unavailable" role="alert">
+            Preview failed: {preview.error}
+          </p>
         )}
         {preview.status === "ready" && (
           <p className="note">
+            {/*
+              A minus sign is a picture of "zoom out" and reads as nothing.
+              The label carries the meaning; the glyph stays for the eye.
+            */}
             <button
               type="button"
               data-testid="zoom-out"
+              aria-label="Zoom out"
               disabled={zoom <= MIN_ZOOM}
               onClick={() => {
                 const next =
@@ -368,10 +410,11 @@ export function Workspace({
             >
               −
             </button>{" "}
-            <span data-testid="zoom-level">{Math.round(zoom * 100)}%</span>{" "}
+            <span data-testid="zoom-level">Zoom {Math.round(zoom * 100)}%</span>{" "}
             <button
               type="button"
               data-testid="zoom-in"
+              aria-label="Zoom in"
               disabled={zoom >= MAX_ZOOM}
               onClick={() => {
                 const next = ZOOM_STEPS.find((step) => step > zoom) ?? zoom;
@@ -418,7 +461,21 @@ export function Workspace({
             border: "1px solid var(--line, #ccc)",
           }}
         >
-          <canvas ref={canvasRef} data-testid="preview-canvas" />
+          {/*
+            A canvas is a rectangle of pixels with nothing to read. Naming it
+            says what is on screen and, more usefully, *which page*: the page
+            number is otherwise only in the controls above it.
+          */}
+          <canvas
+            ref={canvasRef}
+            role="img"
+            aria-label={
+              preview.pageCount
+                ? `Page ${(preview.pageIndex ?? 0) + 1} of ${preview.pageCount} of the compiled document`
+                : "Compiled document preview"
+            }
+            data-testid="preview-canvas"
+          />
         </div>
       </div>
     </section>

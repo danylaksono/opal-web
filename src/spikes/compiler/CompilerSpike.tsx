@@ -396,6 +396,7 @@ export function CompilerSpike() {
         type="file"
         multiple
         data-testid="tex-input"
+        aria-label="LaTeX source files to compile"
         onChange={(event) => {
           const files = event.target.files;
           if (files && files.length > 0) void run(files);
@@ -526,6 +527,7 @@ export function CompilerSpike() {
             type="file"
             accept="application/pdf"
             data-testid="reference-input"
+            aria-label="Reference PDF to compare against"
             onChange={(event) => {
               const file = event.target.files?.[0];
               if (file) void compare(file);
