@@ -169,11 +169,21 @@ test.describe("accessibility", () => {
       await page.keyboard.press("Tab");
     }
     await page.keyboard.type("By keyboard");
-    await page.keyboard.press("Tab");
-    await expect(page.locator(":focus")).toHaveAttribute(
-      "data-testid",
-      "create-project",
-    );
+
+    // Tabbed to rather than assumed to be next: this used to assert that the
+    // button follows the title field, and adding the template picker between
+    // them broke a test about reachability over a change to the order. What
+    // matters is that tabbing gets there, and an unreachable control still
+    // fails this — by never arriving.
+    while (
+      !(await page.evaluate(
+        () =>
+          document.activeElement?.getAttribute("data-testid") ===
+          "create-project",
+      ))
+    ) {
+      await page.keyboard.press("Tab");
+    }
     await page.keyboard.press("Enter");
 
     await expect(page.getByTestId("project-row")).toBeVisible();

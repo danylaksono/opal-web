@@ -1105,8 +1105,14 @@ classes no local tier carries.
 - [x] Why recovery after an abort is not reliably clean. The recycle answers it:
       recovery now runs against a fresh engine rather than one whose TeX run was
       terminated under it.
-- [ ] Multi-pass bibliography orchestration across `natbib`, `cite` and
-      `acmart`. No corpus project has reached its bibliography yet.
+- [x] Multi-pass bibliography orchestration, for plain `\bibliography` and
+      bibtex at least. No *corpus* project ever reached its bibliography — the
+      four that declare one either fail before it or cite nothing — so the path
+      shipped untested until the `paper` template gave it a document that
+      does. It works: five passes, no diagnostics, the citation resolved. An
+      e2e holds it there.
+- [ ] The same across `natbib`, `cite` and `acmart` styles, which is where the
+      rerun counts and the `.bst` differ.
 - [x] First-load and offline story. 41 MB floor, 135 MB ceiling, engine init
       ~500 ms — the cost is transfer, not startup.
 - [ ] Serve with brotli and confirm the measured 4.4 MB saving on a real host.

@@ -145,7 +145,13 @@ hundred compiles rather than every one, at 0.9 s each.
   cannot see: status regions that speak, focus that lands somewhere after the
   button you pressed disappears, and Ctrl/Cmd+Enter to compile without leaving
   the document.
-- 239 unit tests and 42 Playwright e2e tests. The e2e suite is the part that
+- **Five templates**, each gated twice: the semantic index runs over every one
+  in the unit suite, and an e2e creates and compiles all five, because a
+  template is the first LaTeX a user sees and the first they copy. The `paper`
+  template is also the first document in this repository to reach a
+  bibliography — no corpus project ever did — so it is where the bibtex path
+  finally got tested.
+- 247 unit tests and 44 Playwright e2e tests. The e2e suite is the part that
   matters here: four defects found during Phase 2 — the default font path, a
   boot package with no `ls-R`, a stale pre-compressed asset, and cancellation
   returning after 180 s — would each have passed every test that existed before
@@ -176,11 +182,10 @@ hundred compiles rather than every one, at 0.9 s each.
    to bite a 32 MB engine. **Needs a different machine**: the container this was
    built in cannot reach the Playwright browser CDN, so Chromium is the only
    engine installable on it.
-2. The rest of Phase 3: structured editors and templates, which is now the only
-   deliverable with nothing behind it. And an accessibility check that a machine
-   cannot do — axe and the keyboard tests say the mechanics are right, but
-   nobody has driven this with a screen reader, and that is a different kind of
-   evidence.
+2. What Phase 3 still owes: structured editors, and an accessibility check a
+   machine cannot do — axe and the keyboard tests say the mechanics are right,
+   but nobody has driven this with a screen reader, and that is a different kind
+   of evidence.
 3. `paper-acm` and `paper-ieee` from `texmfrepo`, on a machine that can reach a
    TeX Live mirror.
 4. Deploy, and confirm brotli and the first-load figure on a real host.
@@ -1410,9 +1415,10 @@ Exit criteria:
 > list does add, switch, rename and delete; and the semantic index carries an
 > outline, project health, completion for labels and citation keys, and gutter
 > marks from both the index and the engine's log; images and PDFs open as
-> themselves; and the accessibility pass has a gate in the e2e suite. Not done:
-> structured editors and templates, and a real screen-reader session, which no
-> automated check substitutes for. The editor is
+> themselves; five templates start a project as something other than blank; and
+> the accessibility pass has a gate in the e2e suite. Not done: structured
+> editors, and a real screen-reader session, which no automated check
+> substitutes for. The editor is
 > CodeMirror configured fresh rather than ported — desktop Opal's configuration
 > is in a repository this one cannot see.
 

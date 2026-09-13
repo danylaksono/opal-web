@@ -378,6 +378,85 @@ test.describe("compile and preview", () => {
     await expect(editor).toContainText("documentclass");
   });
 
+  test("every template compiles", async ({ page }) => {
+    // A template is the first LaTeX a user sees and the first they copy, so one
+    // that does not compile is worse than no template at all. The unit tests
+    // check them against the semantic index, which knows nothing about whether
+    // TeX will accept a document class — only this does.
+    const ids = await page
+      .getByTestId("project-template")
+      .locator("option")
+      .evaluateAll((options) =>
+        options.map((option) => (option as HTMLOptionElement).value),
+      );
+    expect(ids.length).toBeGreaterThan(3);
+
+    for (const id of ids) {
+      await page.getByTestId("project-title").fill(`Template ${id}`);
+      await page.getByTestId("project-template").selectOption(id);
+      await page.getByTestId("create-project").click();
+      await page
+        .getByTestId("project-row")
+        .filter({ hasText: `Template ${id}` })
+        .getByTestId("open-project")
+        .click();
+      await expect(page.getByTestId("workspace")).toBeVisible();
+
+      await page.getByTestId("compile-button").click();
+      await expect(page.getByTestId("workspace-status")).toHaveAttribute(
+        "data-status",
+        "done",
+        { timeout: 280_000 },
+      );
+      await expect(
+        page.getByTestId("workspace-status"),
+        `template ${id}`,
+      ).toContainText("Compiled");
+      await expect(page.getByTestId("preview")).toHaveAttribute(
+        "data-status",
+        "ready",
+        { timeout: 60_000 },
+      );
+
+      // Back to the list for the next one: a new project cannot be created
+      // while the editor is open on the previous one.
+      await page.getByRole("button", { name: "Close" }).click();
+    }
+  });
+
+  test("the paper template reaches its bibliography", async ({ page }) => {
+    // ADR-003 records that no corpus project had ever got as far as running
+    // bibtex, so the bibliography path shipped untested end to end. This
+    // template is the first document in the repository to reach it.
+    await page.getByTestId("project-title").fill("Paper");
+    await page.getByTestId("project-template").selectOption("paper");
+    await page.getByTestId("create-project").click();
+    await page
+      .getByTestId("project-row")
+      .filter({ hasText: "Paper" })
+      .getByTestId("open-project")
+      .click();
+
+    await page.getByTestId("compile-button").click();
+    await expect(page.getByTestId("workspace-status")).toHaveAttribute(
+      "data-status",
+      "done",
+      { timeout: 280_000 },
+    );
+
+    const status = await page.getByTestId("workspace-status").innerText();
+    expect(status).toContain("Compiled");
+    // More than one pass is what a bibliography costs: TeX writes the .aux,
+    // bibtex reads it, and TeX runs again to place what came back. A single
+    // pass would mean the citation never resolved.
+    const passes = Number(/(\d+) pass/.exec(status)?.[1] ?? 0);
+    expect(passes).toBeGreaterThan(1);
+
+    // And nothing was reported: an unresolved key is a LaTeX warning, which
+    // this surface would show.
+    await expect(page.getByTestId("workspace-diagnostics")).toHaveCount(0);
+  });
+
   test("a failed compile shows the engine log", async ({ page }) => {
     await openWorkspace(page);
     // `\error` is not a control sequence, so TeX stops. The point is not the

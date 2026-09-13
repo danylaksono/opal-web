@@ -42,8 +42,14 @@ rename is one revision rather than a write and a delete. Images and PDFs open as
 assets rather than as mangled text — which is also what stops autosave writing a
 UTF-8-decoded PNG back over the original. `tests/e2e/accessibility.spec.ts` runs
 axe over the product and drives the keyboard paths it cannot see. Outstanding:
-structured editors and templates, and a screen-reader session, which no
-automated check substitutes for.
+structured editors, and a screen-reader session, which no automated check
+substitutes for.
+
+`src/core/project/templates.ts` holds the five starting points a new project can
+take. They are data rather than files so they work offline and so the tests can
+reach them: the unit suite runs the semantic index over each, and an e2e
+compiles all five. Adding one means adding it there — both gates pick it up
+automatically.
 
 **Phase 2 — compile and preview: the loop is built.** `Workspace.tsx` opens a
 project, compiles what is on screen through `LatexCompiler`, and draws the

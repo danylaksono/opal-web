@@ -35,6 +35,7 @@ import type {
   ProjectRepository,
   ProjectSummary,
 } from "@/core/project/repository";
+import { PROJECT_TEMPLATES, templateById } from "@/core/project/templates";
 
 /**
  * Extensions whose bytes are text the index can read.
@@ -103,13 +104,6 @@ function megabytes(bytes: number): string {
   return `${(bytes / 1048576).toFixed(1)} MB`;
 }
 
-/** A starter document, so a new project compiles rather than being empty. */
-const STARTER = `\\documentclass{article}
-\\begin{document}
-Hello from Opal Web.
-\\end{document}
-`;
-
 export function ProjectsPanel({
   repository,
 }: {
@@ -119,6 +113,7 @@ export function ProjectsPanel({
   const [status, setStatus] = useState<StorageStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [title, setTitle] = useState("Untitled project");
+  const [templateId, setTemplateId] = useState("blank");
   const importInput = useRef<HTMLInputElement | null>(null);
   const [editing, setEditing] = useState<{
     id: ProjectId;
@@ -570,20 +565,35 @@ export function ProjectsPanel({
             setTitle(event.target.value);
           }}
         />
+        {/*
+          Beside the title rather than behind a wizard: choosing a starting
+          point is one decision, and a second screen to make it would be a
+          second screen between a person and their document.
+        */}
+        <label>
+          Start from{" "}
+          <select
+            data-testid="project-template"
+            value={templateId}
+            onChange={(event) => setTemplateId(event.target.value)}
+          >
+            {PROJECT_TEMPLATES.map((template) => (
+              <option key={template.id} value={template.id}>
+                {template.name}
+              </option>
+            ))}
+          </select>
+        </label>
         <button
           type="button"
           data-testid="create-project"
           onClick={() => {
+            const template = templateById(templateId);
             void act(() =>
               repository.create({
                 title,
-                files: [
-                  {
-                    path: projectPath("main.tex"),
-                    bytes: new TextEncoder().encode(STARTER),
-                  },
-                ],
-                rootTexPath: projectPath("main.tex"),
+                files: template.files,
+                rootTexPath: template.rootTexPath,
               }),
             );
           }}
