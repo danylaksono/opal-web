@@ -5,6 +5,60 @@ ADR that asked the question. This file covers the part that is neither: what the
 repository does not contain, how to rebuild it, and the environment traps that
 have cost time before.
 
+## Working on this locally, from a fresh clone
+
+Node 22 or newer, and pnpm — the repo pins `pnpm@11.13.1` in `packageManager`,
+so `corepack enable` is enough to get the right one.
+
+```sh
+pnpm install
+pnpm exec playwright install chromium
+pnpm dev            # Vite's default http://localhost:5173, or the next free port
+```
+
+**That is already the whole product except compiling.** Creating and opening
+projects, the editor, the file list, rename, the outline, project health,
+completion, gutter marks from the index, asset views and the ZIP round trip all
+work without the engine, because none of them needs it. `pnpm test` runs 247
+unit tests; `pnpm test:e2e` runs 31 and **skips 13**, each naming what is
+missing rather than failing.
+
+`OPAL_CHROMIUM_PATH` is for containers that cannot reach Playwright's browser
+CDN. Leave it unset locally — unset means "let Playwright decide", which is what
+you want once `playwright install` has run.
+
+### To compile, three more steps
+
+About 740 MB and ten minutes, in this order:
+
+```sh
+./scripts/download-texlyre-assets.sh     # 522 MB archive, ~700 MB unpacked, pinned to v1.4.0
+pnpm spike:texlive-min xelatex --write   # builds the 41 MB boot set of 183 files from it
+pnpm spike:brotli --write                # optional: pre-compresses engine, boot set, renderer
+```
+
+The second step is the one that matters: the first only unpacks the TeX Live
+tree, and nothing compiles until the boot set exists. After it, `pnpm test:e2e`
+runs all 44.
+
+### Everyday
+
+| Command | What it does |
+| --- | --- |
+| `pnpm dev` | The app, plus the Phase 0 spike panels below it |
+| `pnpm test` | Unit tests, ~3 s |
+| `pnpm test:e2e` | Builds, serves on 4173, drives Chromium |
+| `pnpm lint` / `pnpm lint:fix` | Biome, which also formats |
+| `pnpm typecheck` | `tsc -b --noEmit` across all three projects |
+| `pnpm build` | What CI builds and what Netlify would serve |
+
+**Two things that will bite otherwise**, both in "Traps that have cost time"
+below: `pnpm test:e2e` reuses a preview server that is already running and does
+*not* rebuild it, so after changing source either stop it or expect to be
+testing the previous build; and CI runs the e2e suite without engine assets, so
+**a green CI does not prove the compile path** — those thirteen tests skipped
+there too.
+
 ## Where things stand
 
 **Phase 0 — feasibility gates.** Renderer settled (ADR-004). Engine open
