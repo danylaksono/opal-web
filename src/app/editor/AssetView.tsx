@@ -19,8 +19,29 @@ import { MupdfRenderer } from "@/platform/browser/pdf/mupdf-renderer";
  * different renderer with different fonts and its own network behaviour.
  */
 
-const IMAGE = /\.(png|jpe?g|gif|webp|avif|bmp)$/i;
-const SVG = /\.svg$/i;
+/**
+ * Extension to media type.
+ *
+ * Spelled out because a `Blob` with a made-up type is served with that type:
+ * this said `"image"` for everything but SVG, which is not a media type at all,
+ * and left every PNG relying on the browser sniffing the bytes anyway.
+ */
+const IMAGE_TYPES: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  avif: "image/avif",
+  bmp: "image/bmp",
+  svg: "image/svg+xml",
+};
+
+function imageType(path: string): string | null {
+  const extension = /\.([a-z0-9]+)$/i.exec(path)?.[1]?.toLowerCase();
+  return extension ? (IMAGE_TYPES[extension] ?? null) : null;
+}
+
 const PDF = /\.pdf$/i;
 
 function kilobytes(bytes: number): string {
@@ -40,23 +61,20 @@ export function AssetView({ path, bytes }: AssetViewProps) {
   const [pdf, setPdf] = useState<{ pages: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const isImage = IMAGE.test(path) || SVG.test(path);
+  const type = imageType(path);
+  const isImage = type !== null;
   const isPdf = PDF.test(path);
 
   useEffect(() => {
-    if (!isImage) return;
-    // `image/svg+xml` explicitly: a blob with the wrong type renders as
-    // nothing, and SVG is the one image format here that is also text.
-    const blob = new Blob([bytes as BlobPart], {
-      type: SVG.test(path) ? "image/svg+xml" : "image",
-    });
+    if (!type) return;
+    const blob = new Blob([bytes as BlobPart], { type });
     const objectUrl = URL.createObjectURL(blob);
     setUrl(objectUrl);
     return () => {
       URL.revokeObjectURL(objectUrl);
       setUrl(null);
     };
-  }, [bytes, path, isImage]);
+  }, [bytes, type]);
 
   useEffect(() => {
     if (!isPdf) return;

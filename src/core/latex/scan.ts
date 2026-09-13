@@ -67,6 +67,14 @@ export interface TexFacts {
   bibResources: TexFileReference[];
   graphics: TexFileReference[];
   /**
+   * `\graphicspath{{figures/}{img/}}`: where `\includegraphics` names resolve.
+   *
+   * Each root is one group, so the doubled braces are two levels of argument
+   * rather than one. A project that sets this and is checked without it has
+   * every one of its figures reported missing.
+   */
+  graphicsPaths: string[];
+  /**
    * Packages the file loads.
    *
    * Kept because some packages define labels: `\pageref{LastPage}` is a
@@ -131,6 +139,9 @@ const VERBATIM_ENVIRONMENTS = new Set([
   "alltt",
   "comment",
 ]);
+
+/** Sticky, so it matches at a position instead of against a copied tail. */
+const COMMAND_NAME = /[a-zA-Z]+\*?/y;
 
 interface Cursor {
   index: number;
@@ -216,6 +227,7 @@ export function scanTex(source: string): TexFacts {
     inputs: [],
     bibResources: [],
     graphics: [],
+    graphicsPaths: [],
     packages: [],
   };
   const cursor: Cursor = { index: 0, line: 1 };
@@ -235,7 +247,12 @@ export function scanTex(source: string): TexFacts {
       continue;
     }
 
-    const name = /^[a-zA-Z]+\*?/.exec(source.slice(cursor.index + 1))?.[0];
+    // Matched in place with a sticky regex rather than by slicing the rest of
+    // the document. `source.slice(cursor.index + 1)` allocates a copy of
+    // everything after the cursor, once per backslash — quadratic in file size,
+    // on something that runs on every keystroke.
+    COMMAND_NAME.lastIndex = cursor.index + 1;
+    const name = COMMAND_NAME.exec(source)?.[0];
     if (!name) {
       // An escaped character: `\%`, `\$`, `\\`. Both characters are consumed,
       // which is what stops `\%` from opening a comment.
@@ -324,6 +341,17 @@ export function scanTex(source: string): TexFacts {
       continue;
     }
 
+    if (bare === "graphicspath") {
+      const argument = readArgument(source, cursor);
+      // The argument is a list of groups, not a comma-separated list: each
+      // `{...}` inside it is one root.
+      for (const match of (argument ?? "").matchAll(/\{([^{}]*)\}/g)) {
+        const root = (match[1] ?? "").trim();
+        if (root) facts.graphicsPaths.push(root);
+      }
+      continue;
+    }
+
     if (bare === "includegraphics") {
       const argument = readArgument(source, cursor);
       if (argument) facts.graphics.push({ line, target: argument.trim() });
@@ -346,11 +374,19 @@ const NOT_ENTRIES = new Set(["string", "preamble", "comment"]);
 export function scanBib(source: string): TexKey[] {
   const found: TexKey[] = [];
   BIB_ENTRY.lastIndex = 0;
+  // Lines counted forward as the matches advance. Slicing the prefix and
+  // splitting it per entry is O(n) each, which on a bibliography of a few
+  // thousand keys is the whole file re-read a few thousand times.
+  let line = 1;
+  let counted = 0;
   for (const match of source.matchAll(BIB_ENTRY)) {
+    for (let at = counted; at < match.index; at += 1) {
+      if (source[at] === "\n") line += 1;
+    }
+    counted = match.index;
     if (NOT_ENTRIES.has((match[1] ?? "").toLowerCase())) continue;
     const key = match[2];
     if (!key) continue;
-    const line = source.slice(0, match.index).split("\n").length;
     found.push({ line, key });
   }
   return found;

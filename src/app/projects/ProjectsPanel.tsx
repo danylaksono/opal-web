@@ -46,6 +46,25 @@ import { PROJECT_TEMPLATES, templateById } from "@/core/project/templates";
  */
 const TEXT_FILE = /\.(tex|ltx|cls|sty|bib|txt|md)$/i;
 
+/**
+ * Read one file the way the editor needs it: text, or bytes it must not decode.
+ *
+ * Extracted because `openFile` and `deleteFile` both switch to a file, and only
+ * one of them knew about binary. Deleting a file while a PNG was open decoded
+ * the PNG into the text editor — the exact data-loss path `AssetView` exists to
+ * close, reachable through the other door.
+ */
+async function readForEditing(
+  repository: ProjectRepository,
+  id: ProjectId,
+  path: ProjectPath,
+): Promise<{ content: string; asset: Uint8Array | null }> {
+  const bytes = await repository.readFile(id, path);
+  return TEXT_FILE.test(path)
+    ? { content: new TextDecoder().decode(bytes), asset: null }
+    : { content: "", asset: bytes };
+}
+
 async function readSources(
   repository: ProjectRepository,
   id: ProjectId,
@@ -327,22 +346,21 @@ export function ProjectsPanel({
     async (path: ProjectPath) => {
       if (!editing) return;
       await autosaveRef.current?.flush();
-      const bytes = await repository.readFile(editing.id, path);
-      if (!TEXT_FILE.test(path)) {
-        // Decoding this would produce U+FFFD wherever the bytes are not valid
-        // UTF-8, which is most of a PNG, and the editor would then be holding a
-        // corrupted copy that autosave is willing to write back.
-        setEditing({ ...editing, path, content: "", asset: bytes });
-        return;
-      }
-      const content = new TextDecoder().decode(bytes);
-      setEditing({
-        ...editing,
-        path,
-        content,
-        asset: null,
-        sources: { ...editing.sources, [path]: content },
-      });
+      const opened = await readForEditing(repository, editing.id, path);
+      // Functional, like every other update here that spans an await: the user
+      // can type through a storage round trip, and spreading the snapshot
+      // taken before it would put their keystrokes back.
+      setEditing(
+        (previous) =>
+          previous && {
+            ...previous,
+            path,
+            ...opened,
+            sources: opened.asset
+              ? previous.sources
+              : { ...previous.sources, [path]: opened.content },
+          },
+      );
     },
     [editing, repository],
   );
@@ -368,14 +386,17 @@ export function ProjectsPanel({
         new Uint8Array(),
       );
       const files = await repository.listFiles(editing.id);
-      setEditing({
-        ...editing,
-        path,
-        files,
-        content: "",
-        asset: null,
-        sources: { ...editing.sources, [path]: "" },
-      });
+      setEditing(
+        (previous) =>
+          previous && {
+            ...previous,
+            path,
+            files,
+            content: "",
+            asset: null,
+            sources: { ...previous.sources, [path]: "" },
+          },
+      );
       // The write advanced the revision out from under the autosave, whose
       // writes are conditional on the one it was built with. Left alone, the
       // next keystroke would be reported to the user as "this project changed
@@ -408,17 +429,21 @@ export function ProjectsPanel({
       );
 
       const files = await repository.listFiles(editing.id);
-      const sources = { ...editing.sources };
-      sources[to] = sources[editing.path] ?? "";
-      delete sources[editing.path];
-      setEditing({
-        ...editing,
-        path: to,
-        // The record's root file follows a rename, so this has to as well or
-        // the compile button would point at a name that no longer exists.
-        mainFile: editing.mainFile === editing.path ? to : editing.mainFile,
-        files,
-        sources,
+      const from = editing.path;
+      setEditing((previous) => {
+        if (!previous) return previous;
+        const sources = { ...previous.sources };
+        sources[to] = sources[from] ?? "";
+        delete sources[from];
+        return {
+          ...previous,
+          path: to,
+          // The record's root file follows a rename, so this has to as well or
+          // the compile button would point at a name that no longer exists.
+          mainFile: previous.mainFile === from ? to : previous.mainFile,
+          files,
+          sources,
+        };
       });
       autosaveRef.current?.adopt(revision);
       setRenameTo("");
@@ -441,18 +466,12 @@ export function ProjectsPanel({
       const revision = await repository.deleteFile(editing.id, path);
       const files = await repository.listFiles(editing.id);
       const next = path === editing.path ? editing.mainFile : editing.path;
-      const content = new TextDecoder().decode(
-        await repository.readFile(editing.id, next),
-      );
-      const sources = { ...editing.sources };
-      delete sources[path];
-      setEditing({
-        ...editing,
-        path: next,
-        files,
-        content,
-        sources,
-        asset: null,
+      const opened = await readForEditing(repository, editing.id, next);
+      setEditing((previous) => {
+        if (!previous) return previous;
+        const sources = { ...previous.sources };
+        delete sources[path];
+        return { ...previous, path: next, files, sources, ...opened };
       });
       setFocusFile(next);
       autosaveRef.current?.adopt(revision);
@@ -523,7 +542,11 @@ export function ProjectsPanel({
   const goTo = useCallback(
     async (path: ProjectPath, line: number) => {
       if (editing && path !== editing.path) await openFile(path);
-      setReveal({ line, nonce: Date.now() });
+      // Counted rather than timestamped: two activations inside one millisecond
+      // — a held Enter, a double click — would otherwise carry the same nonce
+      // and the second jump would be dropped, which is the case the nonce is
+      // there for.
+      setReveal((previous) => ({ line, nonce: (previous?.nonce ?? 0) + 1 }));
     },
     [editing, openFile],
   );
@@ -862,7 +885,11 @@ export function ProjectsPanel({
             UTF-8 to show it would also be what autosave writes back.
           */}
           {editing.asset ? (
-            <AssetView path={editing.path} bytes={editing.asset} />
+            <AssetView
+              key={`${editing.id}:${editing.path}`}
+              path={editing.path}
+              bytes={editing.asset}
+            />
           ) : (
             <CodeEditor
               key={`${editing.id}:${editing.path}`}

@@ -182,7 +182,10 @@ export function createAutosave(options: AutosaveOptions): Autosave {
 
     adopt(revision) {
       if (stopped) return;
-      publish({ state: status.state, revision });
+      // Spread, not rebuilt from two fields: a `failed` status carries the
+      // message the panel prints, and reconstructing it rendered
+      // "Not saved: undefined" at the moment the user was trying to fix it.
+      publish({ ...status, revision });
     },
 
     async flush() {

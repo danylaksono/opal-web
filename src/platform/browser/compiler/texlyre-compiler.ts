@@ -6,6 +6,7 @@ import type {
   EngineIdentity,
   LatexCompiler,
 } from "@/core/compiler/types";
+import { scanTex } from "@/core/latex/scan";
 import { categoriseFailure, firstError, parseTexLog } from "./log-diagnostics";
 
 /**
@@ -121,23 +122,19 @@ const TEXLIVE_VINTAGE = "texlive-2026";
  * bibliography at all; `thesis-standard` writes `thebibliography` out by hand
  * and needs no bibtex either way.
  */
-const CITATION = /\\(?:no)?cite[a-zA-Z]*\s*[[{]/;
-
 /**
- * Source with TeX comments removed.
+ * Whether a bibliography pass would have anything to do.
  *
- * `thesis-standard` has `% \bibliography{references}` commented out above a
- * hand-written `thebibliography`, and a regex that cannot tell code from a
- * comment reads that as a request. A `%` escaped as `\%` is a percent sign, not
- * a comment.
+ * Asks the scanner rather than a regular expression of its own. That was a
+ * regex until the semantic index existed, and keeping both meant keeping two
+ * answers to one question: the scanner knows eleven spellings of a citation,
+ * knows `\parencite` from `\pagecolor`, and knows that a `%` starts a comment
+ * while `\%` does not — and the panel was already using it to decide whether
+ * the same citation resolved. A document whose bibliography silently never runs
+ * because the adapter and the index disagree is a bad way to find that out.
  */
-function withoutComments(source: string): string {
-  return source.replace(/(^|[^\\])%.*$/gm, "$1");
-}
-
-/** Whether a bibliography pass would have anything to do. */
 export function needsBibtex(source: string): boolean {
-  return CITATION.test(withoutComments(source));
+  return scanTex(source).citations.length > 0;
 }
 
 export class TexlyreLatexCompiler implements LatexCompiler {
@@ -272,7 +269,12 @@ export class TexlyreLatexCompiler implements LatexCompiler {
             input: source,
             mainTexPath: main,
             additionalFiles,
-            bibtex: needsBibtex(source),
+            // Every file, not just the main one: a report whose chapters hold
+            // the citations declares its bibliography in `main.tex` and cites
+            // nothing there, and the pass would never run.
+            bibtex: request.files.some((file) =>
+              needsBibtex(DECODER.decode(file.content)),
+            ),
             // TeX decides how many passes it needs and says so in the log; letting
             // the engine rerun is what makes cross-references and a table of
             // contents resolve. ADR-003's defect 9 is the opposite arrangement.

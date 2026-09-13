@@ -279,9 +279,20 @@ export class TexliveArchive {
       const within = position % CHUNK_SIZE;
       const chunk = this.#chunk(index);
       const take = Math.min(length - written, CHUNK_SIZE - within);
-      chunk.copy(out, written, within, within + take);
-      written += take;
-      position += take;
+      // Advanced by what was actually copied, not by what was asked for. The
+      // last chunk of a tier is short, and `copy` silently clamps to it — so a
+      // request that ran past the end would leave the tail of this buffer as
+      // whatever `allocUnsafe` handed back, and report it as file content. A
+      // well-formed index never asks for those bytes, which is exactly why the
+      // failure would be silent if one ever did.
+      const copied = chunk.copy(out, written, within, within + take);
+      if (copied === 0) {
+        throw new Error(
+          `chunk ${index} ended at ${chunk.length} before offset ${within}`,
+        );
+      }
+      written += copied;
+      position += copied;
     }
     return out;
   }

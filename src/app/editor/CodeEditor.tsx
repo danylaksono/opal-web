@@ -226,6 +226,10 @@ export function CodeEditor({
       parent: host.current,
     });
     view.current = instance;
+    // A new view has no diagnostics on it, whatever the old one was showing.
+    // Leaving the remembered signature behind would make an unchanged set of
+    // problems look already-applied, and the gutter would come back empty.
+    marked.current = null;
     return () => {
       instance.destroy();
       view.current = null;

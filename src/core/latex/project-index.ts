@@ -155,6 +155,8 @@ export function buildProjectIndex(
 
   const labels = new Map<string, { file: ProjectPath; line: number }[]>();
   const packages = new Set<string>();
+  /** Prefixes `\includegraphics` names are resolved against, each ending in `/`. */
+  const graphicsRoots: string[] = [];
   for (const [path, fileFacts] of facts) {
     for (const label of fileFacts.labels) {
       const places = labels.get(label.key) ?? [];
@@ -163,7 +165,29 @@ export function buildProjectIndex(
     }
     for (const item of fileFacts.bibItems) bibliographyKeys.add(item.key);
     for (const name of fileFacts.packages) packages.add(name);
+    for (const root of fileFacts.graphicsPaths) {
+      graphicsRoots.push(root.endsWith("/") ? root : `${root}/`);
+    }
   }
+
+  /**
+   * Whether citations can be checked at all, for the project as a whole.
+   *
+   * A `\bibliography{refs}` naming a file the project does not have means the
+   * keys live somewhere this index cannot see, so it says nothing rather than
+   * condemning every citation. That test has to span files: it was applied per
+   * file, and `.every` over a file with no `\bibliography` of its own is
+   * vacuously true — so a preamble pointing at an external `.bib` correctly
+   * suppressed checking for itself while the chapter citing those keys had
+   * every one of them reported as undefined.
+   */
+  const citationsAreCheckable =
+    bibliographyKeys.size > 0 &&
+    [...facts.values()].every((fileFacts) =>
+      fileFacts.bibResources.every((resource) =>
+        resolveTarget(resource.target, known, [".bib"]),
+      ),
+    );
 
   const knownLabels = new Set(labels.keys());
   for (const [name, provided] of Object.entries(PACKAGE_LABELS)) {
@@ -200,16 +224,7 @@ export function buildProjectIndex(
       });
     }
 
-    // Citations are only checkable when the project carries its own
-    // bibliography. A `\bibliography{refs}` naming a file that is not here is
-    // a project whose keys live somewhere this index cannot see, and guessing
-    // would report every citation in it as undefined.
-    const hasBibliography =
-      bibliographyKeys.size > 0 &&
-      fileFacts.bibResources.every((resource) =>
-        resolveTarget(resource.target, known, [".bib"]),
-      );
-    if (hasBibliography) {
+    if (citationsAreCheckable) {
       for (const citation of fileFacts.citations) {
         if (bibliographyKeys.has(citation.key)) continue;
         problems.push({
@@ -234,7 +249,21 @@ export function buildProjectIndex(
     }
 
     for (const graphic of fileFacts.graphics) {
-      if (resolveTarget(graphic.target, known, GRAPHIC_EXTENSIONS)) continue;
+      // Tried bare and under every `\graphicspath` root: a project that sets
+      // one writes `\includegraphics{plot}` for `figures/plot.png`, and
+      // resolving only the literal path reports every figure in it as missing
+      // — on a document that compiles.
+      const candidates = [
+        graphic.target,
+        ...graphicsRoots.map((root) => `${root}${graphic.target}`),
+      ];
+      if (
+        candidates.some((candidate) =>
+          resolveTarget(candidate, known, GRAPHIC_EXTENSIONS),
+        )
+      ) {
+        continue;
+      }
       problems.push({
         kind: "missing-graphic",
         file: path,

@@ -145,9 +145,20 @@ describe("CompileSession", () => {
 
     expect(s.isCompiling).toBe(false);
     expect(states.at(-1)).toEqual({ status: "idle" });
-    // The cancelled compile is still the newest revision, so it reports its
-    // own cancellation rather than being silently dropped.
-    expect(await run).toMatchObject({ ok: false, category: "cancelled" });
+
+    // Null, and `idle` stays the last word.
+    //
+    // This used to assert the opposite — that the cancelled compile reported
+    // its own cancellation — and that made the state machine incoherent:
+    // `cancel()` published `idle`, then the abandoned compile resolved a
+    // moment later and published `done` over it, so a user who pressed Cancel
+    // watched the status turn into "Failed: cancelled" and their diagnostics
+    // disappear. Nobody needs telling that the thing they cancelled was
+    // cancelled; `cancel()` counts as a revision now, which makes the
+    // abandoned run stale by the same rule that governs every other
+    // superseded compile.
+    expect(await run).toBeNull();
+    expect(states.at(-1)).toEqual({ status: "idle" });
   });
 
   it("rebuilds the engine when a compile throws, and still reports", async () => {

@@ -165,4 +165,33 @@ describe("buildProjectIndex", () => {
 
     expect(built.outline.map((entry) => entry.title)).toEqual(["One", "Two"]);
   });
+
+  it("resolves a graphic under a \\graphicspath root", () => {
+    // A project that sets one writes the bare name, and checking only the
+    // literal path reports every figure in it as missing — on a document that
+    // compiles perfectly.
+    const built = index({
+      "main.tex": "\\graphicspath{{figures/}}\n\\includegraphics{plot}",
+      "figures/plot.png": "",
+    });
+
+    expect(built.problems).toEqual([]);
+  });
+
+  it("checks citations project-wide, not file by file", () => {
+    // The preamble points at a .bib the project does not have, so the keys
+    // live somewhere this cannot see. Applied per file, the chapter — which
+    // declares no bibliography of its own — was checked anyway and every
+    // citation in it was called undefined.
+    const built = index({
+      "main.tex": "\\input{preamble}\n\\input{chapter}",
+      "preamble.tex": "\\addbibresource{shared/global.bib}",
+      "chapter.tex": "\\cite{keyFromGlobal}",
+      "local.bib": "@book{somethingElse, title={A book}}",
+    });
+
+    expect(
+      built.problems.filter((problem) => problem.kind === "undefined-citation"),
+    ).toEqual([]);
+  });
 });

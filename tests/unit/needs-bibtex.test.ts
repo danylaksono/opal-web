@@ -40,4 +40,24 @@ describe("needsBibtex", () => {
     // line is still code.
     expect(needsBibtex("100\\% agreement \\cite{smith}")).toBe(true);
   });
+
+  it("sees the biblatex spellings, not only \\cite", () => {
+    // These were invisible to the regular expression this replaced, so a
+    // biblatex document's bibliography pass never ran — while the project
+    // index, using the scanner, reported the very same keys as resolved.
+    for (const command of [
+      "parencite",
+      "textcite",
+      "autocite",
+      "footcite",
+      "fullcite",
+    ]) {
+      expect(needsBibtex(`\\${command}{knuth1984}`), command).toBe(true);
+    }
+  });
+
+  it("is not fooled by a command that merely starts the same way", () => {
+    expect(needsBibtex("\\pagecolor{white}")).toBe(false);
+    expect(needsBibtex("\\notecolour{grey}")).toBe(false);
+  });
 });

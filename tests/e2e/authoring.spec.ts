@@ -272,6 +272,30 @@ test.describe("outline and project health", () => {
     expect(inked).toBeGreaterThan(0);
   });
 
+  test("deleting a file while an image is open keeps the image an image", async ({
+    page,
+  }) => {
+    await importProjectWithAssets(page);
+    await page
+      .locator('[data-testid="file-open"][data-path="figure.png"]')
+      .click();
+    await expect(page.getByTestId("asset-view")).toBeVisible();
+
+    // The other door into the data-loss path: deleting *another* file re-opens
+    // whatever was on screen, and that reader decoded everything as UTF-8. The
+    // PNG would land in the text editor, one keystroke from being autosaved
+    // over itself.
+    await page
+      .locator('[data-testid="file-delete"][data-path="reference.pdf"]')
+      .click();
+
+    await expect(page.getByTestId("asset-view")).toHaveAttribute(
+      "data-kind",
+      "image",
+    );
+    await expect(page.getByTestId("editor-content")).toHaveCount(0);
+  });
+
   test("a rename onto an existing file is refused", async ({ page }) => {
     await page.getByTestId("new-file-name").fill("notes.tex");
     await page.getByTestId("create-file").click();

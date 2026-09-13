@@ -90,8 +90,12 @@ export class CompileSession {
       // not compiling against a dead worker, and report it as a failure the
       // view can render like any other.
       if (this.#controller === controller) this.#controller = null;
-      await this.#compiler.restart().catch(() => {});
+      // Only when this is still the newest compile. A superseded one throwing
+      // is the ordinary consequence of being aborted, and restarting on its
+      // behalf would tear down the engine the *current* compile is running in
+      // — turning one stale failure into two.
       if (revision !== this.#latest) return null;
+      await this.#compiler.restart().catch(() => {});
       const message = error instanceof Error ? error.message : String(error);
       const failure: CompileResult = {
         ok: false,
@@ -116,6 +120,13 @@ export class CompileSession {
 
   /** Stop the current compile. The view returns to whatever it last drew. */
   cancel(): void {
+    // Counted as a revision so the compile being abandoned is *stale* rather
+    // than merely aborted. Without this it resolves a moment later with a
+    // "cancelled" failure, passes the staleness check because nothing newer
+    // was asked for, and publishes `done` over the `idle` this just set — so
+    // the view says "Failed: cancelled" after the user pressed Cancel, and
+    // clears the diagnostics they were looking at.
+    this.#latest += 1;
     this.#controller?.abort();
     this.#controller = null;
     this.#onState({ status: "idle" });
