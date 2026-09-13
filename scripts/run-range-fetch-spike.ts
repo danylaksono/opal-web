@@ -28,6 +28,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { chromium } from "@playwright/test";
+import { chromiumLaunchOptions } from "./browser";
 
 const DEFAULT_URL = process.env.OPAL_TEX_URL ?? "https://localhost:4443";
 const INDEX = resolve("public/tex/texfiles.index");
@@ -110,7 +111,7 @@ async function main(): Promise<void> {
     .filter(Boolean) as RequestCache[];
 
   const index = loadIndex();
-  const browser = await chromium.launch();
+  const browser = await chromium.launch(chromiumLaunchOptions);
   const results: Measurement[] = [];
 
   // The browser must close on every path. An open browser keeps node's event

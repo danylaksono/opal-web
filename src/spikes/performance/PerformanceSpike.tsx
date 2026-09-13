@@ -1,6 +1,11 @@
 import { useCallback, useRef, useState } from "react";
+import type { LatexCompiler } from "@/core/compiler/types";
 import { projectPath } from "@/core/project/ids";
 import { SiglumLatexCompiler } from "@/platform/browser/compiler/siglum-compiler";
+import {
+  TEXLYRE_BOOT_TIER,
+  TexlyreLatexCompiler,
+} from "@/platform/browser/compiler/texlyre-compiler";
 
 /**
  * ADR-003 performance surface: what a compile costs, and whether one can be
@@ -46,6 +51,16 @@ interface Timing {
   /** After three compiles: fixed cost plus whatever a document adds. */
   memoryBytes: number | null;
   memorySource: string;
+  /**
+   * Memory after each of a run of extra compiles on the *same* engine, when
+   * asked for.
+   *
+   * Three compiles cannot tell a flat engine from one that grows slowly, and
+   * the difference is whether a person can write all afternoon. Siglum's
+   * retention was ~418 MB a compile and would have been obvious in three; a
+   * megabyte a compile would not be, and would still be 300 MB by tea time.
+   */
+  soakBytes: number[];
 }
 
 interface Cancellation {
@@ -174,7 +189,16 @@ function appendComment(content: Uint8Array, tag: string): Uint8Array {
 export function PerformanceSpike() {
   const [state, setState] = useState<State>({ status: "idle" });
   const [useCtan, setUseCtan] = useState(true);
-  const compilerRef = useRef<SiglumLatexCompiler | null>(null);
+  // Which package set to time. The warm figure is the one a UI has to be
+  // designed around, and the two engines reach it very differently.
+  const [backend, setBackend] = useState<"siglum" | "texlyre">("siglum");
+  /**
+   * Extra compiles to run on one engine after the timed three, sampling memory
+   * after each. Zero by default: it is minutes of compiling and it answers a
+   * question only worth asking once an engine is a candidate.
+   */
+  const [soak, setSoak] = useState(0);
+  const compilerRef = useRef<LatexCompiler | null>(null);
 
   const run = useCallback(
     async (fileList: FileList) => {
@@ -191,13 +215,21 @@ export function PerformanceSpike() {
           files.find((file) => file.path.endsWith(".tex"))?.path;
         if (!mainFile) throw new Error("No .tex file selected");
 
-        const build = () =>
-          new SiglumLatexCompiler({
-            engine: "xelatex",
-            verbose: true,
-            ...(useCtan ? { ctanProxyUrl: "/ctan" } : {}),
-            onLog: (line) => console.log("[siglum]", line),
-          });
+        const build = (): LatexCompiler =>
+          backend === "texlyre"
+            ? new TexlyreLatexCompiler({
+                engine: "xelatex",
+                verbose: true,
+                tiers: [TEXLYRE_BOOT_TIER],
+                remoteEndpoint: `${window.location.origin}/texlive`,
+                onLog: (line) => console.log("[texlyre]", line),
+              })
+            : new SiglumLatexCompiler({
+                engine: "xelatex",
+                verbose: true,
+                ...(useCtan ? { ctanProxyUrl: "/ctan" } : {}),
+                onLog: (line) => console.log("[siglum]", line),
+              });
 
         // A fresh compiler for the timing run, so "cold" means cold.
         await compilerRef.current?.dispose();
@@ -238,6 +270,38 @@ export function PerformanceSpike() {
         });
 
         const memory = await sampleMemory("after 3 compiles");
+
+        /*
+          Optional: keep compiling on this same engine and sample after each.
+
+          Three compiles answer "does this engine fit in a tab"; they cannot
+          answer "does it still fit after an afternoon", and those are different
+          questions with different failure modes. Each iteration edits the
+          source so the compile misses both the PDF cache and the engine's own,
+          because a cache hit measures nothing.
+        */
+        const soakBytes: number[] = [];
+        for (let index = 0; index < soak; index += 1) {
+          setState({
+            status: "running",
+            stage: `soak compile ${index + 1} of ${soak}`,
+          });
+          const soakFiles = files.map((file) =>
+            file.path === mainFile
+              ? {
+                  ...file,
+                  content: appendComment(file.content, `soak${index}`),
+                }
+              : file,
+          );
+          await compiler.compile({
+            revision: 4 + index,
+            mainFile,
+            files: soakFiles,
+          });
+          const sample = await sampleMemory(`after soak ${index + 1}`);
+          if (sample.bytes !== null) soakBytes.push(sample.bytes);
+        }
 
         // Then a second compiler, aborted mid-run. Separate from the timing
         // compiler because an abort terminates the worker, and measuring a
@@ -306,6 +370,7 @@ export function PerformanceSpike() {
             memoryAfterInitBytes: memoryAfterInit.bytes,
             memoryBytes: memory.bytes,
             memorySource: memory.source,
+            soakBytes,
           },
           cancellation: {
             afterMs: abortAfterMs,
@@ -324,7 +389,7 @@ export function PerformanceSpike() {
         });
       }
     },
-    [useCtan],
+    [useCtan, backend, soak],
   );
 
   const { timing, cancellation } = state;
@@ -339,6 +404,23 @@ export function PerformanceSpike() {
       </p>
 
       <label style={{ display: "block", marginBottom: "0.75rem" }}>
+        Package set{" "}
+        <select
+          data-testid="perf-backend-select"
+          value={backend}
+          onChange={(event) => setBackend(event.target.value as typeof backend)}
+        >
+          <option value="siglum">Siglum bundles + CTAN</option>
+          <option value="texlyre">texlyre boot set + endpoint</option>
+        </select>
+      </label>
+
+      <label
+        style={{
+          display: backend === "siglum" ? "block" : "none",
+          marginBottom: "0.75rem",
+        }}
+      >
         <input
           type="checkbox"
           data-testid="perf-ctan-toggle"
@@ -348,10 +430,27 @@ export function PerformanceSpike() {
         Fetch missing packages through the <code>/ctan</code> proxy.
       </label>
 
+      <label style={{ display: "block", marginBottom: "0.75rem" }}>
+        Soak: extra compiles on one engine{" "}
+        <input
+          type="number"
+          min={0}
+          max={200}
+          data-testid="perf-soak-input"
+          value={soak}
+          style={{ width: "5rem" }}
+          onChange={(event) => setSoak(Number(event.target.value) || 0)}
+        />{" "}
+        <span className="note">
+          memory after each, to tell a flat engine from a slowly growing one
+        </span>
+      </label>
+
       <input
         type="file"
         multiple
         data-testid="perf-input"
+        aria-label="Project files to measure"
         onChange={(event) => {
           const files = event.target.files;
           if (files && files.length > 0) void run(files);
@@ -416,6 +515,23 @@ export function PerformanceSpike() {
                     : `${(timing.memoryBytes / 1024 / 1024).toFixed(1)} MB`}
                 </td>
               </tr>
+              {timing.soakBytes.length > 0 && (
+                <tr>
+                  <td>Soak, after each compile</td>
+                  {/*
+                    The series rather than its maximum: a number that grows by a
+                    megabyte a compile and one that oscillates by a megabyte have
+                    the same maximum over ten compiles and are not the same
+                    engine.
+                  */}
+                  <td className="note" data-testid="perf-soak">
+                    {timing.soakBytes
+                      .map((bytes) => (bytes / 1024 / 1024).toFixed(1))
+                      .join(", ")}{" "}
+                    MB
+                  </td>
+                </tr>
+              )}
               <tr>
                 <td>Abort outcome</td>
                 <td className="note" data-testid="perf-abort">

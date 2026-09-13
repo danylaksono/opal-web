@@ -1,0 +1,341 @@
+/**
+ * Build a minimal boot tier for one engine, and let the endpoint do the rest
+ * (ADR-011).
+ *
+ * Preloading nothing does not work: with no tiers mounted the engine dies
+ * before kpathsea starts, on `lstat(/bin) failed` and `kpathsea: Can't get
+ * directory of program name: /bin/busytex`, having asked the endpoint for
+ * nothing at all. Two classes of file cannot come from a remote resolver — the
+ * ones read before the resolver exists, and the ones named by absolute path
+ * rather than looked up. Everything else can.
+ *
+ * So the floor is not "a tier"; it is that set. This builds it.
+ *
+ * The output is an Emscripten data package the engine loads exactly like its
+ * own, produced without Emscripten: the `.data` is written as LZ4 chunks that
+ * are all *stored* rather than compressed, which the format allows
+ * (`successes[i] = 0`), so no compressor is needed — and the loader `.js` is
+ * the shipped one with three substitutions, so the parts that are easy to get
+ * subtly wrong are not rewritten at all.
+ *
+ * Usage: pnpm spike:texlive-min [engine] [--write] [--no-icu]
+ */
+import { existsSync } from "node:fs";
+import { mkdir, writeFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import {
+  readPackagedFiles,
+  TEXLIVE_ROOT,
+  TexliveArchive,
+} from "./texlive-index";
+
+/** Emscripten's LZ4 packages are chunked at 2 KiB; a stored chunk is verbatim. */
+const CHUNK_SIZE = 2048;
+
+/** The template: its loader is the one the engine already runs. */
+const TEMPLATE = resolve(TEXLIVE_ROOT, "texlive-basic.js");
+
+/**
+ * What has to be mounted, by engine.
+ *
+ * Deliberately expressed as paths rather than "a tier": the point of the
+ * exercise is that the boot set is small and specific, and that everything
+ * outside it is a kpathsea lookup the endpoint can answer.
+ *
+ * The format file is the reason this is per-engine. `basic` carries four
+ * (`xelatex` 5.9 MB, `luahblatex` 5.7 MB, `pdflatex` 3.4 MB, `tex` 0.3 MB) and
+ * a compile uses one — ADR-003's "the engine ships four engines and we use one"
+ * finding, in bytes.
+ */
+const FORMATS: Record<string, string> = {
+  xelatex: "/texlive/texmf-dist/texmf-var/web2c/xetex/xelatex.fmt",
+  pdflatex: "/texlive/texmf-dist/texmf-var/web2c/pdftex/pdflatex.fmt",
+  lualatex: "/texlive/texmf-dist/texmf-var/web2c/luahbtex/luahblatex.fmt",
+};
+
+function bootSet(path: string, engine: string): boolean {
+  // kpathsea derives its own location from argv[0]; the file is one byte, and
+  // without it nothing starts.
+  if (path === "/bin/busytex") return true;
+  // fontconfig reads these directly, not through kpathsea.
+  if (path.startsWith("/etc/")) return true;
+  if (path === "/texlive/fonts.conf") return true;
+  // Configuration kpathsea reads to know where anything else lives, so it
+  // cannot itself be resolved by kpathsea.
+  if (path.endsWith("/texmf.cnf")) return true;
+  if (path.includes("/web2c/") && path.endsWith(".tcx")) return true;
+  // The format is passed to the binary as an absolute path, never looked up.
+  if (path === FORMATS[engine]) return true;
+  // ICU's data file. 22 MB — two thirds of the boot set — and XeTeX opens it
+  // from inside the binary rather than through kpathsea, so it cannot be
+  // served. `--no-icu` measures what leaving it out actually costs.
+  if (path.endsWith("icudt78l.dat")) return !process.argv.includes("--no-icu");
+  // Loaded unconditionally by every compile rather than because of anything in
+  // the document, so serving them per file is pure repetition: measured on the
+  // corpus, `pdftex.map` alone was fetched twelve times for 66.5 MB of the
+  // 96.2 MB total. Mounting them trades 5.8 MB of boot set for that.
+  if (path.endsWith("/pdftex.map")) return true;
+  if (path.includes("/fonts/map/dvipdfmx/")) return true;
+  if (path.endsWith("dvipdfmx.cfg")) return true;
+  if (/glyphlist\.txt$/.test(path)) return true;
+  if (path.endsWith(".tec")) return true;
+  /**
+   * XeTeX's default text font, as an actual OpenType file.
+   *
+   * A document that does not say `[T1]{fontenc}` takes XeTeX's Unicode path and
+   * loads `lmroman10-regular` as a font file rather than through TFM metrics.
+   * That cannot come from the endpoint: `kpse_remote_register` saves what it
+   * fetches as `<format>_<name>`, and the name kpathsea asks for carries no
+   * extension, so xdvipdfmx is handed `/tmp/texlive_remote/47_lmroman10-regular`
+   * and fails with "Cannot proceed without the font". The file is there; its
+   * name no longer says what it is.
+   *
+   * 7.4 MB, and it is the default, so it is mounted rather than resolved.
+   * 12 of the 13 corpus documents use `[T1]{fontenc}` and never reach this
+   * path, which is why 11/13 said nothing about it.
+   */
+  if (path.includes("/fonts/opentype/public/lm/")) return true;
+  return false;
+}
+
+function mb(bytes: number): string {
+  return `${(bytes / 1e6).toFixed(2)} MB`;
+}
+
+/** Brace-match a JS object literal starting at the first `{` after `from`. */
+function literalRange(source: string, from: number): [number, number] {
+  const open = source.indexOf("{", from);
+  let depth = 0;
+  for (let i = open; i < source.length; i += 1) {
+    const char = source[i];
+    if (char === "{") depth += 1;
+    else if (char === "}") {
+      depth -= 1;
+      if (depth === 0) return [open, i + 1];
+    }
+  }
+  throw new Error("unterminated literal");
+}
+
+/** The tree kpathsea is told to consult only through its database. */
+const TEXMF_DIST = "/texlive/texmf-dist";
+
+/**
+ * Build the filename database kpathsea will actually read.
+ *
+ * `texmf.cnf` sets `TEXMF = {…,!!$TEXMFDIST}`, and the `!!` prefix means *use
+ * the `ls-R` database and never look at the disk*. A file mounted under
+ * `texmf-dist` that the database does not list is therefore invisible, however
+ * correctly it is placed — which is why a boot package without one sent every
+ * lookup to the endpoint, including files it had itself mounted, and why the
+ * default font failed: XeTeX resolved it remotely, baked
+ * `/tmp/texlive_remote/47_lmroman10-regular` into the XDV, and xdvipdfmx could
+ * not identify a file whose name no longer carried its extension.
+ *
+ * Each shipped tier carries its own `ls-R` covering exactly its own files, so
+ * this generates the equivalent for ours rather than reusing one that
+ * describes a tree we did not mount.
+ */
+function buildLsR(paths: readonly string[]): Buffer {
+  const children = new Map<string, Set<string>>();
+  const add = (dir: string, entry: string) => {
+    const set = children.get(dir) ?? new Set<string>();
+    set.add(entry);
+    children.set(dir, set);
+  };
+
+  for (const path of paths) {
+    if (!path.startsWith(`${TEXMF_DIST}/`)) continue;
+    const parts = path.slice(TEXMF_DIST.length + 1).split("/");
+    let dir = ".";
+    for (let i = 0; i < parts.length - 1; i += 1) {
+      const part = parts[i] as string;
+      add(dir, part);
+      dir = dir === "." ? `./${part}` : `${dir}/${part}`;
+    }
+    add(dir, parts[parts.length - 1] as string);
+  }
+
+  // The first line is load-bearing: kpathsea refuses a database without it.
+  const lines = [
+    "% ls-R -- filename database for kpathsea; do not change this line.",
+    "",
+  ];
+  for (const dir of [...children.keys()].sort()) {
+    lines.push(`${dir}:`);
+    for (const entry of [...(children.get(dir) ?? [])].sort()) {
+      lines.push(entry);
+    }
+    lines.push("");
+  }
+  return Buffer.from(lines.join("\n"), "utf8");
+}
+
+async function main(): Promise<void> {
+  const engine = process.argv[2]?.startsWith("--")
+    ? "xelatex"
+    : (process.argv[2] ?? "xelatex");
+  const write = process.argv.includes("--write");
+  if (!FORMATS[engine]) throw new Error(`unknown engine ${engine}`);
+
+  // Selected from `extra`, not `basic`: it is a superset, so the boot set is
+  // the same bytes and the tier that ships it stops mattering.
+  const selected = readPackagedFiles("extra").filter((file) =>
+    bootSet(file.filename, engine),
+  );
+  if (selected.length === 0) throw new Error("boot set is empty");
+
+  const archive = new TexliveArchive();
+  const chunks: Buffer[] = [];
+  const table: { filename: string; start: number; end: number }[] = [];
+  let offset = 0;
+  try {
+    for (const file of selected.sort((a, b) =>
+      a.filename < b.filename ? -1 : 1,
+    )) {
+      const bytes = archive.read(file.start, file.end - file.start);
+      chunks.push(bytes);
+      table.push({
+        filename: file.filename,
+        start: offset,
+        end: offset + bytes.byteLength,
+      });
+      offset += bytes.byteLength;
+    }
+  } finally {
+    archive.close();
+  }
+
+  // Generated last, because it describes everything selected above.
+  const lsR = buildLsR(table.map((file) => file.filename));
+  chunks.push(lsR);
+  table.push({
+    filename: `${TEXMF_DIST}/ls-R`,
+    start: offset,
+    end: offset + lsR.byteLength,
+  });
+  offset += lsR.byteLength;
+
+  const blob = Buffer.concat(chunks);
+  console.log(`${engine}: ${table.length} files, ${mb(blob.byteLength)}`);
+  for (const file of table) {
+    console.log(`  ${mb(file.end - file.start).padStart(9)}  ${file.filename}`);
+  }
+
+  const basic = readPackagedFiles("basic");
+  const basicBytes = basic.reduce((sum, f) => sum + (f.end - f.start), 0);
+  console.log(
+    `\nagainst basic: ${table.length}/${basic.length} files, ` +
+      `${mb(blob.byteLength)} of ${mb(basicBytes)} uncompressed`,
+  );
+
+  if (!write) {
+    console.log("\n(--write to emit it)");
+    return;
+  }
+
+  // Every chunk stored, so the payload is the blob itself and the table just
+  // says where the boundaries are.
+  const count = Math.ceil(blob.byteLength / CHUNK_SIZE);
+  const offsets: number[] = [];
+  const sizes: number[] = [];
+  const successes: number[] = [];
+  for (let i = 0; i < count; i += 1) {
+    offsets.push(i * CHUNK_SIZE);
+    sizes.push(Math.min(CHUNK_SIZE, blob.byteLength - i * CHUNK_SIZE));
+    successes.push(0);
+  }
+
+  const template = await import("node:fs/promises").then((fs) =>
+    fs.readFile(TEMPLATE, "utf8"),
+  );
+
+  // Order in the template is: the directory calls, then the chunk table, then
+  // the file table. Splicing them in any other order silently drops the loader
+  // glue between them, which fails as a bare SyntaxError inside a worker.
+  const CREATE_PATH = "Module['FS_createPath']";
+  const createPathsStart = template.indexOf(CREATE_PATH);
+  const createPathsEnd =
+    template.indexOf(";", template.lastIndexOf(CREATE_PATH)) + 1;
+  const [compressedOpen, compressedClose] = literalRange(
+    template,
+    template.indexOf("var compressedData = {"),
+  );
+  const loadPackageAt = template.indexOf('loadPackage({"files":');
+  const [argOpen, argClose] = literalRange(template, loadPackageAt);
+  if (
+    !(
+      createPathsStart < createPathsEnd &&
+      createPathsEnd < compressedOpen &&
+      compressedClose < argOpen
+    )
+  ) {
+    throw new Error("template layout changed; the splice would corrupt it");
+  }
+
+  // Directories, parent before child, deduplicated — the loader creates files
+  // into paths that must already exist.
+  const made = new Set<string>();
+  const createPaths: string[] = [];
+  for (const file of table) {
+    const parts = file.filename.split("/").slice(1, -1);
+    let parent = "/";
+    for (const part of parts) {
+      const full = parent === "/" ? `/${part}` : `${parent}/${part}`;
+      if (!made.has(full)) {
+        made.add(full);
+        createPaths.push(
+          `Module['FS_createPath'](${JSON.stringify(parent)}, ${JSON.stringify(part)}, true, true);`,
+        );
+      }
+      parent = full;
+    }
+  }
+
+  // The `.data` is not only the chunks. Emscripten allocates
+  // `total + CHUNK_SIZE * 2` and sets `cachedOffset` to `total`, using the tail
+  // as scratch for the two decompressed chunks it caches — so the file has to
+  // carry that room. Without it the loader stalls part-way through reading the
+  // package: `Downloading data... (41380/28023892)` and then nothing, for the
+  // full four-minute compile timeout, with no error anywhere.
+  const payload = Buffer.concat([blob, Buffer.alloc(CHUNK_SIZE * 2)]);
+
+  const out =
+    template.slice(0, createPathsStart) +
+    createPaths.join("\n") +
+    template.slice(createPathsEnd, compressedOpen) +
+    JSON.stringify({
+      data: null,
+      cachedOffset: blob.byteLength,
+      cachedIndexes: [-1, -1],
+      cachedChunks: [null, null],
+      offsets,
+      sizes,
+      successes,
+    }) +
+    template.slice(compressedClose, argOpen) +
+    JSON.stringify({ files: table, remote_package_size: payload.byteLength }) +
+    template.slice(argClose);
+
+  await mkdir(TEXLIVE_ROOT, { recursive: true });
+  await writeFile(resolve(TEXLIVE_ROOT, `texlive-min-${engine}.data`), payload);
+  await writeFile(
+    resolve(TEXLIVE_ROOT, `texlive-min-${engine}.js`),
+    out.replaceAll("texlive-basic.data", `texlive-min-${engine}.data`),
+    "utf8",
+  );
+  console.log(
+    `\nWritten texlive-min-${engine}.js and .data to ${TEXLIVE_ROOT}`,
+  );
+}
+
+if (!existsSync(TEMPLATE)) {
+  throw new Error(
+    "texlyre assets missing; run ./scripts/download-texlyre-assets.sh",
+  );
+}
+
+main().catch((error: unknown) => {
+  console.error(error);
+  process.exitCode = 1;
+});

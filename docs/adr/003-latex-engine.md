@@ -1,7 +1,10 @@
 # ADR-003: LaTeX WASM engine and package distribution
 
-- **Status:** Open — Siglum reaches 11/13 with a self-hosted CTAN proxy
-- **Date:** 2026-09-01, last measured 2026-09-03
+- **Status:** Open — Siglum reaches 11/13 *with* a CTAN proxy; texlyre-busytex
+  reaches **12/14 offline**, from a 41.24 MB boot set plus our own endpoint, at
+  21.8–23.4 MB a first compile (ADR-011), with **every page count matching
+  desktop**. What is left is the engine and ICU, not packages.
+- **Date:** 2026-09-01, last measured 2026-09-12
 - **Deciders:** danylaksono
 
 ## Context
@@ -830,12 +833,194 @@ None of these options requires a server to compile anything. The one that does
 require a server — SwiftLaTeX's kpathsea resolver — has a static equivalent we
 can generate.
 
+## Measured: the same corpus on a single TeX Live vintage
+
+The version-skew decision above says to own the package tree. Before building
+one, it is worth asking whether somebody already ships the thing that decision
+describes. Since it was written, one candidate does.
+
+`texlyre-busytex` 1.4.0 is the same BusyTeX engine — so this is not an engine
+change, and the candidate-set finding above still holds — but its package set
+is built from **TeX Live 2026 in a single pass** (`versions.txt` names the
+`texlive-2026.0` source tree and the 2026 ISO). It ships three cumulative data
+tiers, `basic` 92.8 MB, `recommended` 201.2 MB and `extra` 341.6 MB, plus a
+32.5 MB `busytex.wasm`; and a `texmfrepo.txt` index of **8,418 revision-pinned
+packages** for a remote endpoint, which must be an origin we control.
+
+Checked statically first, against the fourteen names `spike:siglum` reports as
+CTAN-only: every one is in `texmfrepo`, and all but `ieeetran`, `acmart` and
+`algorithms` are in the local tiers. `translator.sty` is in `recommended` —
+the package `presentation-beamer` dies on under Siglum with CTAN off.
+
+### Result
+
+Run as `pnpm spike:corpus-run xelatex --texlyre`, with no CTAN proxy, no
+archive, and no endpoint configured — every file resolved from the preloaded
+tiers.
+
+| | Siglum, CTAN off | Siglum, CTAN on | texlyre, no network |
+|---|---|---|---|
+| Compiled | 2 / 13 | 11 / 13 | **11 / 13** |
+| Matching desktop's page count | 2 / 2 | 10 / 11 | **11 / 11** |
+| Pages word for word | — | 30 / 60 | **32 / 60** |
+
+**The same score, without the network.** That is the finding — at 636 MB of
+preloaded tiers, which is the price and is dealt with below. Siglum needs a
+CTAN proxy — a request per missing package, revealing which packages a document
+uses, which ADR-001 makes opt-in for exactly that reason — to reach 11/13.
+This reaches it with nothing but files already on disk before TeX starts.
+
+The two sets of eleven are not the same eleven, and the difference is the
+argument:
+
+- **`cv-modern` compiles, 2/2 pages word for word.** Under Siglum this is
+  defect 8, recorded above as *blocked upstream*: the CTAN fetcher discards
+  OpenType fonts, and an adapter cannot compensate for what an engine will not
+  carry. A tree that ships the fonts has nothing to discard.
+- **`letter-formal` compiles.** This is the version-skew case — `lastpage2e`
+  selecting `lastpagemodern` against a 2023 `hyperref` — and it resolves
+  exactly as the decision above predicted: nothing about the engine changed,
+  only that the package set stopped being five vintages at once.
+- **`presentation-beamer` compiles, 5 pages.** `translator.sty` is simply
+  present. ADR-011 measured both its bundle and archive paths stopping at the
+  same wall; the wall was the package set, not the delivery model.
+- **`paper-acm` and `paper-ieee` do not compile**, on `acmart.cls` and
+  `IEEEtran.cls`. Both are in `texmfrepo` and in no local tier, so these are
+  endpoint-shaped failures rather than structural ones — the first real use for
+  a self-hosted TeX Live endpoint, and the next thing to measure.
+
+`report-scientific` produced 9 pages against desktop's 8 — since explained and
+fixed, and the explanation was ours. The adapter decided whether to run bibtex
+by testing the source for `\bibliography`, a *declaration*, rather than for a
+citation. That document declares one and cites nothing: desktop runs no bibtex
+and emits no bibliography, while running it writes an empty `thebibliography`
+that the `report` class renders as a chapter heading on a ninth page. Read out
+of both PDFs page by page rather than inferred — desktop's page 8 ends at
+"Chapter 5 Conclusion", ours had a page 9 reading "Bibliography".
+
+The rule was wrong for four of the corpus documents and visible in one, which
+is why it stood for so long. `paper-standard` also declares a bibliography it
+never cites, and being an `article` it absorbed the empty heading without
+gaining a page. `thesis-standard` has its `\bibliography` **commented out**
+above a hand-written `thebibliography`, and a regex cannot tell code from a
+comment — the second half of the same bug. With citations as the trigger and
+comments stripped first, **every page count in the corpus now matches
+desktop**.
+
+### What it costs
+
+*Superseded by the endpoint measurement in ADR-011: the same eleven documents
+compile at 92.8 MB preloaded plus 9.06 MB fetched, in 5.6–14.2 s each. What
+follows is the cost of preloading the tiers whole, which is what made the case
+for indexing them.*
+
+Every project took **28–46 s**, against 0.8–5 s for Siglum's warm cases. The
+number is almost entirely the tiers: the corpus driver opens a fresh page per
+project, so each figure includes loading 636 MB of data packages from
+`localhost` before TeX runs. It is a first-load cost measured thirteen times,
+not a compile cost — but it is also the honest shape of this delivery model,
+and 636 MB is far worse than the 41–135 MB ADR-011 calls the problem.
+
+So the coverage and the delivery question have swapped places. Siglum's
+problem was that the package set could not compile the corpus; this one
+compiles it and cannot plausibly ship it whole. ADR-011's indexed archive is
+the same answer as before, now applied to a tree worth indexing — and the
+engine already exposes the per-file hook to receive it: `kpse_remote_register`
+takes a name, a kpathsea format and bytes, and `kpse_remote_register_misses`
+takes a *set* of misses rather than the one-per-pass ADR-011 had to work
+around.
+
+### What the top tier buys, and what it costs
+
+The tiers are cumulative, so the corpus can be run at a depth. Truncating to
+`basic` + `recommended` — 294 MB instead of 636 MB — was expected to show a
+gentle coverage curve. It does not:
+
+| Tiers | Size | Compiled | Cold per project |
+|---|---:|---:|---:|
+| `basic` + `recommended` | 294 MB | 4 / 13 | 14–23 s |
+| + `extra` | 636 MB | 11 / 13 | 28–46 s |
+
+**341.6 MB of `extra` buys seven documents, and it is bought for three
+packages.** Every one of the seven fails on `enumitem` (3 documents),
+`titlesec` (3) or `tcolorbox` (1). Nothing else in the tier is reached by the
+corpus at all.
+
+That is the strongest argument in this ADR for ADR-011's delivery model, and
+the first time the cost has been this stark. Fetching whole tiers to obtain
+three `.sty` files is the same failure ADR-011 names for bundles —
+`presentation-beamer` downloading 118.9 MB to read 2.1 MB — one order of
+magnitude worse, and now on a tree where the files are demonstrably sufficient
+once they arrive.
+
+The timings halve with the tier size, which confirms what dominates them: these
+are load figures with a compile inside, not compile figures.
+
+### The corpus did not test the default font path at all
+
+Worth recording against the numbers above, because it qualifies them.
+
+Twelve of the thirteen corpus projects load `fontenc`, which routes XeTeX
+through TFM metrics and Type 1 fonts. The thirteenth is `paper-acm`, which has
+never compiled. So every "11/13" in this ADR was measured without XeTeX's
+**default** font path — the one a document gets by writing
+`\documentclass{article}` and nothing else — executing even once.
+
+The first document typed into the product found it. The font resolved through
+the endpoint, `kpse_remote_register` saved it as `47_lmroman10-regular` with no
+extension, and `xdvipdfmx` failed with "Cannot proceed without the font" on a
+file it had just been handed. Two fixes followed: Latin Modern's OpenType faces
+are mounted in the boot set, and the boot package ships an `ls-R`, without which
+nothing under `texmf-dist` is visible to kpathsea at all (ADR-011).
+
+`article-no-fontenc` now covers it, written here rather than taken from the
+desktop examples and therefore without a reference PDF. It answers whether a
+default document compiles and renders, not whether it matches desktop, which is
+weaker than the rest of the corpus and adequate for a failure that was total.
+
+The general point is about the instrument rather than the engine: **a corpus
+inherited from another product tests what that product's examples happened to
+do.** This one inherited a `fontenc` habit, and the coverage figures it produced
+were confident and narrower than they looked.
+
+### `presentation-beamer` is cheap, not expensive
+
+Worth stating separately, because the intuition runs the other way and a
+product decision was very nearly made on it. Beamer is one of the **four**
+documents that compile at 294 MB, with the same 5 pages and the same fidelity
+as at 636 MB. Everything it needs — `beamer`, `translator.sty`, the pgf chain —
+is in `recommended`.
+
+So dropping beamer support would save nothing. The documents that force the top
+tier are a CV, a letter, a newsletter, a poster, two reports and a thesis, and
+they force it for `enumitem`, `titlesec` and `tcolorbox`. Under Siglum beamer
+looked like the problem case because it failed loudest — 142 files, 20 s, and a
+wall at `translator.sty`; that was the package set, and it is gone.
+
+### Fidelity, and a caveat about what improved
+
+32 of 60 pages reproduce desktop word for word, against 30 of 60 — but the
+comparison is over a different set of documents, so the two figures are not a
+clean before-and-after and should not be read as one.
+
+The divergences are more interesting than the count. Four documents diverge
+first on `February -> September`, which is `\today` against a reference built
+in February and not a defect. Most of the rest are hyphenation —
+`together -> to-`, `polynomial -> polyno-`, `consensus -> con-`,
+`neural -> neu-` — which is the missing-babel finding above showing up again,
+in a package set where the fix is available.
+
 ## Still to measure
 
 The CTAN path is answered: **11/13, with 10 of 11 matching desktop's page
 count**, up from 9/13 and 8/9 once the two fixable failures above were resolved.
-What remains is fidelity beyond page count, performance, and the two structural
-failures.
+The offline path is now answered too, and better: **12/14 on a single TeX Live
+2026 tree with no network at all**, which closes the two failures this ADR had
+recorded as structural. The denominator moved because the corpus did — the
+fourteenth project is `article-no-fontenc`, added after a defect that twelve of
+the thirteen original documents were structurally unable to reach (below). What
+remains is delivery — 636 MB of tiers is not shippable — and the two template
+classes no local tier carries.
 
 - [x] Stand up a self-hosted CTAN proxy and re-run the corpus with `--ctan`.
 - [x] Compare page counts against the committed reference PDFs.
@@ -843,6 +1028,34 @@ failures.
       carry nondeterministic metadata. 30/60 pages match word for word.
 - [ ] Compare diagnostics, which needs desktop Tectonic's logs committed
       alongside the reference PDFs. There is nothing to compare against today.
+- [x] Re-run the corpus on a single TeX Live vintage. `texlyre-busytex` 1.4.0,
+      no network: 11/13, and `cv-modern`, `letter-formal` and
+      `presentation-beamer` all compile.
+- [x] Stand up a self-hosted TeX Live endpoint. Built over the tree's own
+      index: **12/14 from a 41.24 MB boot set of 183 files**, the same coverage
+      and better fidelity than 636 MB of tiers, and faster than either
+      (ADR-011). The boot set was 33.84 MB and 110 files when first measured;
+      Latin Modern and an `ls-R` account for the difference, and both were
+      found by compiling a document rather than by running the corpus. The floor
+      is now the engine, ICU and the format file, not the package tree.
+- [x] Compile a document that does not load `fontenc`. Twelve of the thirteen
+      original corpus projects do, which routed every one of them past the
+      default font path; the first document a *user* creates does not.
+      `article-no-fontenc` is that case, committed so it cannot regress.
+- [ ] Settle `paper-acm` and `paper-ieee`. Both classes are in `texmfrepo`,
+      which indexes the full 8,418-package archive rather than the tiers, so
+      they need a second source. Not structural.
+- [x] Read the size-versus-coverage curve by truncating the tiers. It is not a
+      curve: 294 MB compiles 4/13, and the 341.6 MB top tier buys seven more
+      documents for three packages — `enumitem`, `titlesec`, `tcolorbox`.
+- [ ] Index the TeX Live 2026 tree the way ADR-011 indexes the others, and
+      measure a first load that is not 636 MB. `kpse_remote_register` takes one
+      file at a time, and `kpse_remote_register_misses` takes a set — so the
+      one-missing-file-per-pass cost measured on `paper-acm` may not apply here.
+- [x] Explain `report-scientific` at 9 pages against desktop's 8. **Ours**: the
+      adapter ran bibtex for a declared bibliography rather than a cited one,
+      and could not tell a commented-out declaration from a live one. 11/11 page
+      counts match now.
 - [x] Diagnose the four remaining failures. Two were font-asset gaps, one is
       version skew, one was a format built without babel. Two are fixed.
 - [x] Investigate `paper-acm`: 22 full XeTeX passes, one missing package
@@ -864,13 +1077,42 @@ failures.
 - [x] **Bring peak memory down from ~1 GB.** It was a retention leak, ~418 MB
       per compile. Recycling the engine after each compile caps it at 34–49 MB,
       at the cost of doubling warm compiles.
-- [ ] Get the warm cost back by having the engine release instances instead of
-      the adapter terminating workers. Needs an upstream change to Siglum.
+- [x] Get the warm cost back by having the engine release instances instead of
+      the adapter terminating workers. This wanted an upstream change to Siglum;
+      what actually answered it was changing engines. `texlyre-busytex` needs no
+      recycle, so the warm cost never has to be paid back.
+- [x] Measure peak memory on `texlyre-busytex`, which the engine change
+      reopened. **439.9 MB on `blank`, 441.7 MB on `book-standard`, 444.9 MB on
+      `thesis-standard`**, holding 109.0 MB after init — flat across a 1-page
+      and a 16-page document, sampled after the three compiles each run
+      performs. At Siglum's ~418 MB per compile those three would have been
+      about 1.3 GB. The retention is Siglum's, not BusyTeX's, and the adapter
+      therefore keeps its engine between compiles: that is the same decision as
+      the 1.2–4.8 s warm compile, not a second win.
+- [x] Whether a long session grows, which three compiles cannot say. It does,
+      slightly: `--soak` keeps compiling on one engine and samples after each,
+      and over twelve `blank` goes 440.0 → 440.6 MB while `thesis-standard` goes
+      445.8 → 450.7 MB — **~0.45 MB per compile of a 16-page document**,
+      monotonic and reproducible across three runs. The realm breakdown puts all
+      of it in the worker: the Window sits at 4.1–4.4 MB throughout, so nothing
+      above the port is retaining PDFs. 200 compiles of a thesis would add
+      ~100 MB to a 445 MB baseline. Left as measured rather than fixed — the
+      mitigation, if it is ever needed, is Siglum's recycle every few hundred
+      compiles instead of every one, which costs 0.9 s.
+- [ ] Diagnose *what* the engine retains per compile. Measured, attributed to
+      its realm, and no further: it is inside BusyTeX's own heap and filesystem,
+      which is where this stops being an adapter question.
 - [x] Why recovery after an abort is not reliably clean. The recycle answers it:
       recovery now runs against a fresh engine rather than one whose TeX run was
       terminated under it.
-- [ ] Multi-pass bibliography orchestration across `natbib`, `cite` and
-      `acmart`. No corpus project has reached its bibliography yet.
+- [x] Multi-pass bibliography orchestration, for plain `\bibliography` and
+      bibtex at least. No *corpus* project ever reached its bibliography — the
+      four that declare one either fail before it or cite nothing — so the path
+      shipped untested until the `paper` template gave it a document that
+      does. It works: five passes, no diagnostics, the citation resolved. An
+      e2e holds it there.
+- [ ] The same across `natbib`, `cite` and `acmart` styles, which is where the
+      rerun counts and the `.bst` differ.
 - [x] First-load and offline story. 41 MB floor, 135 MB ceiling, engine init
       ~500 ms — the cost is transfer, not startup.
 - [ ] Serve with brotli and confirm the measured 4.4 MB saving on a real host.
@@ -915,3 +1157,17 @@ rather than a Phase 0 instrument.
 `EngineIdentity` carries the package-set version on every result, which the
 pinned asset release makes meaningful: a compile can name exactly the TeX Live
 snapshot that produced it.
+
+The port earned itself a second time over. A whole second engine — a different
+package set, a different resolution model, a different cancellation story —
+went in behind `LatexCompiler` without anything above it changing, and the two
+can now be run against the same corpus on the same afternoon. That is the
+difference between comparing engines and arguing about them.
+
+And the version-skew decision was right, but its conclusion was too narrow.
+"Own the package tree" was reached from the premise that nobody ships one tree;
+somebody now does, and the three failures this ADR had written off — an
+upstream font defect, a skew failure, and beamer's missing `translator` — all
+disappeared at once when the tree stopped being five vintages. What is left to
+own is not the tree but its *delivery*, which is ADR-011's question and not
+this one's.

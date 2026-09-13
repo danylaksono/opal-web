@@ -101,6 +101,19 @@ export class FileNotFoundError extends Error {
  * apology: the caller knows what it was editing and can now say what it would
  * be overwriting.
  */
+/** A rename or a create asked for a path the project already has. */
+export class FileExistsError extends Error {
+  readonly id: ProjectId;
+  readonly path: ProjectPath;
+
+  constructor(id: ProjectId, path: ProjectPath) {
+    super(`Project ${id} already has ${path}`);
+    this.name = "FileExistsError";
+    this.id = id;
+    this.path = path;
+  }
+}
+
 export class ProjectConflictError extends Error {
   readonly id: ProjectId;
   readonly expectedRevision: number;
@@ -175,6 +188,29 @@ export interface ProjectRepository {
   deleteFile(
     id: ProjectId,
     path: ProjectPath,
+    expectedRevision?: number,
+  ): Promise<number>;
+
+  /**
+   * Move a file to another path, as one revision.
+   *
+   * On the port rather than in a caller, which could write the new name and
+   * then delete the old one. That is two revisions with a window between them
+   * where the project has both — and if the tab closes in that window, the
+   * project keeps both forever, with no record of which one was meant. The
+   * same reasoning as `writeFiles`, for the same reason.
+   *
+   * Refuses rather than overwrites when `to` exists: a rename that silently
+   * destroys another file is a data-loss bug the caller cannot undo, and the
+   * user who typed the name can pick another one.
+   *
+   * A project whose root file is renamed follows it; anything else would leave
+   * a project that cannot compile and no way to say so.
+   */
+  renameFile(
+    id: ProjectId,
+    from: ProjectPath,
+    to: ProjectPath,
     expectedRevision?: number,
   ): Promise<number>;
 

@@ -16,6 +16,10 @@ Repeat this audit against pinned versions before any distribution.
 | @siglum/engine | 0.1.4 | MIT | ADR-003 spike. Runtime assets (busytex.wasm plus TeX Live 2025 bundles, 225 MB) are fetched separately and gitignored; they are third-party TeX Live content redistributed under their own per-package terms, which still needs auditing. |
 | blake3-wasm (via @siglum/engine) | 2.1.5 | Apache-2.0 OR MIT | Browser build is broken upstream and is aliased to a stub; see docs/adr/003. |
 | xzwasm (via @siglum/engine) | ^0.1.2 | MIT | Pulled in transitively; only used on the CTAN path, which is not yet enabled. |
+| @codemirror/{state,view,commands,language} | 6.7.4 / 6.43.11 / 6.11.0 / 6.12.4 | MIT | The editing surface (PLAN.md 14, Phase 3). Permissive, so it constrains nothing: ADR-002's AGPL comes from MuPDF and this does not add to it. |
+| @codemirror/lint | 6.9.7 | MIT | Gutter markers for engine diagnostics and index problems; the marks are pushed in, not computed by a linter. |
+| @codemirror/autocomplete | 6.20.3 | MIT | Label and citation completion, fed by the semantic index rather than by the document's words. |
+| @codemirror/legacy-modes | 6.5.4 | MIT | `stex` highlighting only. A stream mode rather than a Lezer grammar, because no maintained LaTeX grammar is published; the consequence is colour without a parse tree, so folding and outline wait. |
 | fflate | 0.8.3 | MIT | ZIP import and export (PLAN.md 14 Phase 1). Zero dependencies. Chosen over hand-rolling a container reader because import is hostile input; the path and resource policy stays ours in `src/core/project/archive.ts`. |
 | mupdf | 1.28.0 | AGPL-3.0-or-later | Selected in ADR-004. Sets the application licence via ADR-002. WASM binary is 10.4 MB raw, 4.8 MB gzipped; a `.br` variant ships alongside it. |
 
@@ -28,6 +32,7 @@ Repeat this audit against pinned versions before any distribution.
 | typescript | 5.9.3 | Apache-2.0 | |
 | vitest | 4.1.11 | MIT | |
 | @playwright/test | 1.62.1 | Apache-2.0 | |
+| @axe-core/playwright, axe-core | 4.13.0 | MPL-2.0 | Accessibility scanning in the e2e suite. MPL is file-level copyleft and this is never distributed, so it reaches no shipped artifact — but it is the only non-permissive licence outside MuPDF, which is why it is named rather than lumped in. |
 | @biomejs/biome | 2.5.11 | MIT OR Apache-2.0 | |
 | @vitejs/plugin-react | 4.7.0 | MIT | |
 | tsx | 4.23.13 | MIT | |

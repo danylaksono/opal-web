@@ -139,6 +139,7 @@ export function RendererSpike() {
         type="file"
         accept="application/pdf"
         data-testid="pdf-input"
+        aria-label="PDF to render"
         onChange={(event) => {
           const file = event.target.files?.[0];
           if (file) void run(file);

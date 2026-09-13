@@ -37,6 +37,7 @@ import {
 } from "@/core/project/ids";
 import {
   type CreateProjectInput,
+  FileExistsError,
   FileNotFoundError,
   ProjectConflictError,
   type ProjectFile,
@@ -246,6 +247,45 @@ export class OpfsProjectRepository implements ProjectRepository {
       }
       return this.#publish(record, directory);
     });
+  }
+
+  async renameFile(
+    id: ProjectId,
+    from: ProjectPath,
+    to: ProjectPath,
+    expectedRevision?: number,
+  ): Promise<number> {
+    return this.#withLock(id, async () => {
+      const record = await this.#record(id, expectedRevision);
+      const directory = await this.#ensureDirectory(id);
+
+      // Read before writing anything: a rename that has already created the
+      // new name and then fails to find the old one has made the project worse
+      // than it found it. `readFile` takes no lock, so this does not deadlock
+      // against the one already held.
+      const bytes = await this.readFile(id, from);
+      if (from !== to && (await this.#exists(directory, to))) {
+        throw new FileExistsError(id, to);
+      }
+
+      await writeAtomically(directory, { path: to, bytes });
+      if (from !== to) await directory.removeEntry(encodeFileName(from));
+      if (record.rootTexPath === from) record.rootTexPath = to;
+      return this.#publish(record, directory);
+    });
+  }
+
+  /** Whether the directory already holds a file at this path. */
+  async #exists(
+    directory: FileSystemDirectoryHandle,
+    path: ProjectPath,
+  ): Promise<boolean> {
+    try {
+      await directory.getFileHandle(encodeFileName(path));
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /** Recount what is on disk and write the new revision. */

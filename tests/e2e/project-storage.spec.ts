@@ -201,7 +201,7 @@ test.describe("autosave", () => {
 
     await page.reload();
     await page.getByTestId("open-project").click();
-    await expect(page.getByTestId("editor-content")).toHaveValue(
+    await expect(page.getByTestId("editor-content")).toHaveText(
       "section{Autosaved}",
     );
   });
@@ -221,6 +221,40 @@ test.describe("autosave", () => {
       await page.getByTestId("project-row-revision").textContent(),
     );
     expect(after).toBe(before + 1);
+  });
+
+  test("the editor is a code editor, and its undo stops at the file", async ({
+    page,
+  }) => {
+    // Line numbers are the cheapest proof that CodeMirror mounted rather than
+    // silently failing to: nothing else on the page draws a gutter.
+    await expect(page.locator(".cm-lineNumbers")).toBeVisible();
+
+    const editor = page.getByTestId("editor-content");
+    await editor.fill("\\section{First}");
+    await expect(page.getByTestId("save-status")).toContainText("Saved at");
+
+    await page.getByTestId("new-file-name").fill("second.tex");
+    await page.getByTestId("create-file").click();
+    // Waited for rather than assumed: until the write lands, the editor is
+    // still `main.tex` and typing into it edits `main.tex`, which is correct
+    // and is not what this test is about.
+    await expect(
+      page.locator('[data-testid="file-open"][data-path="second.tex"]'),
+    ).toHaveAttribute("aria-current", "true");
+    await editor.fill("second file");
+    await expect(page.getByTestId("save-status")).toContainText("Saved at");
+
+    // Undo in the second file must not reach into the first. A shared history
+    // would restore text from a document the user is not looking at and then
+    // autosave it there, which is data loss wearing a keyboard shortcut.
+    await editor.press("Control+z");
+    await expect(editor).not.toContainText("First");
+
+    await page
+      .locator('[data-testid="file-open"][data-path="main.tex"]')
+      .click();
+    await expect(editor).toContainText("First");
   });
 
   test("a change made elsewhere is reported rather than overwritten", async ({
@@ -244,7 +278,7 @@ test.describe("autosave", () => {
     // And the other tab's work is still there, which is the point.
     await other.reload();
     await other.getByTestId("open-project").click();
-    await expect(other.getByTestId("editor-content")).toHaveValue(
+    await expect(other.getByTestId("editor-content")).toHaveText(
       "written by the other tab",
     );
     await other.close();

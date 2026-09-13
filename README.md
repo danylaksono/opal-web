@@ -5,25 +5,47 @@ projects on the user's device, and sends no document content to an Opal server.
 Sibling product to the [Opal desktop editor](https://github.com/danylaksono/opal-editor),
 not a port of it.
 
-**Status: Phase 1 — product skeleton and storage core.** Phase 0's measurement
-instrumentation, ports and decision records are still here and still run; on top
-of them there is now a storage layer that keeps projects on the device, autosaves
-them, and exports them as ZIPs. There is no editor beyond a textarea and no
-compiler in the product path yet — the compiler still lives in the spikes, where
-PLAN.md keeps it until the questions below are closed.
+**Status: Phase 3 begun — an editor on a working compile loop.** Phase 0's
+measurement instrumentation, ports and decision records are still here and still
+run; on top of them there is a storage layer that keeps projects on the device,
+autosaves them and exports them as ZIPs, an edit-compile-preview loop that runs
+the engine in the product path rather than in a spike, and now a CodeMirror
+editor over a project that can hold more than one file. Create a project, write
+LaTeX across a `main.tex` and a chapter, press Compile, and a page is rasterised
+from a PDF the browser produced. A semantic index runs as you type: an outline
+that follows `\input` into other files, completion for labels and citation
+keys, and a project-health list that answers "does this `\ref` resolve" without
+compiling anything. The two questions below are still open, but
+they are no longer between the engine and a person using it.
 
 1. **Renderer — settled.** MuPDF.js, verified booting in a plain browser module
    worker on a static host, with per-line text geometry good enough for review
    anchoring (ADR-004). This makes the app AGPL-3.0-or-later (ADR-002).
-2. **LaTeX engine — open.** Every maintained browser TeX distribution wraps the
-   same BusyTeX TeX Live build, so the question is package delivery, not engine
-   fidelity. `@siglum/engine` now compiles **11 of 13** corpus projects with a
-   self-hosted, version-pinned CTAN proxy, 10 of those matching desktop
-   Tectonic's page count and 30 of 60 pages reproducing its text word for word.
-   Eleven engine defects were found doing it; ten are absorbed by the adapter
-   (ADR-003).
-3. **Package delivery — proposed.** Bundles are fetched whole, so a first
-   compile transfers 41–135 MB. Tectonic's indexed-archive model, verified
+2. **LaTeX engine — open, but the shape of the answer changed.** Every
+   maintained browser TeX distribution wraps the same BusyTeX TeX Live build, so
+   the question is package delivery, not engine fidelity. `@siglum/engine`
+   compiles **11 of 13** corpus projects with a self-hosted, version-pinned CTAN
+   proxy — and **2 of 13** without one. `texlyre-busytex`, the same engine built
+   from a single TeX Live 2026 tree, compiles **12 of 14 with no network at
+   all**, including the three ADR-003 had written off: `cv-modern` (an upstream
+   font defect), `letter-formal` (version skew) and `presentation-beamer`
+   (`translator.sty`). The two it misses, `paper-acm` and `paper-ieee`, need
+   `acmart` and `IEEEtran` from a self-hosted endpoint rather than anything
+   structural. Truncating its tiers to 294 MB drops it to 4 of 13: the 341.6 MB
+   top tier is bought for three packages — `enumitem`, `titlesec`, `tcolorbox`.
+   Beamer is not among them; it compiles in the 294 MB tier. Served instead
+   from a self-hosted endpoint over the tree's own index, the same documents
+   compile from a **41.24 MB boot set of 183 files**, with every page count
+   matching desktop Tectonic. Pre-compressed, a first compile transfers **21.8–23.4 MB** against
+   the 41–135 MB Phase 0 measured, 22.7 MB of it fixed cost shared by every
+   document (ADR-011). Eleven engine defects were found on Siglum; ten are absorbed by
+   the adapter (ADR-003).
+3. **Package delivery — proposed, and now the binding constraint.** Bundles are
+   fetched whole, so a first compile transfers 41–135 MB — and the TeX Live 2026
+   tree that fixes coverage costs 636 MB to preload, so delivery is what stands
+   between a corpus that compiles and a product that ships. Tectonic's bundle
+   repository was archived in October 2024, so the tree to index is no longer
+   its 2022 one (ADR-011). Tectonic's indexed-archive model, verified
    against its live bundle, would make that 17–21 MB: `presentation-beamer`
    reads 2.1 MB of TeX files and currently downloads 118.9 MB to get them.
    Fetching those as 142 range requests costs 575 ms on a 150 ms link — but only
@@ -54,7 +76,7 @@ PLAN.md keeps it until the questions below are closed.
 | [src/platform/browser/](src/platform/browser/) | Capability probes and the MuPDF renderer adapter behind those ports. |
 | [src/workers/pdf/](src/workers/pdf/) | Versioned PDF worker protocol and the MuPDF worker. |
 | [src/spikes/](src/spikes/) | Measurement surfaces. The renderer spike loads a PDF through the port; the compiler spike builds a project, opens the result through the renderer, and compares it against desktop's reference on words, ink and pixels; the performance spike times init, cold, warm and cancellation, and samples memory. |
-| [tests/fixtures/compiler-corpus/](tests/fixtures/compiler-corpus/) | 13 projects pinned from the desktop examples, with a generated manifest and desktop Tectonic's reference output. The instrument both spikes are measured against. |
+| [tests/fixtures/compiler-corpus/](tests/fixtures/compiler-corpus/) | 13 projects pinned from the desktop examples, with a generated manifest and desktop Tectonic's reference output, plus one written here. The instrument both spikes are measured against. |
 
 ## Getting started
 
@@ -63,9 +85,18 @@ pnpm install
 pnpm spike:corpus   # regenerate the corpus from a sibling tectonic-editor checkout
 pnpm spike:coverage docs/evidence/wasmtex-0.1.1/manifest.json
 ./scripts/download-siglum-assets.sh   # 225 MB of engine assets, gitignored
+./scripts/download-texlyre-assets.sh  # 700 MB, the TeX Live 2026 comparison
 pnpm spike:siglum xelatex             # corpus coverage against those bundles
-pnpm spike:corpus-run xelatex --ctan  # compile all 13, needs a running preview
+pnpm spike:corpus-run xelatex --ctan  # compile all 14, needs a running preview
+pnpm spike:corpus-run xelatex --texlyre           # the same 14 on TeX Live 2026
+pnpm spike:corpus-run xelatex --texlyre --tiers 2 # ... truncated to 294 MB
+pnpm spike:texlive-index              # size the index over the TeX Live tree
+pnpm spike:texlive-min xelatex --write        # the 183-file boot set
+pnpm spike:corpus-run xelatex --texlyre --tiers -1 --endpoint # per-file delivery
+pnpm spike:brotli --write                    # pre-compress engine, boot set, renderer
+pnpm spike:firstload --texlyre --tiers -1 --endpoint  # bytes a cold compile transfers
 pnpm spike:perf                       # init, cold, warm, memory, cancellation
+pnpm spike:perf --texlyre --soak 12   # ... plus 12 more compiles, memory after each
 pnpm spike:firstload                  # bytes a cold first compile transfers
 pnpm spike:tex-archive                # indexed TeX archive built from the bundles
 pnpm serve:tex-archive --protocol h2  # range-request rig; h1 for the comparison
@@ -88,8 +119,10 @@ WASM needs them is a Phase 0 measurement, so they are switchable rather than
 baked in — flip `netlify.toml` at the same time or local and deployed behaviour
 will disagree. `pnpm spike:perf` needs them for its memory column, because
 `measureUserAgentSpecificMemory` is the only API that sees the engine's WASM
-heap and it requires an isolated page; it also needs real Chrome, since
-Playwright's bundled Chromium has that API present but disabled.
+heap and it requires an isolated page. It does *not* need real Chrome: this
+document said so for weeks, and probing the API directly shows Playwright's
+Chromium exposes it with default flags. The isolation headers were always the
+whole requirement.
 
 Local and deployed behaviour have now disagreed twice, both times on
 `busytex.wasm` and both times invisibly — once serving it with a

@@ -1,8 +1,8 @@
 # Opal Web: architecture investigation and initial plan
 
-Status: Phase 0 in progress — renderer settled, engine at 11/13  
+Status: Phase 3 begun — editor and file list on top of a working compile loop  
 Prepared: 2026-07-23  
-Last updated: 2026-09-03  
+Last updated: 2026-09-12  
 Target product: `opal-web`, a separate repository and independently deployable product
 
 > **Read this first.** Sections 1–19 below are the original investigation,
@@ -11,7 +11,194 @@ Target product: `opal-web`, a separate repository and independently deployable p
 > produced it. Where measurement has since contradicted or answered them, the
 > status section immediately below says so and section 17 is annotated inline.
 
-## Progress as of 2026-09-03
+> The same applies to the progress sections: the newest one is first, and the
+> ones under it are kept unedited. They are not decoration — the engine decision
+> recorded below was made *from* the measurements in the 2026-09-03 section, and
+> a reader who deletes them is left with a conclusion and no evidence.
+
+## Progress as of 2026-09-12
+
+Repository: <https://github.com/danylaksono/opal-web>, AGPL-3.0-or-later.
+
+**Phase 1 is complete, Phase 2's loop is built, and Phase 3 has started.** A
+user creates a project, writes LaTeX in a real editor across as many files as
+they like, presses Compile, and reads a rasterised page — all of it on the
+device, with the engine on a worker and the renderer on another. The two numbers that
+made Phase 2 wait have both moved by an order of magnitude, and neither was
+moved by optimising: both were structural.
+
+### What changed since 2026-09-03
+
+**The engine is now `texlyre-busytex` 1.4.0, fed by an endpoint we serve.** It
+is the same BusyTeX TeX Live build Siglum wraps — ADR-003's finding that the
+candidate set collapses onto one engine still holds — but built from a *single*
+vintage, TeX Live 2026, and read one file at a time out of an index over that
+tree rather than by downloading bundles whole.
+
+That one change closed both failures ADR-003 had recorded as structural. Neither
+was an engine defect: `cv-modern` wanted an OpenType font Siglum's CTAN fetcher
+discarded, and `letter-formal` wanted a package set that agreed with itself. A
+tree carrying its own closure has nothing to discard and nothing to disagree
+with.
+
+| | 2026-09-03 (Siglum + CTAN proxy) | now (texlyre + endpoint) |
+|---|---:|---:|
+| Corpus compiling | 11/13, needing the proxy | **12/14, no network** |
+| Page counts matching desktop | 10 of 11 | **11 of 11** |
+| First compile | 41–135 MB | **21.8–23.4 MB** |
+| Spread across documents | 94 MB | **1.6 MB** |
+| Warm compile | 0.8–12.2 s, or 41–87 s with the memory recycle | **1.2–4.8 s** |
+| Peak memory | 907–1231 MB, or 34–49 MB with the recycle | **440–445 MB, no recycle** |
+| Cancellation | 0–16 ms | **1 ms** |
+
+The corpus itself grew: `article-no-fontenc` is the fourteenth project, added
+because twelve of the thirteen original documents load `fontenc` and therefore
+never take the default font path — which is the path the first document a *user*
+creates does take, and which was broken.
+
+Warm compiles are measured on `blank`, `book-standard` and `thesis-standard`
+(1152 ms, 2921 ms, 4282 ms), not the whole corpus; engine init is ~0.9 s. An
+earlier run of the same three was 893/2131/3235 ms, which is the run-to-run
+spread on one machine and worth remembering before reading 10% into anything.
+
+**Memory is the finding, and this time it is the absence of one.** Siglum
+retained ~418 MB per compile — two compiles reached 907 MB, and the fix was to
+recycle the engine after each one, which doubled warm compiles corpus-wide.
+`texlyre-busytex` peaks at **439.9 MB for `blank` and 444.9 MB for
+`thesis-standard`**, sampled after three compiles of each and holding 109 MB
+after init: a 16-page document and a 1-page document cost the same, and three
+compiles cost what one does. At Siglum's retention rate those three would have
+been about 1.3 GB. So the recycle is not needed here, which is *why* the warm
+compile is seconds rather than a minute — the two figures are the same decision,
+not two wins.
+
+**A session does grow, slightly, and it is the engine's.** Three compiles cannot
+tell a flat engine from one that creeps, so `spike:perf --soak` keeps compiling
+on the same engine and samples after each. Over twelve, `blank` goes 440.0 →
+440.6 MB and `thesis-standard` 445.8 → 450.7 MB — monotonic, reproducible across
+three runs, and **~0.45 MB per compile of a 16-page document** against 0.05 MB
+for a 1-page one. It scales with the document, so it is output being retained
+rather than a fixed leak.
+
+The realm breakdown says whose it is: across a soak the *Window* stays at
+4.1–4.4 MB while the worker goes 440.8 → 444.2 MB. Nothing above the port is
+holding onto PDFs; the growth is entirely inside the engine's own realm. At that
+rate an afternoon of 200 compiles on a thesis adds ~100 MB to a 445 MB baseline,
+which is survivable — and if it ever stops being survivable the mitigation is
+already known, because it is Siglum's recycle at a frequency of every few
+hundred compiles rather than every one, at 0.9 s each.
+
+### How the engine is fed
+
+- A **41.24 MB boot package of 183 files** — the format file, ICU's data, the
+  kernel, Latin Modern, an `ls-R` — mounted before TeX starts.
+- Everything else on demand from `/texlive/<format>/<name>`, resolved through an
+  index of the tree. One document's traffic is 3 requests, not 20, because the
+  `ls-R` means kpathsea stops guessing.
+- **22.66 MB of every first compile is fixed** and shared by every document:
+  8.2 MB engine, 9.9 MB boot set, 3.6 MB renderer and app, all brotli. Only
+  0.2–1.8 MB varies with what the document uses. The delivery problem is
+  therefore solved and the remaining cost is an engine *build* question —
+  ADR-011 hands it back to ADR-003.
+
+### What the product does today
+
+- **Storage core (Phase 1):** projects on the device, bytes in OPFS and metadata
+  in IndexedDB, conditional writes, transactional autosave, ZIP import/export,
+  an error boundary, design tokens.
+- **The loop (Phase 2):** `compile-session.ts` owns sequencing — a revision
+  guard so a stale compile never replaces newer output, cancellation that
+  returns control, and an engine rebuilt when a compile throws.
+  `Workspace.tsx` owns the pixels: engine stages and a download percentage while
+  it works, the log when it fails, page navigation, zoom that re-renders rather
+  than stretches, and a reading position that survives a recompile.
+- **The editing surface (Phase 3, begun):** CodeMirror 6 with line numbers,
+  undo and LaTeX highlighting, one instance per document so undo cannot follow
+  a user between files; and a flat file list with add, switch and delete, which
+  is what finally makes the compile path's multi-file support reachable — a
+  project can `\input` a chapter and it compiles. Flat rather than a tree
+  because no project in this repository has a directory in it.
+- **Diagnostics where the writing is:** the engine's, and the index's, in the
+  same gutter. Building it found that every diagnostic in a project's main file
+  had been attributed to a file that does not exist — TeX prints `(./main.tex`
+  and then continues on the same line with no space, so the parser read
+  `main.texLaTeX2e`. It had been wrong since the parser was written, because
+  printing a wrong filename looks fine and the gutter was the first thing that
+  had to use one.
+- **Rename on the port** (`renameFile`), one revision rather than a write and a
+  delete, refusing to overwrite and carrying the project's root file with it.
+  Four contract cases run it against both the in-memory repository and real
+  OPFS.
+- **A semantic index**, recomputed on every keystroke in about a millisecond:
+  labels, references, citations, `\bibitem` keys, inputs, graphics, packages
+  and sections, scanned character by character rather than by regular
+  expression. It carries an outline that follows `\input` in reading order, a
+  project-health list that answers "does this `\ref` resolve anywhere" without
+  compiling, and completion for labels and citation keys. It reports **zero
+  problems across all fourteen corpus projects**, which is a test: they compile,
+  so anything it reports is its own defect.
+- **Asset views and an accessibility gate.** Images and PDFs open as
+  themselves — the PDF through `PdfRenderer`, not a browser plugin — which
+  closed a data-loss path nobody had seen: opening a figure decoded it as UTF-8
+  and the next keystroke would autosave the damage. axe runs over the product's
+  surfaces in the e2e suite at serious-and-critical, alongside keyboard paths it
+  cannot see: status regions that speak, focus that lands somewhere after the
+  button you pressed disappears, and Ctrl/Cmd+Enter to compile without leaving
+  the document.
+- **Five templates**, each gated twice: the semantic index runs over every one
+  in the unit suite, and an e2e creates and compiles all five, because a
+  template is the first LaTeX a user sees and the first they copy. The `paper`
+  template is also the first document in this repository to reach a
+  bibliography — no corpus project ever did — so it is where the bibtex path
+  finally got tested.
+- 247 unit tests and 44 Playwright e2e tests. The e2e suite is the part that
+  matters here: four defects found during Phase 2 — the default font path, a
+  boot package with no `ls-R`, a stale pre-compressed asset, and cancellation
+  returning after 180 s — would each have passed every test that existed before
+  it, because those stopped at the ports or drove the corpus, and the corpus is
+  not a product.
+
+### What is open
+
+- **`paper-acm` and `paper-ieee`.** `acmart` and `IEEEtran` are in `texmfrepo`,
+  which indexes the full archive rather than the tiers, so they need a second
+  source. Not structural, and not reachable from this container's egress policy.
+- **Where the engine's 0.45 MB a compile goes.** Measured and attributed to the
+  worker realm (above), not diagnosed. It is small enough to leave, and it is
+  the kind of thing that is small until a document is large.
+- **Nothing has run outside desktop Chromium.** Firefox, Safari, and a
+  constrained-memory device are all untested, and Safari's WASM limits are the
+  ones most likely to bite.
+- **The engine and ICU are the floor.** 22.66 MB fixed, and ICU's 22 MB is
+  irreducible with this build — without it the corpus scores 0/13.
+- **Deployment.** The Netlify spike, the header fix and brotli have been
+  measured on loopback, not on a host; and AGPL section 13's source offer has to
+  exist before anything is public.
+
+### Next, in order
+
+1. Run the corpus and the e2e suite on Firefox and Safari. Nothing has run
+   outside desktop Chromium, and Safari's WASM limits are the ones most likely
+   to bite a 32 MB engine. **Needs a different machine**: the container this was
+   built in cannot reach the Playwright browser CDN, so Chromium is the only
+   engine installable on it.
+2. What Phase 3 still owes: structured editors, and an accessibility check a
+   machine cannot do — axe and the keyboard tests say the mechanics are right,
+   but nobody has driven this with a screen reader, and that is a different kind
+   of evidence.
+3. `paper-acm` and `paper-ieee` from `texmfrepo`, on a machine that can reach a
+   TeX Live mirror.
+4. Deploy, and confirm brotli and the first-load figure on a real host.
+5. Commit desktop Tectonic's logs beside the reference PDFs, so diagnostics can
+   be compared as well as output.
+6. The AGPL section 13 source offer, before any public deployment.
+
+## Progress as of 2026-09-03 (superseded, kept as the evidence)
+
+> Written against `@siglum/engine`, before the engine change above. Every
+> measurement in it stands; what changed is which engine the product uses, and
+> this section is why it changed.
+
 
 Repository: <https://github.com/danylaksono/opal-web>, AGPL-3.0-or-later.
 
@@ -294,7 +481,12 @@ plus the few hundred kilobytes of TeX files it opens: single-digit megabytes.
   decompresses payloads the engine intends to decompress itself — presenting as
   a fetch failure while every request returns 200.
 
-### Next, in order
+### Next, in order (as of 2026-09-03 — superseded)
+
+> Items 1–3 are answered: the delivery model is built, the engine is loaded
+> from a single tree through our own endpoint, and the warm-compile cost came
+> back by changing engines rather than by the upstream fix item 2 wanted. The
+> current list is in the 2026-09-12 section above.
 
 1. ~~Prove ADR-011's delivery model end to end.~~ **Done, with a limit.** Round
    trips are affordable: beamer's 142 files take 575 ms on a 150 ms link over
@@ -1195,6 +1387,13 @@ Exit criteria, and what shows each one:
 
 ### Phase 2 — compile and preview vertical slice
 
+> The loop is built. `Workspace.tsx` and `compile-session.ts` carry it, seven
+> e2e tests drive it through the product, and three of the four exit criteria below
+> have a test named for them. What is outstanding: the corpus in CI, which needs
+> 700 MB of gitignored assets and so runs locally rather than on a runner; and
+> `paper-acm`/`paper-ieee`, which are the "explicit approved exception" the
+> first criterion allows for, pending a second package source.
+
 Deliverables:
 
 - compiler worker, package cache, diagnostics, cancellation, and restart;
@@ -1211,6 +1410,17 @@ Exit criteria:
 - worker failures recover without losing edits.
 
 ### Phase 3 — Opal authoring experience
+
+> Begun. CodeMirror is in with line numbers, undo and highlighting; the file
+> list does add, switch, rename and delete; and the semantic index carries an
+> outline, project health, completion for labels and citation keys, and gutter
+> marks from both the index and the engine's log; images and PDFs open as
+> themselves; five templates start a project as something other than blank; and
+> the accessibility pass has a gate in the e2e suite. Not done: structured
+> editors, and a real screen-reader session, which no automated check
+> substitutes for. The editor is
+> CodeMirror configured fresh rather than ported — desktop Opal's configuration
+> is in a repository this one cannot see.
 
 Deliverables:
 

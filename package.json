@@ -26,17 +26,29 @@
     "spike:tex-archive": "tsx scripts/build-tex-archive.ts",
     "spike:range-fetch": "tsx scripts/run-range-fetch-spike.ts",
     "spike:pinned-archive": "tsx scripts/build-pinned-archive.ts",
-    "serve:tex-archive": "tsx scripts/serve-tex-archive.ts"
+    "serve:tex-archive": "tsx scripts/serve-tex-archive.ts",
+    "spike:texlive-index": "tsx scripts/build-texlive-index.ts",
+    "spike:texlive-min": "tsx scripts/build-texlive-min.ts",
+    "spike:brotli": "tsx scripts/build-brotli-assets.ts"
   },
   "dependencies": {
+    "@codemirror/autocomplete": "^6.20.3",
+    "@codemirror/commands": "^6.11.0",
+    "@codemirror/language": "^6.12.4",
+    "@codemirror/legacy-modes": "^6.5.4",
+    "@codemirror/lint": "^6.9.7",
+    "@codemirror/state": "^6.7.4",
+    "@codemirror/view": "^6.43.11",
     "@siglum/engine": "^0.1.4",
     "fflate": "^0.8.3",
     "mupdf": "^1.28.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
+    "texlyre-busytex": "^1.4.0",
     "zustand": "^5.0.10"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
     "@biomejs/biome": "^2.3.13",
     "@playwright/test": "^1.61.1",
     "@types/node": "^25.0.10",

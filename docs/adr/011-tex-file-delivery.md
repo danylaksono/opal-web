@@ -1,9 +1,9 @@
 # ADR-011: how TeX support files reach the browser
 
-- **Status:** Proposed — format verified against the live Tectonic bundle, the
-  delivery measured on a local archive, and file-level injection working behind
-  `texArchiveUrl`; the engine's own bundle path is not yet replaced
-- **Date:** 2026-09-03
+- **Status:** Proposed — and now measured end to end on TeX Live 2026: a
+  self-hosted endpoint over a 33.84 MB boot set compiles 11/13, and a first
+  compile transfers **21.8–23.4 MB** against the 41–135 MB this ADR opened with
+- **Date:** 2026-09-03, revised 2026-09-12
 - **Deciders:** danylaksono
 
 ## Context
@@ -319,6 +319,308 @@ Three properties make this the right shape rather than merely a smaller one:
 - **It is the tree desktop uses.** Comparing our output against desktop
   Tectonic's stops comparing two package sets as well as two engines.
 
+### Revision: the tree to index is no longer Tectonic's
+
+Two things found while measuring `texlyre-busytex` for ADR-003 change which
+tree this decision should be applied to, without changing the decision.
+
+**Tectonic's bundle repository is archived.** `tectonic-texlive-bundles` was
+made read-only on 2 October 2024 with no successor named, and the only release
+published there is `tlextras-2021.3r1`. The `tlextras-2022.0r0` tree this ADR
+pins is served from `data1.fullyjustified.net`, a single host outside our
+control, now unmaintained — and unreachable from at least one environment we
+build in. "It is the tree desktop uses" is still true and still valuable for
+comparison; "it is a tree we can keep getting" no longer is. A frozen 2022
+vintage is also a widening gap against the documents users will bring.
+
+**A maintained single-vintage tree ships with an engine we already measure.**
+`texlyre-busytex` 1.4.0 carries TeX Live 2026 as three cumulative data tiers
+and a `texmfrepo.txt` index of 8,418 revision-pinned packages. ADR-003 measures
+that package set compiling **11 of 13 corpus projects with no network at all**.
+Everything this ADR says about indexed delivery applies to it unchanged — it is
+a tree, it has one vintage, and it is served from our origin.
+
+What is new is the receiving end. This ADR had to work around TeX naming one
+missing file per run, which cost a full pass per file and made `paper-acm` 57 s.
+That engine exposes the hook directly:
+
+```js
+Module.kpse_remote_register(name, format, contents);  // one file, by format
+Module.kpse_remote_register_misses(keys);             // misses as a SET
+```
+
+Per-file registration at the kpathsea level, and misses reported as a set
+rather than one at a time. The finding above — that file-level injection "works,
+and is not enough", because it could only supplement Siglum's own resolution and
+never replace it — is a property of *that* engine, not of this delivery model.
+Here `remoteEndpoint` is a first-class compile option with no bundle path behind
+it to fight.
+
+Truncating the tiers puts a number on what this ADR is for. At `basic` +
+`recommended`, 294 MB, the corpus compiles 4/13. Adding `extra`, 341.6 MB more,
+takes it to 11/13 — and every one of those seven documents is unblocked by
+`enumitem`, `titlesec` or `tcolorbox`. **341.6 MB is fetched for three `.sty`
+files.** That is the same failure this ADR opens with — `presentation-beamer`
+downloading 118.9 MB to read 2.1 MB — an order of magnitude worse, and on a
+tree where the files are demonstrably sufficient once they arrive.
+
+None of this is measured yet, and it should not be adopted on the strength of an
+API surface: what is measured is that the tiers compile 11/13 offline and cost
+636 MB to load. Indexing that tree, and measuring a first load against the
+41–135 MB this ADR set out to fix, is the next step and is listed below.
+
+### Measured: the endpoint, on the tree's own index
+
+Built and run, rather than argued from an API surface. Three findings made it
+much less work than this ADR assumed.
+
+**The archive already exists inside the engine's assets.** The tiers are
+Emscripten file-packager output: the `.js` records every file's byte range, and
+`extra` is a strict superset of `recommended`, which is a strict superset of
+`basic` (7,185 ⊂ 13,236 ⊂ 23,883 files, no exceptions). So one index over
+`texlive-extra.data` addresses everything any tier holds. **The blob is not
+flat but LZ4-chunked at 2 KiB**, which is better than flat for this: a file is
+read by decompressing the two or three chunks it spans. Nothing is repacked and
+there is no second copy of the tree.
+
+**The index is 2.13 MB raw, 0.38 MB gzipped** over 23,446 names — against the
+fixed 1.28 MB this ADR records for Tectonic's, which it calls the one place
+file-shaped delivery is worse than bundles for a trivial document. Gzipped, it
+is no longer that.
+
+**The protocol was read out of `busytex.js`, not guessed:**
+
+    GET <endpoint>/<kpathsea format>/<encodeURIComponent(name)>
+
+Synchronous XHR, 30 s timeout. **200 with a non-empty body registers the file;
+404 is recorded as a miss and never asked again in that compile.** Everything
+else means "not this time" and is re-asked. That asymmetry is load-bearing: an
+endpoint answering 500 for an unknown name turns one missing file into a retry
+per pass, and one wrong 404 ends the document.
+
+### Result
+
+`pnpm spike:corpus-run xelatex --texlyre --tiers 1 --endpoint` — the 92.8 MB
+`basic` tier preloaded, everything else resolved one file at a time.
+
+| | tiers only | `basic` + endpoint |
+|---|---:|---:|
+| Preloaded | 636 MB | 92.8 MB |
+| Fetched, whole corpus | — | **9.06 MB** (379 files) |
+| Compiled | 11 / 13 | **11 / 13** |
+| Pages word for word | 32 / 60 | 32 / 60 |
+| Cold per project | 28–46 s | **5.6–14.2 s** |
+
+**The same eleven documents, and the same fidelity to the digit** — every
+per-document word, ink and pixel figure is identical. This is not an
+approximation of the tiers; it is the same tree, addressed instead of copied.
+
+On this ADR's own reference document: `presentation-beamer` fetches **105 files,
+1.35 MB**, against the **118.9 MB** of bundles Siglum fetched to read 2.1 MB of
+the same kind of files.
+
+357 requests returned 404 across the corpus, and all of them are correct — the
+document's own `main.aux`, `main.toc`, `main.lot` before a pass has written
+them, and optional `geometry.cfg` / `hyperref.cfg` probes that exist in no TeX
+Live. A miss costs one request per compile, not one per pass, because the
+engine remembers it.
+
+### The defect this measurement found
+
+The first run compiled **9/13**, not 11: `presentation-beamer` failed on
+`beamerbasenavigationsymbols` and `thesis-standard` on `lipsum.ltd`, both
+reported under unrelated categories (`missing-file` and `syntax`). Both files
+are in the index. Neither was asked for by the name it is stored under —
+they are `beamerbasenavigationsymbols.tex` and `lipsum.ltd.tex`.
+
+kpathsea resolves a TeX input by trying the name and then the name with `.tex`,
+and the engine asks the endpoint exactly as it would ask a local tree. The
+endpoint stopped one step early, and because a 404 is remembered, one short
+answer ended the document. 2,295 of 23,446 indexed names end in `.tex`, so this
+was never a narrow case; it only looked like one.
+
+Worth recording as a property of this delivery model rather than a bug that has
+been fixed: **the endpoint is a kpathsea implementation, not a file server.**
+Anything the local resolver does implicitly has to be done here explicitly, and
+a gap shows up as a document failing somewhere unrelated rather than as a 404
+anybody notices.
+
+### Cutting the floor: what actually has to be mounted
+
+The `basic` tier was never the answer to "what must be preloaded", only the
+smallest thing that happened to be lying around. Preloading *nothing* says what
+the real constraint is: the engine dies before kpathsea exists, on
+
+```
+lstat(/bin) failed: /bin: No such file or directory
+kpathsea: Can't get directory of program name: /bin/busytex
+```
+
+having asked the endpoint for nothing whatsoever. So the floor is a set of
+files, not a tier, and it has four members:
+
+1. **Read before the resolver exists.** `/bin/busytex` — one byte, and kpathsea
+   derives its own location from it — plus `texmf.cnf` and fontconfig's `/etc`
+   files.
+2. **Named by absolute path rather than looked up.** The format file, passed to
+   the binary as `--fmt /texlive/.../xelatex.fmt`.
+3. **Opened from inside the binary.** `icudt78l.dat`, 22 MB, which XeTeX reads
+   directly rather than through kpathsea.
+4. **Loaded unconditionally by every compile.** Not a hard requirement but a
+   delivery one: `pdftex.map` is 5.54 MB and dvipdfmx loads it whatever the
+   document says, so serving it per file is repetition, not delivery. Measured
+   before it was mounted, the corpus fetched it twelve times — **66.5 MB of a
+   96.2 MB total**.
+
+That set is **110 files and 33.84 MB**, against `basic`'s 7,185 files and
+156.87 MB uncompressed. It is built by `pnpm spike:texlive-min`, which emits a
+real Emscripten data package without Emscripten: the `.data` is written as LZ4
+chunks that are all *stored* rather than compressed, which `successes[i] = 0`
+allows, and the loader `.js` is the shipped one with three substitutions.
+
+### Result
+
+| | tiers only | `basic` + endpoint | boot set + endpoint |
+|---|---:|---:|---:|
+| Preloaded | 636 MB | 92.8 MB | **33.84 MB** |
+| Fetched, whole corpus | — | 9.06 MB | 29.70 MB |
+| Compiled | 11 / 13 | 11 / 13 | **11 / 13** |
+| Pages word for word | 32 / 60 | 32 / 60 | 32 / 60 |
+| Cold per project | 28–46 s | 5.6–14.2 s | **3.0–8.6 s** |
+
+Three configurations, the same eleven documents, the same fidelity to the
+digit. What changes is where the bytes come from and how many of them there
+are.
+
+The total fetched *rises* from 9.06 MB to 29.70 MB, and that is not a
+regression: with only the boot set mounted, fonts and maps cross the wire too,
+where the `basic` tier had them on disk already. The number that matters is the
+first compile, and it falls:
+
+| | engine | preloaded | document | total |
+|---|---:|---:|---:|---:|
+| `basic` + endpoint | 32.5 MB | 92.8 MB | 1.35 MB | 126.7 MB |
+| boot set + endpoint | 32.5 MB | 33.84 MB | 3.07 MB | **69.4 MB** |
+
+`presentation-beamer` is the document in both rows, and it is this ADR's own
+reference case: Siglum fetched **118.9 MB** of bundles for it. It now costs
+3.07 MB over 171 requests on top of a boot set every document shares.
+
+### ICU is 22 MB and there is no way around it
+
+Two thirds of the boot set is one file, so it was worth asking whether XeTeX
+really needs it. It does: without `icudt78l.dat` the boot set is **11.89 MB**
+and the corpus compiles **0 of 13**, every document dying on
+
+```
+internal error; cannot read font names
+```
+
+before it reads a line of the document. It cannot be served either — XeTeX
+opens it from inside the binary, so no amount of resolver improvement reaches
+it. 33.84 MB is the floor for xelatex, and 22 MB of it is ICU.
+
+That also bounds what is left. Of a 69.4 MB first compile, 32.5 MB is the engine
+(7 MB brotli, per this ADR's own measurement), 22 MB is ICU and 5.9 MB is the
+format file — **60.4 MB of 69.4 MB is four artifacts**, none of which the
+delivery model can touch. The 17–21 MB this ADR set out to reach is not
+reachable by indexing files, because files are no longer the cost.
+
+### Measured: pre-compressing what is left
+
+The floor analysis above ends by saying the remaining bytes are four artifacts
+delivery cannot touch, and that the lever on them is the transport rather than
+the index. Applied, on `presentation-beamer`:
+
+| | uncompressed | brotli |
+|---|---:|---:|
+| app | 0.1 MB | 0.1 MB |
+| tex engine | 31.1 MB | **8.2 MB** |
+| boot set | 13.8 MB | **9.9 MB** |
+| endpoint files | 3.0 MB | **1.0 MB** |
+| pdf renderer | 10.0 MB | **3.5 MB** |
+| **total** | **57.8 MB** | **22.6 MB** |
+| time | 11.1 s | 6.7 s |
+
+At quality 11: the engine 32.51 MB → 8.50 MB (26%), the boot package
+33.85 MB → 10.28 MB (30%), MuPDF 10.41 MB → 3.60 MB (35%). Compression is
+precomputed, because quality 11 on 33 MB takes around 100 s — once in a build,
+absurd per request.
+
+Two things the measurement found rather than confirmed. Once the engine was
+compressed **the largest single response was MuPDF**, which Vite emits hashed
+into `dist/assets` where nothing was compressing it; and the endpoint's 3.0 MB
+was uncompressed for no better reason than that nobody had looked. The endpoint
+now compresses at **quality 4, not 11** — its files are read by a *synchronous*
+XHR inside the worker, so compression time is time TeX is blocked, and a better
+ratio is the wrong trade.
+
+What is deliberately *not* compressed is as load-bearing. `texlive-extra.data`
+is read by byte offset, and a transport encoding would make it unseekable, so
+the middleware also refuses the pre-compressed path for any request carrying a
+`Range` header: `Range` and `Content-Encoding` together describe a range of the
+*encoded* stream, which is not what any caller here means. Siglum's `.data.gz`
+keeps its raw path, and `Content-Type: application/wasm` is set explicitly —
+ADR-003 records two deployments broken on exactly these two points, both
+invisibly.
+
+### Result: the whole corpus, first compile
+
+| | ADR-011 as written | now |
+|---|---:|---:|
+| First compile, range | 41–135 MB | **21.8–23.4 MB** |
+| Spread across documents | 94 MB | **1.6 MB** |
+| Compiled | 9/13 (CTAN on) | 12/14 (no network) |
+
+The range is the more interesting half. **22.66 MB of every successful first
+load is fixed** — 8.2 MB of engine, 9.9 MB of boot set, 3.6 MB of renderer and
+the app — identical for every document, with only 0.2–1.8 MB varying with what
+the document actually uses. Before a PDF exists the fixed part is 19.03 MB: the
+renderer is fetched only once there is something to show, which is why
+`paper-acm` and `paper-ieee` stop there. The delivery
+problem this ADR opened with was that `presentation-beamer` cost 118.9 MB and
+`blank` cost 41 MB, a 3× spread driven entirely by which bundles happened to be
+pulled. That spread is gone: the two documents now differ by 0.8 MB.
+
+`paper-acm` and `paper-ieee` appear at 18.2 MB because they fail before the
+renderer loads; they are not a smaller first load, they are an incomplete one.
+
+**Against the target.** This ADR set out to reach 17–21 MB. A first compile is
+21.8–23.4 MB, which is *just* above it, and the honest reading is that the
+target was set against a different cost structure — it assumed the variable
+part, TeX files, was the problem. It no longer is: files are 0.2–1.7 MB of a
+22 MB load. Getting under 17 MB now means a smaller engine or dropping ICU,
+which are engine build questions, not delivery ones, and they are recorded in
+ADR-003 rather than here.
+
+### The endpoint is a kpathsea implementation, not a file server
+
+Three separate failures during this work were the same defect — the resolver
+knowing fewer of kpathsea's conventions than the engine assumes — and not one
+of them named the endpoint:
+
+| Symptom | Reported as | Actually |
+|---|---|---|
+| `presentation-beamer` stops | `missing-file` | asked for `beamerbasenavigationsymbols`, file is `…​.tex` |
+| `thesis-standard` stops | `syntax` | asked for `lipsum.ltd`, file is `lipsum.ltd.tex` |
+| every document stops | `! Font …​ not loadable` | asked for `lmroman12-regular` under formats 47, 36 and 32, file is `…​.otf` |
+
+kpathsea resolves a name by trying it and then trying the extensions its
+*format* implies, and the engine asks a remote resolver exactly as it asks a
+local tree. The format code is the only thing that says which file is meant, so
+the endpoint now carries a table keyed by `kpse_file_format_type`. Anything the
+local resolver does implicitly has to be done here explicitly, and a gap shows
+up as a document failing somewhere unrelated rather than as a 404 anybody
+notices. That is the standing cost of this model and it belongs in the decision,
+not in a changelog.
+
+### What this does not yet solve
+
+`paper-acm` and `paper-ieee` are unchanged: `acmart.cls` and `IEEEtran.cls` are
+in no tier, so the endpoint correctly 404s them. They are in `texmfrepo.txt`,
+which indexes the full 8,418-package TeX Live archive — a different source from
+the one indexed here, and the remaining gap.
+
 ## What this does not decide
 
 **It is not a decision to use Tectonic's engine.** No WebAssembly build of
@@ -361,6 +663,25 @@ happens to ship both.
       **77.1 MB of font bundles at init**, before TeX runs and independently of
       the document, so no font is ever reported missing. Answering this needs
       the engine's font loading replaced, not measured.
+- [x] Index the TeX Live 2026 tree and measure a first load. **11/13 at 92.8 MB
+      preloaded plus 9.06 MB fetched**, the same coverage and the same fidelity
+      as 636 MB of tiers. See above.
+- [x] Cut the preload floor below the `basic` tier. **33.84 MB, 110 files**,
+      compiling the same 11/13 — and a first compile of 69.4 MB against 126.7.
+      Established why it cannot go lower: 60.4 MB of that is the engine, ICU and
+      the format file, none of which this model can address.
+- [x] Apply brotli. **A first compile is 21.8–23.4 MB, from 57.8 MB**, and the
+      spread across the corpus fell from 94 MB to 1.6 MB. See above.
+- [ ] Shrink the engine and ICU, which are what is left: of 22.66 MB fixed,
+      8.2 MB is the engine and 9.9 MB the boot set (22 MB of it ICU). Both are
+      engine *build* questions rather than delivery ones — `engineMode` already
+      selects `<mode>.wasm`, but only the combined `busytex.wasm` ships, so a
+      xetex-only binary is a supported configuration with no artifact behind it
+      (ADR-003).
+- [ ] Serve `acmart` and `IEEEtran` from the `texmfrepo` archive, which is a
+      different and larger source than the tiers indexed here.
+- [ ] Measure `kpse_remote_register_misses` with a set of misses, against the
+      one-file-per-pass cost recorded above.
 - [x] Whether a tree scoped to plausible documents is small enough to serve from
       the same static host as the app. **Only the narrowest tier is.** Measured
       from the pinned tree's index: corpus 4.8 MB, all runtime macros 249 MB,

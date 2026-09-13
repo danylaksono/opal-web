@@ -17,6 +17,7 @@ import {
 } from "@/core/project/ids";
 import {
   type CreateProjectInput,
+  FileExistsError,
   FileNotFoundError,
   ProjectConflictError,
   type ProjectFile,
@@ -141,6 +142,26 @@ export class MemoryProjectRepository implements ProjectRepository {
   ): Promise<number> {
     const entry = this.#entry(id, expectedRevision);
     if (!entry.files.delete(path)) throw new FileNotFoundError(id, path);
+    return this.#touch(entry);
+  }
+
+  async renameFile(
+    id: ProjectId,
+    from: ProjectPath,
+    to: ProjectPath,
+    expectedRevision?: number,
+  ): Promise<number> {
+    const entry = this.#entry(id, expectedRevision);
+    const bytes = entry.files.get(from);
+    if (!bytes) throw new FileNotFoundError(id, from);
+    if (from !== to && entry.files.has(to)) throw new FileExistsError(id, to);
+
+    // Deleted then set, so the new name takes the old one's place in iteration
+    // order rather than appearing where the old one was. `listFiles` sorts, so
+    // this is about not pretending the order means something it does not.
+    entry.files.delete(from);
+    entry.files.set(to, bytes);
+    if (entry.record.rootTexPath === from) entry.record.rootTexPath = to;
     return this.#touch(entry);
   }
 
