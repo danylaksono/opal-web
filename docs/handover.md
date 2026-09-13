@@ -38,8 +38,12 @@ rather than re-reading OPFS. `tests/unit/latex-corpus-index.test.ts` runs it
 over all fourteen corpus projects and asserts it finds nothing: they compile, so
 a finding there is the index's bug. Both the index's problems and the engine's
 diagnostics are marked in the editor's gutter; `renameFile` is on the port so a
-rename is one revision rather than a write and a delete. Outstanding: asset
-views, structured editors and templates, and the accessibility pass.
+rename is one revision rather than a write and a delete. Images and PDFs open as
+assets rather than as mangled text — which is also what stops autosave writing a
+UTF-8-decoded PNG back over the original. `tests/e2e/accessibility.spec.ts` runs
+axe over the product and drives the keyboard paths it cannot see. Outstanding:
+structured editors and templates, and a screen-reader session, which no
+automated check substitutes for.
 
 **Phase 2 — compile and preview: the loop is built.** `Workspace.tsx` opens a
 project, compiles what is on screen through `LatexCompiler`, and draws the
