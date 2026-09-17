@@ -378,6 +378,45 @@ test.describe("compile and preview", () => {
     await expect(editor).toContainText("documentclass");
   });
 
+  test("a table written by the grid compiles", async ({ page }) => {
+    await openWorkspace(page);
+    const editor = page.getByTestId("editor-content");
+    await editor.fill(
+      "\\documentclass{article}\n\\begin{document}\nResults:\n\\end{document}\n",
+    );
+    await page.locator(".cm-line", { hasText: "Results:" }).click();
+    await page.keyboard.press("End");
+
+    // Through the grid rather than typed, so what TeX reads is exactly what
+    // the formatter wrote: the alignment padding, the rules on their own
+    // lines, an escaped ampersand and a spanning cell.
+    await page.getByTestId("table-open").click();
+    await page.getByRole("textbox", { name: "Row 1, column 1" }).fill("R\\&D");
+    await page.getByRole("textbox", { name: "Row 2, column 2" }).fill("$x^2$");
+    await page
+      .getByRole("textbox", { name: "Row 3, column 1" })
+      .fill("\\multicolumn{2}{c}{Both}");
+    await page.getByTestId("table-add-row").click();
+    await page.keyboard.type("last");
+    await page.getByTestId("table-apply").click();
+    await expect(editor).toContainText("\\multicolumn{2}{c}{Both}");
+
+    await page.getByTestId("compile-button").click();
+    await expect(page.getByTestId("workspace-status")).toHaveAttribute(
+      "data-status",
+      "done",
+      { timeout: 280_000 },
+    );
+    await expect(page.getByTestId("workspace-status")).toContainText(
+      "Compiled",
+    );
+    await expect(page.getByTestId("preview")).toHaveAttribute(
+      "data-status",
+      "ready",
+      { timeout: 60_000 },
+    );
+  });
+
   test("every template compiles", async ({ page }) => {
     // A template is the first LaTeX a user sees and the first they copy, so one
     // that does not compile is worse than no template at all. The unit tests

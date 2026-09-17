@@ -105,6 +105,21 @@ interface CodeEditorProps {
    * the second time.
    */
   reveal?: { line: number; nonce: number } | null;
+  /**
+   * Where the cursor is, as a character offset, whenever it moves.
+   *
+   * An offset rather than a line: a structured editor needs to know which
+   * `tabular` the cursor is inside, and two tables can share a line.
+   */
+  onCursor?: (offset: number) => void;
+  /**
+   * Replace one span of the document, as a single undoable change.
+   *
+   * An event with a nonce, like `reveal`. The alternative — changing `value` —
+   * replaces the whole document, which moves the cursor to the end and turns
+   * "undo the table edit" into "undo everything since the file was opened".
+   */
+  edit?: { from: number; to: number; insert: string; nonce: number } | null;
 }
 
 export function CodeEditor({
@@ -115,6 +130,8 @@ export function CodeEditor({
   problems,
   onSubmit,
   reveal,
+  onCursor,
+  edit,
 }: CodeEditorProps) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
@@ -143,6 +160,8 @@ export function CodeEditor({
   const marked = useRef<string | null>(null);
   const submit = useRef(onSubmit);
   submit.current = onSubmit;
+  const cursor = useRef(onCursor);
+  cursor.current = onCursor;
 
   /**
    * Offer the project's own keys, and only where one is being written.
@@ -220,6 +239,9 @@ export function CodeEditor({
           }),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) notify.current(update.state.doc.toString());
+            if (update.docChanged || update.selectionSet) {
+              cursor.current?.(update.state.selection.main.head);
+            }
           }),
         ],
       }),
@@ -307,6 +329,27 @@ export function CodeEditor({
     });
     instance.focus();
   }, [reveal]);
+
+  useEffect(() => {
+    const instance = view.current;
+    if (!instance || !edit) return;
+    const length = instance.state.doc.length;
+    // Clamped for the same reason `reveal` is: the span was read from an
+    // earlier document, and the caller checks it still holds what it expects.
+    const from = Math.min(Math.max(edit.from, 0), length);
+    const to = Math.min(Math.max(edit.to, from), length);
+    instance.dispatch({
+      changes: { from, to, insert: edit.insert },
+      // On the first character written rather than before a leading line
+      // break, so the cursor ends up inside what was just inserted.
+      selection: {
+        anchor: from + edit.insert.length - edit.insert.trimStart().length,
+      },
+      scrollIntoView: true,
+      userEvent: "input.structured",
+    });
+    instance.focus();
+  }, [edit]);
 
   return (
     <div

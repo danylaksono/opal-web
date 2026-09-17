@@ -339,3 +339,171 @@ test.describe("outline and project health", () => {
     await expect(page.getByTestId("project-health")).toHaveCount(0);
   });
 });
+
+/**
+ * The first structured editor (PLAN.md 14, Phase 3).
+ *
+ * Driven through the source it edits, because that is the only thing that
+ * matters about it: what lands in the document, whether undo takes it back in
+ * one step, and whether it refuses rather than guesses when the document has
+ * moved underneath it.
+ */
+test.describe("table editor", () => {
+  const TABLE = [
+    "Before.",
+    "\\begin{tabular}{lr}",
+    "\\toprule",
+    "Name & Count \\\\",
+    "\\midrule",
+    "apples & 3 \\\\",
+    "\\bottomrule",
+    "\\end{tabular}",
+    "",
+  ].join("\n");
+
+  test.beforeEach(async ({ page }) => {
+    await page.goto("/");
+    await page.evaluate(async () => {
+      const root = await navigator.storage.getDirectory();
+      for await (const [name] of (
+        root as unknown as AsyncIterable<[string, FileSystemHandle]>
+      )[Symbol.asyncIterator]()) {
+        await root.removeEntry(name, { recursive: true });
+      }
+      await new Promise<void>((resolve) => {
+        const deleting = indexedDB.deleteDatabase("opal-projects");
+        deleting.onsuccess = () => resolve();
+        deleting.onerror = () => resolve();
+        deleting.onblocked = () => resolve();
+      });
+    });
+    await page.goto("/");
+    await page.getByTestId("project-title").fill("Tables");
+    await page.getByTestId("create-project").click();
+    await page.getByTestId("open-project").first().click();
+    await expect(page.getByTestId("editor")).toBeVisible();
+  });
+
+  /** The document as the editor holds it, one line per CodeMirror line. */
+  async function sourceOf(page: Page): Promise<string> {
+    // An empty line is rendered as a `<br>`, whose inner text is a newline.
+    return (await page.locator(".cm-line").allInnerTexts())
+      .map((line) => line.replace(/\n$/, ""))
+      .join("\n");
+  }
+
+  test("edits a cell, adds a row, and undoes it in one step", async ({
+    page,
+  }) => {
+    const editor = page.getByTestId("editor-content");
+    await editor.fill(TABLE);
+    await page.locator(".cm-line", { hasText: "apples" }).click();
+
+    await expect(page.getByTestId("table-open")).toHaveText("Edit table");
+    await page.getByTestId("table-open").click();
+    const grid = page.getByTestId("table-editor");
+    await expect(grid.getByTestId("table-cell")).toHaveCount(4);
+    // Focus goes into the grid, not back to the button that opened it.
+    await expect(grid.getByTestId("table-cell").first()).toBeFocused();
+    await expect(grid.locator(".table-rule")).toHaveText([
+      "\\midrule",
+      "\\bottomrule",
+    ]);
+
+    await page.getByRole("textbox", { name: "Row 2, column 2" }).fill("30");
+    await page.getByTestId("table-add-row").click();
+    // Onto the new row, which is what adding one means.
+    await expect(
+      page.getByRole("textbox", { name: "Row 3, column 1" }),
+    ).toBeFocused();
+    await page.keyboard.type("pears");
+    await page.getByTestId("table-apply").click();
+
+    await expect(grid).toHaveCount(0);
+    await expect
+      .poll(() => sourceOf(page))
+      .toBe(
+        [
+          "Before.",
+          "\\begin{tabular}{lr}",
+          "  \\toprule",
+          "  Name   & Count \\\\",
+          "  \\midrule",
+          "  apples & 30 \\\\",
+          "  pears  &  \\\\",
+          "  \\bottomrule",
+          "\\end{tabular}",
+          "",
+        ].join("\n"),
+      );
+
+    // One change, so one undo: a grid edit that took a dozen presses of
+    // Ctrl+Z to reverse would be one nobody dared make.
+    await page.keyboard.press("Control+z");
+    await expect.poll(() => sourceOf(page)).toBe(TABLE);
+  });
+
+  test("inserts a table where there is none", async ({ page }) => {
+    const editor = page.getByTestId("editor-content");
+    await editor.fill("Results:");
+    await editor.click();
+    await page.keyboard.press("Control+End");
+
+    await expect(page.getByTestId("table-open")).toHaveText("Insert table");
+    await page.getByTestId("table-open").click();
+    await page.getByRole("textbox", { name: "Row 1, column 1" }).fill("x");
+    await page.keyboard.press("Control+Enter");
+
+    await expect
+      .poll(() => sourceOf(page))
+      .toContain("Results:\n\\begin{tabular}{lll}\n  \\hline\n  x &  &  \\\\");
+    // The cursor is left inside what was inserted, so it can be edited again.
+    await expect(page.getByTestId("table-open")).toHaveText("Edit table");
+  });
+
+  test("Escape leaves the document alone and returns to it", async ({
+    page,
+  }) => {
+    const editor = page.getByTestId("editor-content");
+    await editor.fill(TABLE);
+    await page.locator(".cm-line", { hasText: "apples" }).click();
+    await page.getByTestId("table-open").click();
+    await page.getByRole("textbox", { name: "Row 1, column 1" }).fill("Fruit");
+    await page.keyboard.press("Escape");
+
+    await expect(page.getByTestId("table-editor")).toHaveCount(0);
+    await expect(editor).toBeFocused();
+    expect(await sourceOf(page)).toBe(TABLE);
+  });
+
+  test("refuses to write over a table that moved while the grid was open", async ({
+    page,
+  }) => {
+    const editor = page.getByTestId("editor-content");
+    await editor.fill(TABLE);
+    await page.locator(".cm-line", { hasText: "apples" }).click();
+    await page.getByTestId("table-open").click();
+    await page.getByRole("textbox", { name: "Row 2, column 1" }).fill("figs");
+
+    // The source is still editable. Typing above the table shifts it, and a
+    // grid that wrote back to the old offsets would cut through its first line.
+    await page.locator(".cm-line", { hasText: "Before." }).click();
+    await page.keyboard.press("Home");
+    await page.keyboard.type("Much ");
+    await page.getByTestId("table-apply").click();
+
+    await expect(page.getByTestId("projects-error")).toContainText(
+      "changed in the source",
+    );
+    expect(await sourceOf(page)).toBe(`Much ${TABLE}`);
+  });
+
+  test("says why a table cannot be edited as a grid", async ({ page }) => {
+    const editor = page.getByTestId("editor-content");
+    await editor.fill(TABLE.replace("apples & 3", "apples & 3 % recount"));
+    await page.locator(".cm-line", { hasText: "apples" }).click();
+
+    await expect(page.getByTestId("table-open")).toBeDisabled();
+    await expect(page.getByTestId("table-refused")).toContainText("comments");
+  });
+});

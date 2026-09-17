@@ -151,7 +151,16 @@ hundred compiles rather than every one, at 0.9 s each.
   template is also the first document in this repository to reach a
   bibliography — no corpus project ever did — so it is where the bibtex path
   finally got tested.
-- 247 unit tests and 44 Playwright e2e tests. The e2e suite is the part that
+- **A table editor**, the first structured editor. With the cursor in a
+  `tabular`, `tabularx`, `tabular*` or `array`, the source opens as a grid:
+  edit cells, add and remove rows and columns, and Apply writes it back as one
+  undoable change with the `&`s aligned. Rules (`\hline`, booktabs) and
+  `\multicolumn` spans are kept. It refuses what it cannot write back without
+  losing something, such as a comment inside the table, and says why. Apply is
+  conditional: if the table's source changed while the grid was open, the write
+  is refused, not made at the old offsets. Every table in the corpus is read and
+  written back cell for cell in the unit suite.
+- 282 unit tests and 52 Playwright e2e tests. The e2e suite is the part that
   matters here: four defects found during Phase 2 — the default font path, a
   boot package with no `ls-R`, a stale pre-compressed asset, and cancellation
   returning after 180 s — would each have passed every test that existed before
@@ -182,7 +191,8 @@ hundred compiles rather than every one, at 0.9 s each.
    to bite a 32 MB engine. **Needs a different machine**: the container this was
    built in cannot reach the Playwright browser CDN, so Chromium is the only
    engine installable on it.
-2. What Phase 3 still owes: structured editors, and an accessibility check a
+2. What Phase 3 still owes: the math, citation and figure structured editors
+   (the table editor is in), and an accessibility check a
    machine cannot do — axe and the keyboard tests say the mechanics are right,
    but nobody has driven this with a screen reader, and that is a different kind
    of evidence.
@@ -1416,7 +1426,8 @@ Exit criteria:
 > outline, project health, completion for labels and citation keys, and gutter
 > marks from both the index and the engine's log; images and PDFs open as
 > themselves; five templates start a project as something other than blank; and
-> the accessibility pass has a gate in the e2e suite. Not done: structured
+> the accessibility pass has a gate in the e2e suite; and the table editor
+> is the first structured editor. Not done: the math, citation and figure
 > editors, and a real screen-reader session, which no automated check
 > substitutes for. The editor is
 > CodeMirror configured fresh rather than ported — desktop Opal's configuration

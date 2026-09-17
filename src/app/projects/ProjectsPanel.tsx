@@ -16,9 +16,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AssetView } from "@/app/editor/AssetView";
 import type { EditorProblem } from "@/app/editor/CodeEditor";
 import { CodeEditor } from "@/app/editor/CodeEditor";
+import { TableEditor } from "@/app/editor/TableEditor";
 import { Workspace } from "@/app/workspace/Workspace";
 import type { CompileDiagnostic } from "@/core/compiler/types";
 import { buildProjectIndex } from "@/core/latex/project-index";
+import {
+  formatTabular,
+  newTabular,
+  type Tabular,
+  tabularAt,
+} from "@/core/latex/tabular";
 import {
   ArchiveRejectedError,
   packProject,
@@ -182,6 +189,25 @@ export function ProjectsPanel({
   const [focusFile, setFocusFile] = useState<ProjectPath | null>(null);
   const fileList = useRef<HTMLDivElement>(null);
   const [saveStatus, setSaveStatus] = useState<SaveStatus | null>(null);
+  /** The open file's cursor, as an offset, for the structured editors. */
+  const [cursor, setCursor] = useState(0);
+  /**
+   * The table being edited in the grid, and the file it came from.
+   *
+   * The path is kept so that switching files closes the grid rather than
+   * writing one file's table into another.
+   */
+  const [tableEdit, setTableEdit] = useState<{
+    path: ProjectPath;
+    table: Tabular;
+  } | null>(null);
+  /** A span replacement for the editor to apply, with a nonce like `reveal`. */
+  const [edit, setEdit] = useState<{
+    from: number;
+    to: number;
+    insert: string;
+    nonce: number;
+  } | null>(null);
   const autosaveRef = useRef<Autosave | null>(null);
 
   /**
@@ -538,6 +564,45 @@ export function ProjectsPanel({
     return [...fromIndex, ...fromEngine];
   }, [editing, index, compiled]);
 
+  /**
+   * The table under the cursor: one to edit, one that cannot be, or none.
+   *
+   * Recomputed as the cursor moves. It is a single pass over the open file, and
+   * the button it drives has to be right at the moment it is pressed.
+   */
+  const tableHere = useMemo(
+    () =>
+      editing && !editing.asset ? tabularAt(editing.content, cursor) : null,
+    [editing, cursor],
+  );
+
+  /**
+   * Write the grid back into the document.
+   *
+   * Refused if the span no longer holds what was read: the source stayed
+   * editable while the grid was open, and replacing a span that has moved would
+   * overwrite whatever now occupies it.
+   */
+  const applyTable = useCallback(
+    (table: Tabular) => {
+      if (!editing) return;
+      const current = editing.content.slice(table.from, table.to);
+      if (current !== table.original) {
+        throw new Error(
+          "The table changed in the source while the grid was open; reopen it to edit the current version",
+        );
+      }
+      setEdit((previous) => ({
+        from: table.from,
+        to: table.to,
+        insert: formatTabular(table),
+        nonce: (previous?.nonce ?? 0) + 1,
+      }));
+      setTableEdit(null);
+    },
+    [editing],
+  );
+
   /** Open a file if it is not already open, then put the cursor on a line. */
   const goTo = useCallback(
     async (path: ProjectPath, line: number) => {
@@ -880,6 +945,52 @@ export function ProjectsPanel({
               </button>
             </form>
           </h3>
+          {!editing.asset && (
+            <p className="note" data-testid="structured-tools">
+              {/*
+                One button whose meaning follows the cursor, rather than two
+                where one is always disabled: inside a table the question is
+                "edit this one", outside it is "put one here".
+              */}
+              <button
+                type="button"
+                data-testid="table-open"
+                disabled={tableHere?.ok === false || tableEdit !== null}
+                onClick={() => {
+                  setTableEdit({
+                    path: editing.path,
+                    table: tableHere?.ok
+                      ? tableHere.table
+                      : newTabular(editing.content, cursor),
+                  });
+                }}
+              >
+                {tableHere ? "Edit table" : "Insert table"}
+              </button>{" "}
+              {tableHere?.ok === false && (
+                <span data-testid="table-refused">
+                  This {tableHere.environment} cannot be edited as a grid:{" "}
+                  {tableHere.reason}.
+                </span>
+              )}
+            </p>
+          )}
+          {tableEdit && tableEdit.path === editing.path && (
+            <TableEditor
+              key={`${tableEdit.table.from}:${tableEdit.table.original}`}
+              table={tableEdit.table}
+              onApply={(table) => {
+                void act(async () => applyTable(table));
+              }}
+              onCancel={() => {
+                setTableEdit(null);
+                // Back to the source, where the grid was opened from.
+                document
+                  .querySelector<HTMLElement>('[data-testid="editor-content"]')
+                  ?.focus();
+              }}
+            />
+          )}
           {/*
             A binary file never reaches the text editor. Decoding one as
             UTF-8 to show it would also be what autosave writes back.
@@ -902,6 +1013,8 @@ export function ProjectsPanel({
               onSubmit={() => setCompileSignal((signal) => signal + 1)}
               value={editing.content}
               reveal={reveal}
+              edit={edit}
+              onCursor={setCursor}
               onChange={(content) => {
                 setEditing({
                   ...editing,

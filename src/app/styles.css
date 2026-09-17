@@ -309,6 +309,53 @@ textarea {
 }
 
 /*
+ * The table editor: a grid of fields in the same hairlines as everything else.
+ *
+ * The cells are monospaced because what is typed into them is LaTeX source,
+ * not the rendered text, and `	extbf{a}` should look like what it is.
+ */
+.table-editor {
+  border: 1px solid var(--rule);
+  background: var(--paper-raised);
+  padding: 0.5rem 0.9rem 0.25rem;
+  margin: 0 0 0.75rem;
+  min-width: 0;
+}
+
+.table-editor legend {
+  font-family: var(--serif);
+  font-weight: 600;
+  padding: 0 0.35rem;
+}
+
+.table-editor-scroll {
+  overflow-x: auto;
+}
+
+.table-editor td,
+.table-editor th {
+  padding: 0.2rem 0.4rem 0.2rem 0;
+  border: none;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.table-editor td input {
+  width: 100%;
+  min-width: 7rem;
+  box-sizing: border-box;
+  font-family: var(--mono);
+}
+
+.table-editor th button {
+  padding: 0 0.35rem;
+}
+
+.table-rule {
+  font-size: 0.8em;
+}
+
+/*
  * The one place !important is right: a reduced-motion preference has to beat
  * every animation, including ones added later by code that did not think about
  * it. Kept to duration rather than `animation: none`, so a transition that

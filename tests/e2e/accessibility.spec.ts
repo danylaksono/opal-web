@@ -93,6 +93,27 @@ test.describe("accessibility", () => {
     expect(await seriousViolations(page)).toEqual([]);
   });
 
+  test("the table editor has no serious violations", async ({ page }) => {
+    await page.getByTestId("project-title").fill("Accessible table");
+    await page.getByTestId("create-project").click();
+    await page.getByTestId("open-project").first().click();
+    await page
+      .getByTestId("editor-content")
+      .fill(
+        "\\begin{tabular}{lll}\n\\multicolumn{2}{c}{Head} & x \\\\\\hline\na & b & c \\\\\n\\end{tabular}\n",
+      );
+    await page.locator(".cm-line", { hasText: "a & b" }).click();
+    await page.getByTestId("table-open").click();
+    await expect(page.getByTestId("table-editor")).toBeVisible();
+
+    // A spanning cell is named by the columns it covers, not by its position
+    // in the row, which is what a screen reader user would otherwise hear.
+    await expect(
+      page.getByRole("textbox", { name: "Row 1, columns 1 to 2" }),
+    ).toBeVisible();
+    expect(await seriousViolations(page)).toEqual([]);
+  });
+
   test("save and compile status are announced, not just shown", async ({
     page,
   }) => {
