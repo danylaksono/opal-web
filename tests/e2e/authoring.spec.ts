@@ -17,6 +17,11 @@ const PIXEL_PNG = Buffer.from(
 );
 
 async function importProjectWithAssets(page: Page) {
+  // Back to the picker: importing is a thing you do to the collection, and
+  // the workspace fills the window while a project is open.
+  const home = page.getByTestId("close-project");
+  if (await home.isVisible()) await home.click();
+
   const archive = zipSync(
     {
       "main.tex": new TextEncoder().encode(
@@ -101,18 +106,19 @@ test.describe("outline and project health", () => {
     // Reading order, not file order: the chapter's sections appear where the
     // `\input` puts them, which is the only thing that makes an outline of a
     // split-up document worth showing.
-    await page.getByTestId("outline").click();
+    await page.getByTestId("panel-outline").click();
     await expect(page.getByTestId("outline-entry")).toHaveText([
       "First",
       "Second",
       "Detail",
     ]);
 
-    // Clicking an entry in another file opens that file.
+    // Clicking an entry in another file opens that file. The outline is the
+    // panel on screen, so the editor's own header is what says which.
     await page.getByTestId("outline-entry").nth(2).click();
-    await expect(
-      page.locator('[data-testid="file-open"][data-path="chapter.tex"]'),
-    ).toHaveAttribute("aria-current", "true");
+    await expect(page.getByTestId("open-file-name")).toContainText(
+      "chapter.tex",
+    );
   });
 
   test("completing a reference offers the project's own labels", async ({
@@ -169,13 +175,16 @@ test.describe("outline and project health", () => {
 
     // No compile: this is the half of "is my document right" that does not
     // need TeX, and the half a user meets first.
+    await page.getByTestId("panel-health").click();
     await expect(page.getByTestId("project-health")).toContainText("1 problem");
     await expect(page.getByTestId("project-health")).toContainText(
       "No \\label{sec:one}",
     );
 
     await editor.fill("\\section{One}\\label{sec:one}\nSee \\ref{sec:one}.\n");
-    await expect(page.getByTestId("project-health")).toHaveCount(0);
+    await expect(page.getByTestId("project-health")).toContainText(
+      "Nothing to report",
+    );
   });
 
   test("a problem is marked in the gutter of the line it is on", async ({
@@ -209,7 +218,7 @@ test.describe("outline and project health", () => {
     await expect(page.getByTestId("file-open")).toHaveCount(1);
     // The star marks the compile target, and the record's root file follows a
     // rename — otherwise the button would point at a name nothing has.
-    await expect(page.getByTestId("file-open")).toHaveText("paper.tex ★");
+    await expect(page.getByTestId("file-open")).toHaveText("paper.tex");
     await expect(page.getByTestId("compile-target")).toHaveText("paper.tex");
     await expect(editor).toContainText("section{One}");
 
@@ -218,7 +227,7 @@ test.describe("outline and project health", () => {
     // file count above is the assertion that matters.
     await page.reload();
     await page.getByTestId("open-project").first().click();
-    await expect(page.getByTestId("file-open")).toHaveText("paper.tex ★");
+    await expect(page.getByTestId("file-open")).toHaveText("paper.tex");
   });
 
   test("an image opens as a picture, not as text", async ({ page }) => {
@@ -325,10 +334,12 @@ test.describe("outline and project health", () => {
     // Two, not one: the `\input` names a file the project does not have yet,
     // which is the same mistake as a misspelled filename and is reported the
     // same way. Creating the file below fixes both at once.
+    await page.getByTestId("panel-health").click();
     await expect(page.getByTestId("project-health")).toContainText(
       "2 problems",
     );
 
+    await page.getByTestId("panel-files").click();
     await page.getByTestId("new-file-name").fill("chapter.tex");
     await page.getByTestId("create-file").click();
     await expect(
@@ -336,7 +347,10 @@ test.describe("outline and project health", () => {
     ).toHaveAttribute("aria-current", "true");
     await editor.fill("\\section{Elsewhere}\\label{sec:elsewhere}\n");
 
-    await expect(page.getByTestId("project-health")).toHaveCount(0);
+    await page.getByTestId("panel-health").click();
+    await expect(page.getByTestId("project-health")).toContainText(
+      "Nothing to report",
+    );
   });
 });
 
@@ -405,7 +419,10 @@ test.describe("table editor", () => {
     await expect(grid.getByTestId("table-cell")).toHaveCount(4);
     // Focus goes into the grid, not back to the button that opened it.
     await expect(grid.getByTestId("table-cell").first()).toBeFocused();
+    // Every rule the table has, each where it sits — including the one above
+    // the first row, which the grid keeps and therefore has to show.
     await expect(grid.locator(".table-rule")).toHaveText([
+      "\\toprule",
       "\\midrule",
       "\\bottomrule",
     ]);
@@ -657,9 +674,15 @@ test.describe("citation editor", () => {
     await expect(page.getByTestId("citation-prenote")).toHaveValue("see");
     await expect(page.getByTestId("citation-postnote")).toHaveValue("p.~4");
     // natbib is loaded, so its commands are offered alongside the one in use.
-    await expect(
-      page.getByTestId("citation-command").locator("option"),
-    ).toContainText(["\\cite", "\\citep", "\\citet"]);
+    // A listbox rather than a native select, as on desktop: the options exist
+    // once it is open.
+    await page.getByTestId("citation-command").click();
+    await expect(page.getByRole("option")).toContainText([
+      "\\cite",
+      "\\citep",
+      "\\citet",
+    ]);
+    await page.keyboard.press("Escape");
 
     await page.getByTestId("citation-postnote").fill("ch.~2");
     await page.keyboard.press("Escape");

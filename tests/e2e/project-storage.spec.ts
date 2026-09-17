@@ -35,6 +35,37 @@ async function clearStorage(page: import("@playwright/test").Page) {
   });
 }
 
+/**
+ * What the page is when it opens.
+ *
+ * It opened as the Phase 0 harness for two phases after it stopped being one:
+ * a person landing on it met a capability table, a corpus table and three
+ * measurement panels, with their projects somewhere below. The panels are
+ * still how the ADR measurements are reproduced, so they moved to a debug
+ * route rather than being deleted — which is why this asserts both halves.
+ */
+test.describe("the page", () => {
+  test("opens on the project picker, not on the instruments", async ({
+    page,
+  }) => {
+    await page.goto("/");
+
+    await expect(page.getByTestId("projects-panel")).toBeVisible();
+    await expect(page.getByTestId("create-project")).toBeVisible();
+    await expect(page.getByTestId("harness")).toHaveCount(0);
+  });
+
+  test("keeps the harness on its own route, for the spike drivers", async ({
+    page,
+  }) => {
+    await page.goto("/?harness=1");
+
+    await expect(page.getByTestId("harness")).toBeVisible();
+    await expect(page.getByTestId("backend-select")).toBeVisible();
+    await expect(page.getByTestId("projects-panel")).toHaveCount(0);
+  });
+});
+
 test.describe("project storage", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
@@ -197,7 +228,9 @@ test.describe("autosave", () => {
     page,
   }) => {
     await page.getByTestId("editor-content").fill("section{Autosaved}");
-    await expect(page.getByTestId("save-status")).toContainText("Saved at");
+    await expect(page.getByTestId("save-status")).toContainText(
+      "Saved · revision",
+    );
 
     await page.reload();
     await page.getByTestId("open-project").click();
@@ -209,18 +242,28 @@ test.describe("autosave", () => {
   test("a burst of typing produces one revision, not one per keystroke", async ({
     page,
   }) => {
-    const before = Number(
-      await page.getByTestId("project-row-revision").textContent(),
-    );
+    // Read off the status bar rather than the project list, which the
+    // workspace covers while a project is open.
+    const revision = async () =>
+      Number(
+        /revision (\d+)/.exec(
+          (await page.getByTestId("save-status").textContent()) ?? "",
+        )?.[1],
+      );
+
     await page.getByTestId("editor-content").pressSequentially("hello", {
       delay: 20,
     });
-    await expect(page.getByTestId("save-status")).toContainText("Saved at");
-
-    const after = Number(
-      await page.getByTestId("project-row-revision").textContent(),
+    await expect(page.getByTestId("save-status")).toContainText(
+      "Saved · revision",
     );
-    expect(after).toBe(before + 1);
+    const before = await revision();
+
+    // A second burst: five keystrokes, one revision, not five.
+    await page.getByTestId("editor-content").pressSequentially(" world", {
+      delay: 20,
+    });
+    await expect.poll(revision).toBe(before + 1);
   });
 
   test("the editor is a code editor, and its undo stops at the file", async ({
@@ -232,7 +275,9 @@ test.describe("autosave", () => {
 
     const editor = page.getByTestId("editor-content");
     await editor.fill("\\section{First}");
-    await expect(page.getByTestId("save-status")).toContainText("Saved at");
+    await expect(page.getByTestId("save-status")).toContainText(
+      "Saved · revision",
+    );
 
     await page.getByTestId("new-file-name").fill("second.tex");
     await page.getByTestId("create-file").click();
@@ -243,7 +288,9 @@ test.describe("autosave", () => {
       page.locator('[data-testid="file-open"][data-path="second.tex"]'),
     ).toHaveAttribute("aria-current", "true");
     await editor.fill("second file");
-    await expect(page.getByTestId("save-status")).toContainText("Saved at");
+    await expect(page.getByTestId("save-status")).toContainText(
+      "Saved · revision",
+    );
 
     // Undo in the second file must not reach into the first. A shared history
     // would restore text from a document the user is not looking at and then
@@ -267,7 +314,9 @@ test.describe("autosave", () => {
     await other.goto("/");
     await other.getByTestId("open-project").click();
     await other.getByTestId("editor-content").fill("written by the other tab");
-    await expect(other.getByTestId("save-status")).toContainText("Saved at");
+    await expect(other.getByTestId("save-status")).toContainText(
+      "Saved · revision",
+    );
 
     // This tab still holds the revision it read before that write landed.
     await page.getByTestId("editor-content").fill("written by this tab");

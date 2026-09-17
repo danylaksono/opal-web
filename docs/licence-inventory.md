@@ -12,7 +12,15 @@ Repeat this audit against pinned versions before any distribution.
 | Artifact | Version | Licence | Notes |
 |---|---|---|---|
 | react, react-dom | 19.2.3 | MIT | |
-| zustand | 5.0.15 | MIT | Not yet used; reserved for Phase 1 domain state. |
+| **Opal desktop editor** (github.com/danylaksono/opal-editor @ 8f95519) | 1.5.0 | MIT | **Code copied into this repository**, not a dependency: the workspace theme (`src/app/styles/globals.css`) and the shadcn/Radix primitives under `src/ui/`, adapted from `apps/desktop`. MIT is compatible with this repository's AGPL-3.0-or-later; the notice belongs with the copies. Note for the desktop repo: its `LICENSE` is an MIT text whose copyright line names `assistant-ui` rather than the author. |
+| tailwindcss | 4.1.18 | MIT | The workspace shell's styling, as on desktop. A build-time tool that emits CSS; nothing of it runs in the browser. |
+| tw-animate-css | 1.4.0 | MIT | Animation utilities the copied theme imports. |
+| radix-ui, @radix-ui/react-slot | 1.4.3 / 1.2.4 | MIT | Unstyled accessible primitives behind `src/ui/` — select, dialog, tooltip, tabs. Keyboard behaviour and focus management are the reason to take a dependency here rather than hand-roll. |
+| lucide-react | 0.563.0 | ISC | The icon set desktop uses. Tree-shaken to the icons imported. |
+| react-resizable-panels | 3.0.6 | MIT | The draggable splits between side panel, editor and preview. |
+| class-variance-authority, clsx, tailwind-merge | 0.7.1 / 2.1.1 / 3.4.0 | Apache-2.0 / MIT / MIT | Class-name plumbing the copied primitives use. |
+| next-themes | 0.4.6 | MIT | Light/dark selection, as on desktop. Nothing of Next.js comes with it. |
+| zustand | 5.0.15 | MIT | Now used: `src/app/store/layout-store.ts` holds which panes are open, and persists them. |
 | @siglum/engine | 0.1.4 | MIT | ADR-003 spike. Runtime assets (busytex.wasm plus TeX Live 2025 bundles, 225 MB) are fetched separately and gitignored; they are third-party TeX Live content redistributed under their own per-package terms, which still needs auditing. |
 | blake3-wasm (via @siglum/engine) | 2.1.5 | Apache-2.0 OR MIT | Browser build is broken upstream and is aliased to a stub; see docs/adr/003. |
 | xzwasm (via @siglum/engine) | ^0.1.2 | MIT | Pulled in transitively; only used on the CTAN path, which is not yet enabled. |
@@ -28,6 +36,7 @@ Repeat this audit against pinned versions before any distribution.
 | Artifact | Version | Licence | Notes |
 |---|---|---|---|
 | vite | 6.4.3 | MIT | |
+| @tailwindcss/vite | 4.1.18 | MIT | Compiles the stylesheet at build time. |
 | vite-plugin-wasm | latest | MIT | Needed because blake3-wasm uses the ESM-WASM integration proposal. |
 | typescript | 5.9.3 | Apache-2.0 | |
 | vitest | 4.1.11 | MIT | |

@@ -175,7 +175,31 @@ hundred compiles rather than every one, at 0.9 s each.
   unreachable by keyboard; nothing had tested a document taller than the box.
   And a structured edit focused the editor after changing it, which let the
   browser reset the cursor to the start of the file.
-- 309 unit tests and 58 Playwright e2e tests. The e2e suite is the part that
+- **The page opens on the product.** It had opened as the Phase 0 harness
+  for two phases after it stopped being one: capability table, corpus table
+  and three measurement panels first, the workspace below them, under a lede
+  that still read "no editor, no storage and no compiler". The instruments are
+  not deleted — the ADR-003 and ADR-011 measurements are reproduced by driving
+  them — but they are in a closed section under the workspace, which
+  `?harness=1` opens for the spike scripts.
+- **The product is the desktop editor, adapted.** Until now the app was the
+  Phase 0 harness with a project panel added to it: a page of measurement
+  tables that a person scrolled past to reach their work. Opal Web is an
+  adaptation of the Opal desktop editor, so the shell is now desktop's —
+  activity rail, side panel (files, outline, health), editor pane, PDF preview
+  pane, status bar, draggable splits — built on desktop's own theme and
+  shadcn/Radix primitives, copied across under MIT (see the licence
+  inventory). What differs is what the browser makes different: storage is
+  OPFS rather than a directory, and there is no window chrome. The
+  instruments did not go: they are at `?harness=1`, which is how
+  `spike:corpus-run`, `spike:perf` and `spike:firstload` still drive them.
+- **A defect the shell found.** The workspace re-opened its project on every
+  render of its parent, because a callback prop was rebuilt each time and an
+  effect depended on it. That reset the open file and replaced the autosave
+  before its debounce could fire — so an edit was never saved. It is a
+  stale-identity bug rather than a stale-closure one, and the e2e suite caught
+  it as "No unsaved changes" where a save was expected.
+- 309 unit tests and 60 Playwright e2e tests. The e2e suite is the part that
   matters here: four defects found during Phase 2 — the default font path, a
   boot package with no `ls-R`, a stale pre-compressed asset, and cancellation
   returning after 180 s — would each have passed every test that existed before

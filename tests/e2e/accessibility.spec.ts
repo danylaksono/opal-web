@@ -61,6 +61,17 @@ async function clearStorage(page: Page) {
   });
 }
 
+/**
+ * Pick a starting point.
+ *
+ * The template control is a listbox rather than a native `<select>`, as on
+ * desktop, so it is opened and an option is chosen.
+ */
+async function chooseTemplate(page: Page, name: string) {
+  await page.getByTestId("project-template").click();
+  await page.getByRole("option", { name, exact: true }).click();
+}
+
 test.describe("accessibility", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
@@ -88,7 +99,7 @@ test.describe("accessibility", () => {
     await page.getByTestId("new-file-name").fill("chapter.tex");
     await page.getByTestId("create-file").click();
     await expect(page.getByTestId("file-open")).toHaveCount(2);
-    await page.getByTestId("outline").click();
+    await page.getByTestId("panel-outline").click();
 
     expect(await seriousViolations(page)).toEqual([]);
   });
@@ -116,7 +127,7 @@ test.describe("accessibility", () => {
 
   test("the citation editor has no serious violations", async ({ page }) => {
     await page.getByTestId("project-title").fill("Accessible citation");
-    await page.getByTestId("project-template").selectOption("paper");
+    await chooseTemplate(page, "Paper with references");
     await page.getByTestId("create-project").click();
     await page.getByTestId("open-project").first().click();
     // The line holds two citations, and the second already cites Lamport:
@@ -157,7 +168,9 @@ test.describe("accessibility", () => {
     );
 
     await page.getByTestId("editor-content").fill("typed");
-    await expect(page.getByTestId("save-status")).toContainText("Saved at");
+    await expect(page.getByTestId("save-status")).toContainText(
+      "Saved · revision",
+    );
   });
 
   test("focus lands somewhere after the file it was on is deleted", async ({

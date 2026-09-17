@@ -20,7 +20,7 @@ pnpm dev            # Vite's default http://localhost:5173, or the next free por
 projects, the editor, the file list, rename, the outline, project health,
 completion, gutter marks from the index, asset views, the table and citation
 editors and the ZIP round trip all work without the engine, because none of
-them needs it. `pnpm test` runs 309 unit tests; `pnpm test:e2e` runs 43 and
+them needs it. `pnpm test` runs 309 unit tests; `pnpm test:e2e` runs 45 and
 **skips 15**, each naming what is
 missing rather than failing.
 
@@ -40,13 +40,13 @@ pnpm spike:brotli --write                # optional: pre-compresses engine, boot
 
 The second step is the one that matters: the first only unpacks the TeX Live
 tree, and nothing compiles until the boot set exists. After it, `pnpm test:e2e`
-runs all 58.
+runs all 60.
 
 ### Everyday
 
 | Command | What it does |
 | --- | --- |
-| `pnpm dev` | The app, plus the Phase 0 spike panels below it |
+| `pnpm dev` | The app. The Phase 0 spike panels are on their own route at `?harness=1`, which is how the spike scripts reach them |
 | `pnpm test` | Unit tests, ~3 s |
 | `pnpm test:e2e` | Builds, serves on 4173, drives Chromium |
 | `pnpm lint` / `pnpm lint:fix` | Biome, which also formats |
@@ -80,10 +80,17 @@ transactional autosave, ZIP import and export, an error boundary and design
 tokens. Every exit criterion has a test that runs against real storage rather
 than a stand-in; `PLAN.md` 14 names which test shows which criterion.
 
-**Phase 3 — authoring: begun.** CodeMirror 6 replaced the textarea (line
+**Phase 3 — authoring: begun.** The app is laid out as the desktop editor is:
+`src/app/workspace/` holds the activity rail, the side panel (files, outline,
+project health), the editor pane, the PDF preview pane and the status bar, in
+`react-resizable-panels` splits, with `src/app/projects/ProjectPicker.tsx` as
+the screen when nothing is open. It is built on desktop's theme
+(`src/app/styles/globals.css`) and its shadcn/Radix primitives (`src/ui/`),
+both copied from `opal-editor` under MIT and recorded in the licence inventory;
+`src/app/styles/harness.css` is what the old page-styled spike panels still
+use, scoped to `.harness-page`. CodeMirror 6 is the editing surface (line
 numbers, undo, `stex` highlighting, one instance per document so undo stops at
-the file), and a flat file list does add, switch and delete — which is what
-makes the compile path's multi-file support reachable at all.
+the file).
 
 On top of that, `src/core/latex/` holds a semantic index: a character scanner
 per file, then the cross-file questions. It feeds an outline, a project-health

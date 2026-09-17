@@ -1,5 +1,6 @@
 import { createReadStream, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { type Connect, defineConfig, type Plugin } from "vite";
 // @siglum/engine pulls in blake3-wasm, which uses the ESM-WASM integration
@@ -158,7 +159,7 @@ function serveEngineAssets(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [react(), wasm(), serveEngineAssets()],
+  plugins: [react(), tailwindcss(), wasm(), serveEngineAssets()],
   resolve: {
     alias: [
       {
