@@ -112,8 +112,12 @@ const REFERENCE_COMMANDS = new Set([
  *
  * natbib, biblatex and plain LaTeX spell this eleven ways between them, and a
  * document that uses `\textcite` is not less cited than one using `\cite`.
+ *
+ * Exported so the citation editor recognises exactly what the index counts:
+ * two lists of the same thing is how `needsBibtex` and the index came to
+ * disagree about `\parencite`.
  */
-const CITATION_COMMANDS = new Set([
+export const CITATION_COMMANDS: ReadonlySet<string> = new Set([
   "cite",
   "citep",
   "citet",

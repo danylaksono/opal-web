@@ -507,3 +507,185 @@ test.describe("table editor", () => {
     await expect(page.getByTestId("table-refused")).toContainText("comments");
   });
 });
+
+/**
+ * The citation picker, driven the way a writer uses it: by what they remember
+ * about a work rather than by its key.
+ */
+test.describe("citation editor", () => {
+  const BIB = [
+    "@book{knuth1984, author = {Knuth, Donald E.}, title = {The {\\TeX}book}, year = {1984}}",
+    '@article{godel1931, author = {G{\\"o}del, Kurt}, title = {On Formally Undecidable Propositions}, year = {1931}}',
+    "@book{lamport1994, author = {Lamport, Leslie}, title = {{\\LaTeX}: A Document Preparation System}, year = {1994}}",
+    "",
+  ].join("\n");
+
+  test.beforeEach(async ({ page }) => {
+    await page.goto("/");
+    await page.evaluate(async () => {
+      const root = await navigator.storage.getDirectory();
+      for await (const [name] of (
+        root as unknown as AsyncIterable<[string, FileSystemHandle]>
+      )[Symbol.asyncIterator]()) {
+        await root.removeEntry(name, { recursive: true });
+      }
+      await new Promise<void>((resolve) => {
+        const deleting = indexedDB.deleteDatabase("opal-projects");
+        deleting.onsuccess = () => resolve();
+        deleting.onerror = () => resolve();
+        deleting.onblocked = () => resolve();
+      });
+    });
+    await page.goto("/");
+    await page.getByTestId("project-title").fill("Citations");
+    await page.getByTestId("create-project").click();
+    await page.getByTestId("open-project").first().click();
+    await expect(page.getByTestId("editor")).toBeVisible();
+
+    await page.getByTestId("new-file-name").fill("refs.bib");
+    await page.getByTestId("create-file").click();
+    await expect(
+      page.locator('[data-testid="file-open"][data-path="refs.bib"]'),
+    ).toHaveAttribute("aria-current", "true");
+    await page.getByTestId("editor-content").fill(BIB);
+    await page
+      .locator('[data-testid="file-open"][data-path="main.tex"]')
+      .click();
+    // Waited for: the switch reads storage first, and filling before it lands
+    // writes the test's "main.tex" into the bibliography's editor instead.
+    await expect(
+      page.locator('[data-testid="file-open"][data-path="main.tex"]'),
+    ).toHaveAttribute("aria-current", "true");
+  });
+
+  /**
+   * Put the cursor inside the citation at the end of a line.
+   *
+   * A click lands in the middle of the line's box, which spans the editor's
+   * width — past the end of a short line, and so outside its `\cite`.
+   */
+  async function intoCitation(page: Page, text: string) {
+    await page.locator(".cm-line", { hasText: text }).click();
+    await page.keyboard.press("End");
+    await page.keyboard.press("ArrowLeft");
+    await page.keyboard.press("ArrowLeft");
+  }
+
+  /** The document as the editor holds it, one line per CodeMirror line. */
+  async function sourceOf(page: Page): Promise<string> {
+    return (await page.locator(".cm-line").allInnerTexts())
+      .map((line) => line.replace(/\n$/, ""))
+      .join("\n");
+  }
+
+  test("finds a work by author, adds it, and undoes in one step", async ({
+    page,
+  }) => {
+    const editor = page.getByTestId("editor-content");
+    await editor.fill("As shown by \\cite{knuth1984}.");
+    await intoCitation(page, "knuth");
+
+    await expect(page.getByTestId("citation-open")).toHaveText("Edit citation");
+    await page.getByTestId("citation-open").click();
+    const picker = page.getByTestId("citation-editor");
+    // Straight into the search, which is what the picker is for.
+    await expect(page.getByTestId("citation-search")).toBeFocused();
+    await expect(picker.getByTestId("citation-selected")).toContainText(
+      "Knuth (1984). The TeXbook",
+    );
+
+    // Accents folded: nobody types the umlaut to find Gödel.
+    await page.keyboard.type("godel");
+    await expect(page.getByTestId("citation-count")).toHaveText("1 match");
+    await page
+      .locator('[data-testid="citation-result"][data-key="godel1931"]')
+      .check();
+    await page.getByTestId("citation-apply").click();
+
+    await expect(picker).toHaveCount(0);
+    await expect
+      .poll(() => sourceOf(page))
+      .toBe("As shown by \\cite{knuth1984,godel1931}.");
+
+    await page.keyboard.press("Control+z");
+    await expect
+      .poll(() => sourceOf(page))
+      .toBe("As shown by \\cite{knuth1984}.");
+  });
+
+  test("Enter adds the top match, or a key the bibliography lacks", async ({
+    page,
+  }) => {
+    const editor = page.getByTestId("editor-content");
+    await editor.fill("See ");
+    await editor.click();
+    await page.keyboard.press("Control+End");
+
+    await expect(page.getByTestId("citation-open")).toHaveText(
+      "Insert citation",
+    );
+    await page.getByTestId("citation-open").click();
+    await page.keyboard.type("1994 lamport");
+    await page.keyboard.press("Enter");
+    // A key from a `.bib` outside the project: kept, and said to be missing.
+    await page.keyboard.type("external2020");
+    await expect(page.getByTestId("citation-count")).toContainText(
+      "Enter adds it as a key",
+    );
+    await page.keyboard.press("Enter");
+    await expect(page.getByTestId("citation-selected")).toContainText(
+      "not in this project's bibliography",
+    );
+    await page.keyboard.press("Control+Enter");
+
+    await expect
+      .poll(() => sourceOf(page))
+      .toBe("See \\cite{lamport1994,external2020}");
+    // Left on the citation it wrote, so it can be reopened at once.
+    await expect(page.getByTestId("citation-open")).toHaveText("Edit citation");
+  });
+
+  test("keeps both notes, and Escape leaves the document alone", async ({
+    page,
+  }) => {
+    const editor = page.getByTestId("editor-content");
+    const source = "\\usepackage{natbib}\nSee \\citep[see][p.~4]{knuth1984}.";
+    await editor.fill(source);
+    await intoCitation(page, "p.~4");
+    await page.getByTestId("citation-open").click();
+
+    await expect(page.getByTestId("citation-prenote")).toHaveValue("see");
+    await expect(page.getByTestId("citation-postnote")).toHaveValue("p.~4");
+    // natbib is loaded, so its commands are offered alongside the one in use.
+    await expect(
+      page.getByTestId("citation-command").locator("option"),
+    ).toContainText(["\\cite", "\\citep", "\\citet"]);
+
+    await page.getByTestId("citation-postnote").fill("ch.~2");
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("citation-editor")).toHaveCount(0);
+    await expect(editor).toBeFocused();
+    expect(await sourceOf(page)).toBe(source);
+  });
+
+  test("refuses to write over a citation that moved while open", async ({
+    page,
+  }) => {
+    const editor = page.getByTestId("editor-content");
+    await editor.fill("First.\nSee \\cite{knuth1984}.");
+    await intoCitation(page, "knuth");
+    await page.getByTestId("citation-open").click();
+    await page.keyboard.type("lamport");
+    await page.keyboard.press("Enter");
+
+    await page.locator(".cm-line", { hasText: "First." }).click();
+    await page.keyboard.press("Home");
+    await page.keyboard.type("Very ");
+    await page.getByTestId("citation-apply").click();
+
+    await expect(page.getByTestId("projects-error")).toContainText(
+      "citation changed in the source",
+    );
+    expect(await sourceOf(page)).toBe("Very First.\nSee \\cite{knuth1984}.");
+  });
+});

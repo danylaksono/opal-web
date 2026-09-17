@@ -14,11 +14,21 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AssetView } from "@/app/editor/AssetView";
+import { CitationEditor } from "@/app/editor/CitationEditor";
 import type { EditorProblem } from "@/app/editor/CodeEditor";
 import { CodeEditor } from "@/app/editor/CodeEditor";
 import { TableEditor } from "@/app/editor/TableEditor";
 import { Workspace } from "@/app/workspace/Workspace";
 import type { CompileDiagnostic } from "@/core/compiler/types";
+import {
+  type BibEntry,
+  type Citation,
+  citationAt,
+  citationCommands,
+  formatCitation,
+  newCitation,
+  readBibliography,
+} from "@/core/latex/citation";
 import { buildProjectIndex } from "@/core/latex/project-index";
 import {
   formatTabular,
@@ -192,15 +202,22 @@ export function ProjectsPanel({
   /** The open file's cursor, as an offset, for the structured editors. */
   const [cursor, setCursor] = useState(0);
   /**
-   * The table being edited in the grid, and the file it came from.
+   * The structured editor that is open, if any, and the file it came from.
    *
-   * The path is kept so that switching files closes the grid rather than
-   * writing one file's table into another.
+   * One at a time: two editors each holding a span of the same document would
+   * each invalidate the other's on Apply. The path is kept so that switching
+   * files closes the editor rather than writing one file's span into another.
    */
-  const [tableEdit, setTableEdit] = useState<{
-    path: ProjectPath;
-    table: Tabular;
-  } | null>(null);
+  const [structured, setStructured] = useState<
+    | { kind: "table"; path: ProjectPath; table: Tabular }
+    | {
+        kind: "citation";
+        path: ProjectPath;
+        citation: Citation;
+        entries: BibEntry[];
+      }
+    | null
+  >(null);
   /** A span replacement for the editor to apply, with a nonce like `reveal`. */
   const [edit, setEdit] = useState<{
     from: number;
@@ -576,32 +593,60 @@ export function ProjectsPanel({
     [editing, cursor],
   );
 
+  /** The citation command under the cursor, on the same terms as the table. */
+  const citationHere = useMemo(
+    () =>
+      editing && !editing.asset ? citationAt(editing.content, cursor) : null,
+    [editing, cursor],
+  );
+
+  /** Every package any file loads, for which citation commands to offer. */
+  const packages = useMemo(
+    () =>
+      new Set(
+        [...(index?.facts.values() ?? [])].flatMap((facts) => facts.packages),
+      ),
+    [index],
+  );
+
   /**
-   * Write the grid back into the document.
+   * Write a structured editor's result back into the document.
    *
    * Refused if the span no longer holds what was read: the source stayed
-   * editable while the grid was open, and replacing a span that has moved would
-   * overwrite whatever now occupies it.
+   * editable while the editor was open, and replacing a span that has moved
+   * would overwrite whatever now occupies it.
    */
-  const applyTable = useCallback(
-    (table: Tabular) => {
+  const applySpan = useCallback(
+    (
+      span: { from: number; to: number; original: string },
+      insert: string,
+      what: string,
+    ) => {
       if (!editing) return;
-      const current = editing.content.slice(table.from, table.to);
-      if (current !== table.original) {
+      const current = editing.content.slice(span.from, span.to);
+      if (current !== span.original) {
         throw new Error(
-          "The table changed in the source while the grid was open; reopen it to edit the current version",
+          `The ${what} changed in the source while its editor was open; reopen it to edit the current version`,
         );
       }
       setEdit((previous) => ({
-        from: table.from,
-        to: table.to,
-        insert: formatTabular(table),
+        from: span.from,
+        to: span.to,
+        insert,
         nonce: (previous?.nonce ?? 0) + 1,
       }));
-      setTableEdit(null);
+      setStructured(null);
     },
     [editing],
   );
+
+  const closeStructured = useCallback(() => {
+    setStructured(null);
+    // Back to the source, where the editor was opened from.
+    document
+      .querySelector<HTMLElement>('[data-testid="editor-content"]')
+      ?.focus();
+  }, []);
 
   /** Open a file if it is not already open, then put the cursor on a line. */
   const goTo = useCallback(
@@ -955,9 +1000,10 @@ export function ProjectsPanel({
               <button
                 type="button"
                 data-testid="table-open"
-                disabled={tableHere?.ok === false || tableEdit !== null}
+                disabled={tableHere?.ok === false || structured !== null}
                 onClick={() => {
-                  setTableEdit({
+                  setStructured({
+                    kind: "table",
                     path: editing.path,
                     table: tableHere?.ok
                       ? tableHere.table
@@ -967,30 +1013,74 @@ export function ProjectsPanel({
               >
                 {tableHere ? "Edit table" : "Insert table"}
               </button>{" "}
+              <button
+                type="button"
+                data-testid="citation-open"
+                disabled={citationHere?.ok === false || structured !== null}
+                onClick={() => {
+                  setStructured({
+                    kind: "citation",
+                    path: editing.path,
+                    citation: citationHere?.ok
+                      ? citationHere.citation
+                      : newCitation(cursor),
+                    // Read now rather than kept in the index: fields cost more
+                    // than keys, and only this needs them. From the editor's
+                    // sources, so an entry typed a moment ago is findable.
+                    entries: readBibliography(
+                      Object.entries(editing.sources).map(
+                        ([path, content]) => ({
+                          path: path as ProjectPath,
+                          content,
+                        }),
+                      ),
+                    ),
+                  });
+                }}
+              >
+                {citationHere ? "Edit citation" : "Insert citation"}
+              </button>{" "}
               {tableHere?.ok === false && (
                 <span data-testid="table-refused">
                   This {tableHere.environment} cannot be edited as a grid:{" "}
                   {tableHere.reason}.
                 </span>
               )}
+              {citationHere?.ok === false && (
+                <span data-testid="citation-refused">
+                  This citation cannot be edited yet: {citationHere.reason}.
+                </span>
+              )}
             </p>
           )}
-          {tableEdit && tableEdit.path === editing.path && (
+          {structured?.kind === "table" && structured.path === editing.path && (
             <TableEditor
-              key={`${tableEdit.table.from}:${tableEdit.table.original}`}
-              table={tableEdit.table}
+              key={`${structured.table.from}:${structured.table.original}`}
+              table={structured.table}
               onApply={(table) => {
-                void act(async () => applyTable(table));
+                void act(async () =>
+                  applySpan(table, formatTabular(table), "table"),
+                );
               }}
-              onCancel={() => {
-                setTableEdit(null);
-                // Back to the source, where the grid was opened from.
-                document
-                  .querySelector<HTMLElement>('[data-testid="editor-content"]')
-                  ?.focus();
-              }}
+              onCancel={closeStructured}
             />
           )}
+          {structured?.kind === "citation" &&
+            structured.path === editing.path && (
+              <CitationEditor
+                key={`${structured.citation.from}:${structured.citation.original}`}
+                citation={structured.citation}
+                entries={structured.entries}
+                commands={citationCommands(packages)}
+                prenotes={packages.has("natbib") || packages.has("biblatex")}
+                onApply={(citation) => {
+                  void act(async () =>
+                    applySpan(citation, formatCitation(citation), "citation"),
+                  );
+                }}
+                onCancel={closeStructured}
+              />
+            )}
           {/*
             A binary file never reaches the text editor. Decoding one as
             UTF-8 to show it would also be what autosave writes back.

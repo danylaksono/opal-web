@@ -114,6 +114,29 @@ test.describe("accessibility", () => {
     expect(await seriousViolations(page)).toEqual([]);
   });
 
+  test("the citation editor has no serious violations", async ({ page }) => {
+    await page.getByTestId("project-title").fill("Accessible citation");
+    await page.getByTestId("project-template").selectOption("paper");
+    await page.getByTestId("create-project").click();
+    await page.getByTestId("open-project").first().click();
+    // The line holds two citations, and the second already cites Lamport:
+    // go to its start and step into the first.
+    await page.locator(".cm-line", { hasText: "this~" }).click();
+    await page.keyboard.press("Home");
+    for (let step = 0; step < 7; step += 1) {
+      await page.keyboard.press("ArrowRight");
+    }
+    await expect(page.getByTestId("citation-open")).toHaveText("Edit citation");
+    await page.getByTestId("citation-open").click();
+    await expect(page.getByTestId("citation-editor")).toBeVisible();
+
+    // Every result is a checkbox named by its entry, not a bare tick box.
+    await expect(
+      page.getByRole("checkbox", { name: /lamport1994.*Lamport \(1994\)/ }),
+    ).toBeVisible();
+    expect(await seriousViolations(page)).toEqual([]);
+  });
+
   test("save and compile status are announced, not just shown", async ({
     page,
   }) => {

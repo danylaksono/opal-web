@@ -160,7 +160,22 @@ hundred compiles rather than every one, at 0.9 s each.
   conditional: if the table's source changed while the grid was open, the write
   is refused, not made at the old offsets. Every table in the corpus is read and
   written back cell for cell in the unit suite.
-- 282 unit tests and 52 Playwright e2e tests. The e2e suite is the part that
+- **A citation editor.** With the cursor in any of the fourteen citation
+  commands the index counts, the keys open as a list with a search over the
+  bibliography: author, a title word, a year or part of a key, accents folded,
+  so "godel" finds `G{\"o}del`. It reads `.bib` fields and hand-written
+  `\bibitem` text alike, offers only the commands the loaded packages define,
+  and keeps prenotes and postnotes, writing `[see][]` when natbib needs the
+  empty one. A key the project's bibliography lacks is kept and labelled, not
+  dropped. Apply is conditional in the same way as the table's. In the unit
+  suite it has to agree with the index on every corpus project's keys, and
+  every corpus citation has to come back from it unchanged.
+- **Two editor defects the pickers found.** A cap on the editor's height sat on
+  the box around CodeMirror, making a second scroll region that axe reports as
+  unreachable by keyboard; nothing had tested a document taller than the box.
+  And a structured edit focused the editor after changing it, which let the
+  browser reset the cursor to the start of the file.
+- 309 unit tests and 58 Playwright e2e tests. The e2e suite is the part that
   matters here: four defects found during Phase 2 — the default font path, a
   boot package with no `ls-R`, a stale pre-compressed asset, and cancellation
   returning after 180 s — would each have passed every test that existed before
@@ -191,8 +206,8 @@ hundred compiles rather than every one, at 0.9 s each.
    to bite a 32 MB engine. **Needs a different machine**: the container this was
    built in cannot reach the Playwright browser CDN, so Chromium is the only
    engine installable on it.
-2. What Phase 3 still owes: the math, citation and figure structured editors
-   (the table editor is in), and an accessibility check a
+2. What Phase 3 still owes: the math and figure structured editors (tables
+   and citations are in), and an accessibility check a
    machine cannot do — axe and the keyboard tests say the mechanics are right,
    but nobody has driven this with a screen reader, and that is a different kind
    of evidence.
@@ -1426,9 +1441,9 @@ Exit criteria:
 > outline, project health, completion for labels and citation keys, and gutter
 > marks from both the index and the engine's log; images and PDFs open as
 > themselves; five templates start a project as something other than blank; and
-> the accessibility pass has a gate in the e2e suite; and the table editor
-> is the first structured editor. Not done: the math, citation and figure
-> editors, and a real screen-reader session, which no automated check
+> the accessibility pass has a gate in the e2e suite; and tables and
+> citations have structured editors. Not done: the math and figure editors,
+> and a real screen-reader session, which no automated check
 > substitutes for. The editor is
 > CodeMirror configured fresh rather than ported — desktop Opal's configuration
 > is in a repository this one cannot see.

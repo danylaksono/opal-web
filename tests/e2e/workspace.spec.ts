@@ -417,6 +417,50 @@ test.describe("compile and preview", () => {
     );
   });
 
+  test("a citation picked from the bibliography compiles into it", async ({
+    page,
+  }) => {
+    await page.getByTestId("project-title").fill("Cited");
+    await page.getByTestId("project-template").selectOption("paper");
+    await page.getByTestId("create-project").click();
+    await expect(page.getByTestId("project-row")).toBeVisible();
+    await page.getByTestId("open-project").first().click();
+    await expect(page.getByTestId("workspace")).toBeVisible();
+
+    // The template's first citation cites only Knuth; add Lamport through the
+    // picker, and the bibliography that compiles must list both.
+    // The line holds two citations, and the second already cites Lamport:
+    // go to its start and step into the first.
+    await page.locator(".cm-line", { hasText: "this~" }).click();
+    await page.keyboard.press("Home");
+    for (let step = 0; step < 7; step += 1) {
+      await page.keyboard.press("ArrowRight");
+    }
+    await expect(page.getByTestId("citation-open")).toHaveText("Edit citation");
+    await page.getByTestId("citation-open").click();
+    await page.keyboard.type("lamport");
+    await page.keyboard.press("Enter");
+    await page.getByTestId("citation-apply").click();
+    await expect(page.getByTestId("editor-content")).toContainText(
+      "this~\\cite{knuth1984,lamport1994}",
+    );
+
+    await page.getByTestId("compile-button").click();
+    await expect(page.getByTestId("workspace-status")).toHaveAttribute(
+      "data-status",
+      "done",
+      { timeout: 280_000 },
+    );
+    await expect(page.getByTestId("workspace-status")).toContainText(
+      "Compiled",
+    );
+    await expect(page.getByTestId("preview")).toHaveAttribute(
+      "data-status",
+      "ready",
+      { timeout: 60_000 },
+    );
+  });
+
   test("every template compiles", async ({ page }) => {
     // A template is the first LaTeX a user sees and the first they copy, so one
     // that does not compile is worse than no template at all. The unit tests

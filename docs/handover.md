@@ -18,9 +18,10 @@ pnpm dev            # Vite's default http://localhost:5173, or the next free por
 
 **That is already the whole product except compiling.** Creating and opening
 projects, the editor, the file list, rename, the outline, project health,
-completion, gutter marks from the index, asset views, the table editor and the
-ZIP round trip all work without the engine, because none of them needs it.
-`pnpm test` runs 282 unit tests; `pnpm test:e2e` runs 39 and **skips 13**, each naming what is
+completion, gutter marks from the index, asset views, the table and citation
+editors and the ZIP round trip all work without the engine, because none of
+them needs it. `pnpm test` runs 309 unit tests; `pnpm test:e2e` runs 43 and
+**skips 15**, each naming what is
 missing rather than failing.
 
 `OPAL_CHROMIUM_PATH` is for containers that cannot reach Playwright's browser
@@ -39,7 +40,7 @@ pnpm spike:brotli --write                # optional: pre-compresses engine, boot
 
 The second step is the one that matters: the first only unpacks the TeX Live
 tree, and nothing compiles until the boot set exists. After it, `pnpm test:e2e`
-runs all 52.
+runs all 58.
 
 ### Everyday
 
@@ -95,9 +96,11 @@ diagnostics are marked in the editor's gutter; `renameFile` is on the port so a
 rename is one revision rather than a write and a delete. Images and PDFs open as
 assets rather than as mangled text — which is also what stops autosave writing a
 UTF-8-decoded PNG back over the original. `tests/e2e/accessibility.spec.ts` runs
-axe over the product and drives the keyboard paths it cannot see. The table editor
-(`src/core/latex/tabular.ts`, `src/app/editor/TableEditor.tsx`) is the first
-structured editor. Outstanding: the math, citation and figure editors, and a
+axe over the product and drives the keyboard paths it cannot see. The structured
+editors are a pure reader/writer in `src/core/latex/` (`tabular.ts`,
+`citation.ts`) and a form in `src/app/editor/`, written back through one
+conditional span replacement in `ProjectsPanel`. Outstanding: the math and
+figure editors, and a
 screen-reader session, which no automated check
 substitutes for.
 

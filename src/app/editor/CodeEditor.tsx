@@ -230,12 +230,26 @@ export function CodeEditor({
           ]),
           StreamLanguage.define(stex),
           EditorView.lineWrapping,
+          // The height cap belongs on the editor, so CodeMirror's own scroller
+          // does the scrolling. On the host it wrapped a second scroll region
+          // around the first — one axe reports as unreachable by keyboard
+          // (`scrollable-region-focusable`), and one that also defeats
+          // CodeMirror's scroll-into-view, which measures its own scroller.
+          EditorView.theme({
+            "&": { maxHeight: "24rem" },
+            ".cm-scroller": { overflow: "auto" },
+          }),
           // On the content element rather than the host: a test — and a screen
           // reader — wants the thing that actually holds the text and takes the
           // typing, not the box around it.
           EditorView.contentAttributes.of({
             "data-testid": "editor-content",
             "aria-label": label,
+            // Already focusable as a contenteditable, so this adds no tab stop.
+            // It is said explicitly because axe does not count contenteditable
+            // as focusable, and reports the scroller around it as a region a
+            // keyboard cannot reach once a document outgrows the editor.
+            tabindex: "0",
           }),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) notify.current(update.state.doc.toString());
@@ -338,6 +352,11 @@ export function CodeEditor({
     // earlier document, and the caller checks it still holds what it expects.
     const from = Math.min(Math.max(edit.from, 0), length);
     const to = Math.min(Math.max(edit.to, from), length);
+    // Focused first. A view without focus does not write its selection to the
+    // DOM, so focusing afterwards let the browser put the caret at the start
+    // of the content, and CodeMirror adopted it: the cursor jumped to offset 0
+    // and "Edit citation" read "Insert citation" straight after inserting one.
+    instance.focus();
     instance.dispatch({
       changes: { from, to, insert: edit.insert },
       // On the first character written rather than before a leading line
@@ -348,7 +367,6 @@ export function CodeEditor({
       scrollIntoView: true,
       userEvent: "input.structured",
     });
-    instance.focus();
   }, [edit]);
 
   return (
@@ -357,8 +375,6 @@ export function CodeEditor({
       data-testid="editor-host"
       style={{
         border: "1px solid var(--line, #ccc)",
-        maxHeight: "24rem",
-        overflow: "auto",
         fontSize: "0.9rem",
       }}
     />
