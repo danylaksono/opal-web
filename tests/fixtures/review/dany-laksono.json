@@ -1,0 +1,95 @@
+{
+  "version": 2,
+  "author": "Dany Laksono",
+  "annotations": [
+    {
+      "id": "c1a7f000-0000-4000-8000-000000000001",
+      "kind": "comment",
+      "documentRoot": "main.tex",
+      "author": "Dany Laksono",
+      "body": "Does this claim need a citation?",
+      "status": "open",
+      "anchor": {
+        "kind": "text",
+        "page": 3,
+        "x": 108.5,
+        "y": 244.25,
+        "width": 320,
+        "height": 14,
+        "selectedText": "the estimator remains unbiased",
+        "source": {
+          "file": "sections/method.tex",
+          "line": 42,
+          "column": 4
+        }
+      },
+      "tags": [
+        "cite-check"
+      ],
+      "replies": [
+        {
+          "id": "r1",
+          "author": "Danylaksono",
+          "body": "Added Efron 1979.",
+          "createdAt": "2026-08-02T09:15:00.000Z"
+        }
+      ],
+      "createdAt": "2026-08-01T10:00:00.000Z",
+      "updatedAt": "2026-08-02T09:15:00.000Z"
+    },
+    {
+      "id": "c1a7f000-0000-4000-8000-000000000002",
+      "kind": "highlight",
+      "documentRoot": "main.tex",
+      "author": "Dany Laksono",
+      "body": "",
+      "status": "resolved",
+      "anchor": {
+        "kind": "text",
+        "page": 5,
+        "x": 72,
+        "y": 500,
+        "width": 200,
+        "height": 12,
+        "selectedText": "regularity conditions"
+      },
+      "color": "yellow",
+      "replies": [],
+      "createdAt": "2026-08-01T11:00:00.000Z",
+      "updatedAt": "2026-08-01T11:00:00.000Z"
+    },
+    {
+      "id": "c1a7f000-0000-4000-8000-000000000003",
+      "kind": "drawing",
+      "documentRoot": "main.tex",
+      "author": "Dany Laksono",
+      "body": "",
+      "status": "open",
+      "anchor": {
+        "kind": "point",
+        "page": 7,
+        "x": 150,
+        "y": 300,
+        "width": 60,
+        "height": 30
+      },
+      "drawing": {
+        "tool": "arrow",
+        "points": [
+          {
+            "x": 150,
+            "y": 300
+          },
+          {
+            "x": 210,
+            "y": 330
+          }
+        ],
+        "strokeWidth": 2
+      },
+      "replies": [],
+      "createdAt": "2026-08-01T12:00:00.000Z",
+      "updatedAt": "2026-08-01T12:00:00.000Z"
+    }
+  ]
+}

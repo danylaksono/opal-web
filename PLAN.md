@@ -73,7 +73,12 @@ browser make impossible, expensive, or merely different?**
    promise anything.
 2. **Review annotations.** The largest port, and the one ADR-004 was decided
    for. Keep desktop's file shape, so interoperability is testable against a
-   shared fixture rather than asserted.
+   shared fixture rather than asserted. **Begun** (ADR-010): the data model,
+   the per-author `review/*.json` shape, and the four-state re-anchoring
+   check are ported and tested against a fixture matching desktop's exact
+   bytes. Still open: a `searchPage` message on the PDF worker protocol,
+   SyncTeX forward search bound to `forwardSearch`, and every UI piece —
+   comments panel, gutter marks, drawing overlay, PDF-side selection.
 3. **History snapshots**, after an ADR on whether they travel with a ZIP.
 4. **SyncTeX**: one document, one known line, one click tells us whether the
    offsets are usable. It pays twice, because a review anchor carries a source
