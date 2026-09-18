@@ -17,6 +17,8 @@
  * replacement of one span of the document.
  */
 
+import { maskComments } from "./comments";
+
 /** Environments laid out as a column spec followed by `&`/`\\` rows. */
 const ENVIRONMENTS = ["tabular", "tabular*", "tabularx", "array"] as const;
 
@@ -72,36 +74,6 @@ export interface Tabular {
 export type TabularLookup =
   | { ok: true; table: Tabular }
   | { ok: false; environment: string; reason: string };
-
-/**
- * Blank out comments, keeping every offset where it was.
- *
- * A `%` opens a comment and `\%` does not; an escape consumes the character
- * after it, which is also what stops `\\%` being misread — that is a line break
- * followed by a comment.
- */
-function maskComments(source: string): string {
-  let masked = "";
-  let index = 0;
-  while (index < source.length) {
-    const character = source[index];
-    if (character === "\\") {
-      masked += source.slice(index, index + 2);
-      index += 2;
-      continue;
-    }
-    if (character === "%") {
-      const end = source.indexOf("\n", index);
-      const stop = end === -1 ? source.length : end;
-      masked += " ".repeat(stop - index);
-      index = stop;
-      continue;
-    }
-    masked += character;
-    index += 1;
-  }
-  return masked;
-}
 
 /** Index just past the balanced group opening at `at`, or -1. */
 function closeGroup(source: string, at: number, open = "{", close = "}") {

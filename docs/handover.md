@@ -18,11 +18,10 @@ pnpm dev            # Vite's default http://localhost:5173, or the next free por
 
 **That is already the whole product except compiling.** Creating and opening
 projects, the editor, the file list, rename, the outline, project health,
-completion, gutter marks from the index, asset views, the table and citation
-editors and the ZIP round trip all work without the engine, because none of
-them needs it. `pnpm test` runs 309 unit tests; `pnpm test:e2e` runs 45 and
-**skips 15**, each naming what is
-missing rather than failing.
+completion, gutter marks from the index, asset views, the table, citation,
+figure and maths editors and the ZIP round trip all work without the engine, because none
+of them needs it. `pnpm test` runs 343 unit tests; `pnpm test:e2e` runs 53 and
+**skips 15**, each naming what is missing rather than failing.
 
 `OPAL_CHROMIUM_PATH` is for containers that cannot reach Playwright's browser
 CDN. Leave it unset locally — unset means "let Playwright decide", which is what
@@ -40,7 +39,7 @@ pnpm spike:brotli --write                # optional: pre-compresses engine, boot
 
 The second step is the one that matters: the first only unpacks the TeX Live
 tree, and nothing compiles until the boot set exists. After it, `pnpm test:e2e`
-runs all 60.
+runs all 68.
 
 ### Everyday
 
@@ -105,11 +104,11 @@ assets rather than as mangled text — which is also what stops autosave writing
 UTF-8-decoded PNG back over the original. `tests/e2e/accessibility.spec.ts` runs
 axe over the product and drives the keyboard paths it cannot see. The structured
 editors are a pure reader/writer in `src/core/latex/` (`tabular.ts`,
-`citation.ts`) and a form in `src/app/editor/`, written back through one
-conditional span replacement in `ProjectsPanel`. Outstanding: the math and
-figure editors, and a
-screen-reader session, which no automated check
-substitutes for.
+`citation.ts`, `figure.ts`, `math.ts`, sharing `comments.ts`) and a form in
+`src/app/editor/`, written back through one conditional span replacement in
+`WorkspaceScreen`. The table and citation editors regenerate what they write
+and refuse what they cannot represent; the figure editor edits in place,
+because a figure body holds things no form models. Outstanding: a screen-reader session, which no automated check substitutes for.
 
 `src/core/project/templates.ts` holds the five starting points a new project can
 take. They are data rather than files so they work offline and so the tests can

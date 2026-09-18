@@ -17,6 +17,14 @@ import {
   newCitation,
   readBibliography,
 } from "@/core/latex/citation";
+import {
+  type Figure,
+  figureAt,
+  isGraphic,
+  newFigure,
+  writeFigure,
+} from "@/core/latex/figure";
+import { type MathBlock, mathAt, newMath, writeMath } from "@/core/latex/math";
 import { buildProjectIndex } from "@/core/latex/project-index";
 import {
   formatTabular,
@@ -386,6 +394,19 @@ export function WorkspaceScreen({
     () => (open && !open.asset ? citationAt(open.content, cursor) : null),
     [open, cursor],
   );
+  const figureHere = useMemo(
+    () => (open && !open.asset ? figureAt(open.content, cursor) : null),
+    [open, cursor],
+  );
+  const mathHere = useMemo(
+    () => (open && !open.asset ? mathAt(open.content, cursor) : null),
+    [open, cursor],
+  );
+  /** The project's images, in the spelling the file list uses. */
+  const images = useMemo(
+    () => (open?.files ?? []).filter((path) => isGraphic(path)),
+    [open],
+  );
   const packages = useMemo(
     () =>
       new Set(
@@ -423,6 +444,46 @@ export function WorkspaceScreen({
       setStructured(null);
     },
     [open],
+  );
+
+  /**
+   * Write an image into the project, under `figures/`.
+   *
+   * The same conditional-write discipline as `createFile`: the write advances
+   * the revision, so the autosave is told rather than rebuilt, or the next
+   * keystroke would be reported as "this project changed elsewhere" — which it
+   * did, by us.
+   */
+  const importImage = useCallback(
+    async (file: File): Promise<ProjectPath> => {
+      const name = file.name.replace(/[^\w.-]+/g, "-");
+      const path = projectPath(`figures/${name}`);
+      if (open?.files.includes(path)) {
+        throw new Error(`${path} already exists in this project`);
+      }
+      await autosaveRef.current?.flush();
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const revision = await repository.writeFile(projectId, path, bytes);
+      const files = await repository.listFiles(projectId);
+      setOpen((previous) =>
+        previous
+          ? {
+              ...previous,
+              files,
+              // Held as an empty string, as `readSources` holds every binary
+              // file: the index resolves `\includegraphics` against the paths
+              // it knows, and a file missing from here is one it reports as
+              // missing from the project — on a figure that had just been
+              // imported and would have compiled.
+              sources: { ...previous.sources, [path]: "" },
+            }
+          : previous,
+      );
+      autosaveRef.current?.adopt(revision);
+      changed.current();
+      return path;
+    },
+    [open, repository, projectId],
   );
 
   const closeStructured = useCallback(() => {
@@ -529,6 +590,9 @@ export function WorkspaceScreen({
                   edit={edit}
                   tableHere={tableHere}
                   citationHere={citationHere}
+                  figureHere={figureHere}
+                  mathHere={mathHere}
+                  images={images}
                   structured={structured}
                   citationCommands={citationCommands(packages)}
                   prenotes={packages.has("natbib") || packages.has("biblatex")}
@@ -578,6 +642,24 @@ export function WorkspaceScreen({
                       ),
                     })
                   }
+                  onOpenFigure={() =>
+                    setStructured({
+                      kind: "figure",
+                      path: open.path,
+                      figure: figureHere?.ok
+                        ? figureHere.figure
+                        : newFigure(open.content, cursor),
+                    })
+                  }
+                  onOpenMath={() =>
+                    setStructured({
+                      kind: "math",
+                      path: open.path,
+                      math: mathHere?.ok
+                        ? mathHere.math
+                        : newMath(open.content, cursor),
+                    })
+                  }
                   onApplyTable={(table: Tabular) =>
                     void act(() =>
                       applySpan(table, formatTabular(table), "table"),
@@ -588,6 +670,15 @@ export function WorkspaceScreen({
                       applySpan(citation, formatCitation(citation), "citation"),
                     )
                   }
+                  onApplyFigure={(figure: Figure) =>
+                    void act(() =>
+                      applySpan(figure, writeFigure(figure), "figure"),
+                    )
+                  }
+                  onApplyMath={(math: MathBlock) =>
+                    void act(() => applySpan(math, writeMath(math), "maths"))
+                  }
+                  onImportImage={importImage}
                   onCancelStructured={closeStructured}
                 />
                 <button

@@ -13,6 +13,7 @@
  */
 
 import type { ProjectPath } from "@/core/project/ids";
+import { maskComments } from "./comments";
 import { CITATION_COMMANDS } from "./scan";
 
 export interface BibEntry {
@@ -374,18 +375,6 @@ export function citationCommands(packages: ReadonlySet<string>): string[] {
   }
   offered.push("nocite");
   return offered.filter((name) => CITATION_COMMANDS.has(name));
-}
-
-/**
- * Blank out comments, keeping offsets. The same rule as the table reader: `%`
- * opens one, `\%` does not.
- */
-function maskComments(source: string): string {
-  return source.replace(
-    /(\\.)|%[^\n]*/g,
-    (match, escaped: string | undefined) =>
-      escaped ? match : " ".repeat(match.length),
-  );
 }
 
 /**

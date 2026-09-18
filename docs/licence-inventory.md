@@ -20,6 +20,7 @@ Repeat this audit against pinned versions before any distribution.
 | react-resizable-panels | 3.0.6 | MIT | The draggable splits between side panel, editor and preview. |
 | class-variance-authority, clsx, tailwind-merge | 0.7.1 / 2.1.1 / 3.4.0 | Apache-2.0 / MIT / MIT | Class-name plumbing the copied primitives use. |
 | next-themes | 0.4.6 | MIT | Light/dark selection, as on desktop. Nothing of Next.js comes with it. |
+| katex | 0.16.28 | MIT | The maths form's preview, as on desktop. **Loaded on demand**, not with the application: a first load pays nothing, and opening the form fetches 265.5 kB of JS (77.6 kB gzipped) and 29.2 kB of CSS (8.0 kB), plus the woff2 faces the formula needs. The fonts are emitted into `dist/assets` and served from this origin — a CDN reference would break both ADR-001 and the offline claim. Measured on the build of 2026-09-18. |
 | zustand | 5.0.15 | MIT | Now used: `src/app/store/layout-store.ts` holds which panes are open, and persists them. |
 | @siglum/engine | 0.1.4 | MIT | ADR-003 spike. Runtime assets (busytex.wasm plus TeX Live 2025 bundles, 225 MB) are fetched separately and gitignored; they are third-party TeX Live content redistributed under their own per-package terms, which still needs auditing. |
 | blake3-wasm (via @siglum/engine) | 2.1.5 | Apache-2.0 OR MIT | Browser build is broken upstream and is aliased to a stub; see docs/adr/003. |

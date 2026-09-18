@@ -712,3 +712,314 @@ test.describe("citation editor", () => {
     expect(await sourceOf(page)).toBe("Very First.\nSee \\cite{knuth1984}.");
   });
 });
+
+/**
+ * The figure form (PLAN.md 14, Phase 3: structured editors).
+ *
+ * No engine here on purpose: whether `\includegraphics` of a PNG survives
+ * xelatex and xdvipdfmx is a separate claim from whether the form writes the
+ * figure a person asked for, and only the second one is this form's to keep.
+ */
+test.describe("figure editor", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto("/");
+    await page.evaluate(async () => {
+      const root = await navigator.storage.getDirectory();
+      for await (const [name] of (
+        root as unknown as AsyncIterable<[string, FileSystemHandle]>
+      )[Symbol.asyncIterator]()) {
+        await root.removeEntry(name, { recursive: true });
+      }
+      await new Promise<void>((resolve) => {
+        const deleting = indexedDB.deleteDatabase("opal-projects");
+        deleting.onsuccess = () => resolve();
+        deleting.onerror = () => resolve();
+        deleting.onblocked = () => resolve();
+      });
+    });
+    await page.goto("/");
+    await page.getByTestId("project-title").fill("Figures");
+    await page.getByTestId("create-project").click();
+    await page.getByTestId("open-project").first().click();
+    await expect(page.getByTestId("editor")).toBeVisible();
+  });
+
+  /** The document as the editor holds it, one line per CodeMirror line. */
+  async function sourceOf(page: Page): Promise<string> {
+    return (await page.locator(".cm-line").allInnerTexts())
+      .map((line) => line.replace(/\n$/, ""))
+      .join("\n");
+  }
+
+  test("imports an image and writes a figure that resolves", async ({
+    page,
+  }) => {
+    const editor = page.getByTestId("editor-content");
+    await editor.fill("Results below.\n");
+    await editor.click();
+    await page.keyboard.press("Control+End");
+
+    await expect(page.getByTestId("figure-open")).toHaveText("Insert figure");
+    await page.getByTestId("figure-open").click();
+
+    // A new project has no images at all, which is the ordinary case: the form
+    // has to be able to get one in, or its main control is permanently empty.
+    await page.getByTestId("figure-file").setInputFiles({
+      name: "plot.png",
+      mimeType: "image/png",
+      buffer: Buffer.from(PIXEL_PNG),
+    });
+    await expect(page.getByTestId("figure-image")).toContainText(
+      "figures/plot.png",
+    );
+
+    await page.getByTestId("figure-caption").fill("Throughput over time");
+    await page.getByTestId("figure-label").fill("fig:throughput");
+    await page.getByTestId("figure-apply").click();
+
+    await expect
+      .poll(() => sourceOf(page))
+      .toBe(
+        [
+          "Results below.",
+          // No blank line inserted: the cursor was already on an empty one,
+          // and a figure only breaks the line when it would land mid-sentence.
+          "\\begin{figure}[htbp]",
+          "  \\centering",
+          "  \\includegraphics[width=0.8\\linewidth]{figures/plot.png}",
+          "  \\caption{Throughput over time}",
+          "  \\label{fig:throughput}",
+          "\\end{figure}",
+        ].join("\n"),
+      );
+
+    // The path written is the path the file list uses, so the health check
+    // agrees with what compiles rather than reporting a missing graphic.
+    await page.getByTestId("panel-health").click();
+    await expect(page.getByTestId("project-health")).toContainText(
+      "Nothing to report",
+    );
+    await page.getByTestId("panel-files").click();
+    await expect(
+      page.locator('[data-testid="file-open"][data-path="figures/plot.png"]'),
+    ).toBeVisible();
+  });
+
+  test("edits a figure without disturbing what it does not model", async ({
+    page,
+  }) => {
+    const editor = page.getByTestId("editor-content");
+    await editor.fill(
+      [
+        "\\begin{figure}",
+        "  \\vspace{-2pt}",
+        "  \\includegraphics[width=0.4\\textwidth]{figures/old.pdf}",
+        "  \\caption{Old caption}",
+        "\\end{figure}",
+      ].join("\n"),
+    );
+    await page.locator(".cm-line", { hasText: "Old caption" }).click();
+
+    await expect(page.getByTestId("figure-open")).toHaveText("Edit figure");
+    await page.getByTestId("figure-open").click();
+    await expect(page.getByTestId("figure-caption")).toHaveValue("Old caption");
+    // The unit the author wrote, not the one the form would have chosen.
+    await expect(page.getByTestId("figure-editor")).toContainText(
+      "% of textwidth",
+    );
+
+    await page.getByTestId("figure-caption").fill("New caption");
+    await page.getByTestId("figure-label").fill("fig:new");
+    await page.getByTestId("figure-apply").click();
+
+    await expect
+      .poll(() => sourceOf(page))
+      .toBe(
+        [
+          "\\begin{figure}",
+          "  \\vspace{-2pt}",
+          "  \\includegraphics[width=0.4\\textwidth]{figures/old.pdf}",
+          "  \\caption{New caption}",
+          "  \\label{fig:new}",
+          "\\end{figure}",
+        ].join("\n"),
+      );
+  });
+
+  test("says why a figure cannot be edited as a form", async ({ page }) => {
+    const editor = page.getByTestId("editor-content");
+    await editor.fill(
+      [
+        "\\begin{figure}",
+        "  \\includegraphics{a.png}",
+        "  \\includegraphics{b.png}",
+        "  \\caption{Two panels}",
+        "\\end{figure}",
+      ].join("\n"),
+    );
+    await page.locator(".cm-line", { hasText: "Two panels" }).click();
+
+    await expect(page.getByTestId("figure-open")).toBeDisabled();
+    await expect(page.getByTestId("figure-refused")).toContainText("2 images");
+  });
+
+  test("Escape leaves the document alone", async ({ page }) => {
+    const source = [
+      "\\begin{figure}",
+      "  \\includegraphics{a.png}",
+      "  \\caption{Untouched}",
+      "\\end{figure}",
+    ].join("\n");
+    const editor = page.getByTestId("editor-content");
+    await editor.fill(source);
+    await page.locator(".cm-line", { hasText: "Untouched" }).click();
+    await page.getByTestId("figure-open").click();
+    await page.getByTestId("figure-caption").fill("Changed");
+    await page.keyboard.press("Escape");
+
+    await expect(page.getByTestId("figure-editor")).toHaveCount(0);
+    expect(await sourceOf(page)).toBe(source);
+  });
+});
+
+/**
+ * The maths form (PLAN.md 14, Phase 3: structured editors).
+ *
+ * The preview is the reason this form exists — TeX reports a mistake in a
+ * formula somewhere later, often in another paragraph — so these drive it as
+ * well as the source it writes. KaTeX arrives when the form first opens, not
+ * with the application.
+ */
+test.describe("math editor", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto("/");
+    await page.evaluate(async () => {
+      const root = await navigator.storage.getDirectory();
+      for await (const [name] of (
+        root as unknown as AsyncIterable<[string, FileSystemHandle]>
+      )[Symbol.asyncIterator]()) {
+        await root.removeEntry(name, { recursive: true });
+      }
+      await new Promise<void>((resolve) => {
+        const deleting = indexedDB.deleteDatabase("opal-projects");
+        deleting.onsuccess = () => resolve();
+        deleting.onerror = () => resolve();
+        deleting.onblocked = () => resolve();
+      });
+    });
+    await page.goto("/");
+    await page.getByTestId("project-title").fill("Maths");
+    await page.getByTestId("create-project").click();
+    await page.getByTestId("open-project").first().click();
+    await expect(page.getByTestId("editor")).toBeVisible();
+  });
+
+  /** The document as the editor holds it, one line per CodeMirror line. */
+  async function sourceOf(page: Page): Promise<string> {
+    return (await page.locator(".cm-line").allInnerTexts())
+      .map((line) => line.replace(/\n$/, ""))
+      .join("\n");
+  }
+
+  test("writes an equation, previews it, and labels it", async ({ page }) => {
+    const editor = page.getByTestId("editor-content");
+    await editor.fill("Einstein said:\n");
+    await editor.click();
+    await page.keyboard.press("Control+End");
+
+    await expect(page.getByTestId("math-open")).toHaveText("Insert maths");
+    await page.getByTestId("math-open").click();
+    await page.getByTestId("math-body").fill("E = mc^2");
+
+    // KaTeX renders the body into the preview: the picture of the formula is
+    // the thing a person checks before compiling.
+    await expect(
+      page.getByTestId("math-preview").locator(".katex"),
+    ).toBeVisible();
+    await page.getByTestId("math-label").fill("eq:einstein");
+    await page.getByTestId("math-apply").click();
+
+    await expect
+      .poll(() => sourceOf(page))
+      .toBe(
+        [
+          "Einstein said:",
+          "\\begin{equation}",
+          "  E = mc^2",
+          "  \\label{eq:einstein}",
+          "\\end{equation}",
+        ].join("\n"),
+      );
+
+    // And the label is a `\ref` target the moment it exists.
+    await page.keyboard.press("Control+End");
+    await editor.pressSequentially("\nSee \\ref{eq", { delay: 20 });
+    await expect(
+      page.locator(".cm-tooltip-autocomplete li").first(),
+    ).toHaveText("eq:einstein");
+  });
+
+  test("reads an equation back, and drops the label when unnumbered", async ({
+    page,
+  }) => {
+    const editor = page.getByTestId("editor-content");
+    await editor.fill(
+      [
+        "\\begin{equation}",
+        "  a^2 + b^2 = c^2",
+        "  \\label{eq:pythagoras}",
+        "\\end{equation}",
+      ].join("\n"),
+    );
+    await page.locator(".cm-line", { hasText: "a^2" }).click();
+
+    await expect(page.getByTestId("math-open")).toHaveText("Edit maths");
+    await page.getByTestId("math-open").click();
+    await expect(page.getByTestId("math-body")).toHaveValue("a^2 + b^2 = c^2");
+    await expect(page.getByTestId("math-label")).toHaveValue("eq:pythagoras");
+
+    // Unnumbered: a `\label` would name a number the reader never sees, so the
+    // field goes away and the label is not written.
+    await page.getByTestId("math-numbered").uncheck();
+    await expect(page.getByTestId("math-label")).toHaveCount(0);
+    await page.getByTestId("math-apply").click();
+
+    await expect
+      .poll(() => sourceOf(page))
+      .toBe(
+        ["\\begin{equation*}", "  a^2 + b^2 = c^2", "\\end{equation*}"].join(
+          "\n",
+        ),
+      );
+  });
+
+  test("says what it cannot draw without refusing to write it", async ({
+    page,
+  }) => {
+    const editor = page.getByTestId("editor-content");
+    await editor.click();
+    await page.getByTestId("math-open").click();
+    // Valid LaTeX that KaTeX has no idea about: a macro the preamble defines.
+    await page.getByTestId("math-body").fill("\\mycommand{x}");
+
+    await expect(page.getByTestId("math-preview-error")).toBeVisible();
+    // The preview is information, not a gate: it refuses plenty of correct
+    // LaTeX, and deciding what compiles is the engine's job.
+    await expect(page.getByTestId("math-apply")).toBeEnabled();
+    await page.getByTestId("math-apply").click();
+    await expect.poll(() => sourceOf(page)).toContain("\\mycommand{x}");
+  });
+
+  test("warns about a delimiter TeX would report much later", async ({
+    page,
+  }) => {
+    const editor = page.getByTestId("editor-content");
+    await editor.click();
+    await page.getByTestId("math-open").click();
+    await page.getByTestId("math-body").fill("\\frac{a}{b");
+
+    await expect(page.getByTestId("math-delimiters")).toContainText(
+      "} is missing",
+    );
+  });
+});
