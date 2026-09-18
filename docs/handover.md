@@ -20,7 +20,7 @@ pnpm dev            # Vite's default http://localhost:5173, or the next free por
 projects, the editor, the file list, rename, the outline, project health,
 completion, gutter marks from the index, asset views, the table, citation,
 figure and maths editors and the ZIP round trip all work without the engine, because none
-of them needs it. `pnpm test` runs 343 unit tests; `pnpm test:e2e` runs 53 and
+of them needs it. `pnpm test` runs 351 unit tests; `pnpm test:e2e` runs 55 and
 **skips 15**, each naming what is missing rather than failing.
 
 `OPAL_CHROMIUM_PATH` is for containers that cannot reach Playwright's browser
@@ -39,7 +39,7 @@ pnpm spike:brotli --write                # optional: pre-compresses engine, boot
 
 The second step is the one that matters: the first only unpacks the TeX Live
 tree, and nothing compiles until the boot set exists. After it, `pnpm test:e2e`
-runs all 68.
+runs all 71.
 
 ### Everyday
 
@@ -220,6 +220,13 @@ cover for this path.
   rebuild before rerunning, or the tests drive the previous build and the result
   means nothing. `reuseExistingServer` is deliberate — it keeps the suite fast —
   but it does not rebuild.
+- **The service worker runs in built output only.** `registerOfflineShell`
+  returns early unless `import.meta.env.PROD`, because a cache in front of a
+  dev server fights hot reloading. So `pnpm dev` never exercises the offline
+  path and `tests/e2e/offline.spec.ts` is the only thing that does. If a cache
+  seems stale while testing a build locally, it is: clear it from the browser's
+  Application panel, or run
+  `caches.keys().then((k) => k.forEach((n) => caches.delete(n)))`.
 - **A green e2e suite does not prove `pnpm dev` works.** Playwright starts
   `vite preview`, and the two servers do not install middlewares at the same
   point: what a `configureServer` *returns* runs after Vite's own middlewares,

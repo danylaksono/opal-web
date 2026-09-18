@@ -236,7 +236,32 @@ hundred compiles rather than every one, at 0.9 s each.
   replaces a span that was never maths. The form offers inline maths for
   insertion and declines to claim an existing `$x$`, which is the same refusal
   discipline the other three readers use.
-- 343 unit tests and 68 Playwright e2e tests. The e2e suite is the part that
+- **Phase 4 has started: the offline shell is built and measured.** A service
+  worker keeps two caches apart on purpose — the application's, keyed by the
+  build, and the engine's, keyed by the `texlyre-busytex` version — so a deploy
+  replaces the app and leaves 22.7 MB of engine alone. It pre-caches nothing:
+  someone who opens Opal Web to read a document should not pay for an engine
+  they never run, so what is used is kept and the rest is never fetched. The
+  policy is a pure function with its own tests (`offline/strategy.ts`), because
+  a service worker decides what *everyone* is served and stays wrong until a
+  cache is cleared.
+- **Measured, rather than assumed.** A service worker does intercept the
+  engine's requests, including the synchronous XHR its worker makes to
+  `/texlive/…` — that was checked with a throwaway worker before any of this
+  was designed, because the fallback (caching in the page, through the
+  adapter) would have been a different design. After one compile the engine
+  cache holds **71.05 MB across 10 entries**, and the origin is using 94.4 MB
+  of a 3,166 MB quota. The 71 MB is not a contradiction of ADR-011's 22.7 MB:
+  that figure is the compressed transfer, and Cache Storage keeps decoded
+  bodies. Whether an origin this size survives storage pressure is the next
+  thing to measure, and the persistence control the picker already offers is
+  what it hangs on.
+- **The claim, taken literally.** `tests/e2e/offline.spec.ts` compiles a
+  document, switches the network off, reloads, and compiles again: TeX runs in
+  the browser with nothing available to fetch. A 404 from the TeX endpoint is
+  never cached — the engine reads one as "no such file" and stops asking, so
+  caching it would make a transient answer permanent.
+- 351 unit tests and 71 Playwright e2e tests. The e2e suite is the part that
   matters here: four defects found during Phase 2 — the default font path, a
   boot package with no `ls-R`, a stale pre-compressed asset, and cancellation
   returning after 180 s — would each have passed every test that existed before
@@ -303,16 +328,21 @@ uses; SyncTeX is two native commands over Tectonic's output; and LanguageTool,
 Zotero, reference lookup and the Python/`uv` skills are network or native
 services behind their own commands.
 
-### 1. Offline shell and engine caching — first, and the one with no desktop analogue
+### 1. Offline shell and engine caching — built (2026-09-18)
 
 The desktop has an updater; a browser has a service worker, and the thing it
-would cache is the 22.7 MB of fixed cost ADR-011 measured — engine, boot set,
-renderer. Today every visit re-fetches them; cached in Cache Storage, a second
-visit is instant and works with no network, which is the product's whole claim
-and the only Phase 4 item that changes what the app *is* rather than what it
-can do. It is also the item the desktop cannot teach us anything about, so it
-carries the most unknowns: how a 32 MB engine behaves against a browser's
-eviction policy, and what an update to it looks like when it is cached.
+caches is the fixed cost ADR-011 measured — engine, boot set, renderer. This is
+now built and tested offline end to end (see the progress section above), which
+answers the part the desktop could teach us nothing about. What it does **not**
+yet answer, and what the rest of Phase 4 should carry:
+
+- what eviction does to a 71 MB origin under storage pressure, and whether the
+  persistence grant the picker offers is enough to prevent it;
+- what an engine update looks like once a version is cached — the cache is
+  keyed by the engine's version, so a new one is a new cache and the old one is
+  dropped on the next activation, but nobody has watched that happen;
+- the "prepare for offline" control section 9 asks for, which is only worth
+  building now that there is a cache behind it to promise something about.
 
 ### 2. Review annotations — the largest subsystem to port, and the one already paid for
 

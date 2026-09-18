@@ -25,6 +25,23 @@ const mupdfVersion: string = JSON.parse(
 ).version;
 
 /**
+ * What the two caches are keyed by (`src/platform/browser/offline/`).
+ *
+ * The build id changes every time, so a deploy replaces the application's
+ * cache; the engine's version changes only when the engine does, so 22.7 MB of
+ * WASM and TeX files survives a deploy that moved a button.
+ */
+const buildId = process.env.OPAL_BUILD_ID ?? String(Date.now());
+const engineVersion: string = JSON.parse(
+  readFileSync(
+    fileURLToPath(
+      new URL("./node_modules/texlyre-busytex/package.json", import.meta.url),
+    ),
+    "utf8",
+  ),
+).version;
+
+/**
  * Cross-origin isolation is a Phase 0 measurement, not a settled decision.
  * PLAN.md 7.3 requires us to know whether threaded WASM needs COOP/COEP and
  * what that costs in fonts, package fetches, OAuth popups and third-party APIs,
@@ -214,24 +231,36 @@ export default defineConfig({
   build: {
     target: "es2022",
     sourcemap: true,
-    // The contract page runs the storage suite against real OPFS, so it has to
-    // be built rather than only served in dev — Playwright drives the
-    // production build. It is opt-in so that test code never reaches a user.
-    ...(testPages
-      ? {
-          rollupOptions: {
-            input: {
-              main: fileURLToPath(new URL("./index.html", import.meta.url)),
+    rollupOptions: {
+      input: {
+        main: fileURLToPath(new URL("./index.html", import.meta.url)),
+        // The service worker, at a fixed path: its scope is the directory it
+        // is served from, so a hashed name under /assets/ could only ever
+        // control /assets/.
+        sw: fileURLToPath(
+          new URL("./src/platform/browser/offline/sw.ts", import.meta.url),
+        ),
+        ...(testPages
+          ? {
               contract: fileURLToPath(
                 new URL("./tests/browser/contract.html", import.meta.url),
               ),
-            },
-          },
-        }
-      : {}),
+            }
+          : {}),
+      },
+      output: {
+        entryFileNames: (chunk) =>
+          chunk.name === "sw" ? "sw.js" : "assets/[name]-[hash].js",
+      },
+    },
+    // The contract page runs the storage suite against real OPFS, so it has to
+    // be built rather than only served in dev — Playwright drives the
+    // production build. It is opt-in so that test code never reaches a user.
   },
   define: {
     __OPAL_CROSS_ORIGIN_ISOLATED__: JSON.stringify(crossOriginIsolated),
     __MUPDF_VERSION__: JSON.stringify(mupdfVersion),
+    __OPAL_BUILD_ID__: JSON.stringify(buildId),
+    __OPAL_ENGINE_VERSION__: JSON.stringify(engineVersion),
   },
 });
