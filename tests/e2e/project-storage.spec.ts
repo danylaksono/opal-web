@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { zipSync } from "fflate";
 
 /**
- * Phase 1's storage exit criteria, in a real browser (PLAN.md 14).
+ * Phase 1's storage exit criteria, in a real browser (investigation.md 14).
  *
  * The unit suite proves the contract against an in-memory repository, which
  * cannot fail the way storage fails: it has no quota, no eviction, and nothing

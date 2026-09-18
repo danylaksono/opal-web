@@ -6,7 +6,7 @@ import type {
 } from "@/core/pdf/types";
 
 /**
- * Versioned PDF worker protocol (PLAN.md 15, "define versioned worker
+ * Versioned PDF worker protocol (investigation.md 15, "define versioned worker
  * protocols").
  *
  * The version is checked on handshake. A worker served from a stale service

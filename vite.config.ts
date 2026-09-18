@@ -43,7 +43,7 @@ const engineVersion: string = JSON.parse(
 
 /**
  * Cross-origin isolation is a Phase 0 measurement, not a settled decision.
- * PLAN.md 7.3 requires us to know whether threaded WASM needs COOP/COEP and
+ * investigation.md 7.3 requires us to know whether threaded WASM needs COOP/COEP and
  * what that costs in fonts, package fetches, OAuth popups and third-party APIs,
  * so the headers are switchable rather than baked in. Netlify mirrors this via
  * netlify.toml, and both must be flipped together when the decision lands.

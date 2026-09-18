@@ -1,5 +1,5 @@
 /**
- * `ProjectRepository` over OPFS and IndexedDB (PLAN.md 6.1).
+ * `ProjectRepository` over OPFS and IndexedDB (investigation.md 6.1).
  *
  * The split is the one the plan specifies and it is not arbitrary: file bytes
  * are file-shaped and belong in a filesystem a worker can reach, while metadata

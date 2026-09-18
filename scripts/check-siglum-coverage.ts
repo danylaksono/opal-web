@@ -8,7 +8,7 @@
  * as missing.
  *
  * Distinguishes the three states that matter for the offline policy in
- * PLAN.md 7.3: in the engine's baseline bundles, in a bundle fetched on demand,
+ * investigation.md 7.3: in the engine's baseline bundles, in a bundle fetched on demand,
  * or not bundled at all and therefore needing a CTAN fetch.
  *
  * Usage: pnpm spike:siglum [engine]   (default: xelatex, matching desktop)

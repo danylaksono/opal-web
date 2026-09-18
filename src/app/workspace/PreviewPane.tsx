@@ -23,7 +23,7 @@ import { MupdfRenderer } from "@/platform/browser/pdf/mupdf-renderer";
 import { Button } from "@/ui/button";
 
 /**
- * The compiled document (PLAN.md Phase 2), in the right-hand pane.
+ * The compiled document (investigation.md 14, Phase 2), in the right-hand pane.
  *
  * The loop is unchanged — `CompileSession` owns sequencing, `LatexCompiler`
  * compiles, `PdfRenderer` draws — and this file owns only how it looks: a

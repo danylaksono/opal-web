@@ -1,5 +1,5 @@
 /**
- * Citations as something to pick from (PLAN.md 14, Phase 3: structured editors).
+ * Citations as something to pick from (investigation.md 14, Phase 3: structured editors).
  *
  * Completion already offers a project's citation keys, and a key is exactly
  * what a writer cannot remember: `knuth1984` is recoverable, `vaswani2017`

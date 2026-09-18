@@ -1,7 +1,7 @@
 import type { ProjectPath } from "@/core/project/ids";
 
 /**
- * The compiler contract (PLAN.md 3.5, 7.2).
+ * The compiler contract (investigation.md 3.5, 7.2).
  *
  * This mirrors the *observable* result of the desktop `compile_latex` command
  * rather than its implementation, so ported UI keeps working and so a compile
@@ -52,7 +52,7 @@ export interface CompileFileInput {
 export interface CompileRequest {
   /**
    * Monotonic per-project revision. Results carrying an older revision than the
-   * latest request are discarded rather than rendered (PLAN.md 7.2).
+   * latest request are discarded rather than rendered (investigation.md 7.2).
    */
   revision: number;
   mainFile: ProjectPath;
@@ -66,7 +66,7 @@ export interface CompileSuccess {
   ok: true;
   revision: number;
   pdf: Uint8Array;
-  /** Present only when the engine emits usable SyncTeX (PLAN.md 15). */
+  /** Present only when the engine emits usable SyncTeX (investigation.md 15). */
   synctex?: Uint8Array;
   log: string;
   diagnostics: readonly CompileDiagnostic[];

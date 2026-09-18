@@ -2,7 +2,7 @@ import { type ProjectPath, projectPath } from "./ids";
 import type { ProjectFile } from "./repository";
 
 /**
- * What a new project can start as (PLAN.md 14, Phase 3: "templates").
+ * What a new project can start as (investigation.md 14, Phase 3: "templates").
  *
  * A blank `main.tex` is the worst possible starting point for the target user:
  * a researcher who knows what they want to write and not which incantation

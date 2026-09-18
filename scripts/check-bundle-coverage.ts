@@ -1,11 +1,11 @@
 /**
  * Cross-reference the compiler corpus against a candidate engine's bundle
- * manifest (ADR-003, PLAN.md 7.3 "TeX resources and offline policy").
+ * manifest (ADR-003, investigation.md 7.3 "TeX resources and offline policy").
  *
  * Answers the package-delivery question before any large download: which of the
  * corpus's classes and packages a bundle tier actually provides, and what is
  * left over. A name missing from every tier is a documented incompatibility,
- * which PLAN.md 7.4 requires us to publish rather than hide.
+ * which investigation.md 7.4 requires us to publish rather than hide.
  *
  * Usage: pnpm spike:coverage <path-to-engine-manifest.json>
  */

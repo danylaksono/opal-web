@@ -1,6 +1,6 @@
 /**
  * Compile the whole corpus through the browser and record the outcome
- * (ADR-003 exit criteria, PLAN.md 7.4).
+ * (ADR-003 exit criteria, investigation.md 7.4).
  *
  * Drives the compiler spike page in a real browser rather than calling the
  * engine from Node: the engine is a browser artifact, and a result obtained any
@@ -121,7 +121,7 @@ async function referencePageCount(
 }
 
 /**
- * Compare the compiled PDF against desktop's, beyond page count (PLAN.md 7.4).
+ * Compare the compiled PDF against desktop's, beyond page count (investigation.md 7.4).
  *
  * Driven through the spike page rather than computed here, for the same reason
  * the compile is: the renderer is a browser artifact, and both sides must go

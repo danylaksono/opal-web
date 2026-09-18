@@ -1,9 +1,9 @@
 /**
  * Build the compiler acceptance corpus from the desktop repository
- * (PLAN.md 7.4, backlog "Build the 13-template compiler corpus manifest").
+ * (investigation.md 7.4, backlog "Build the 13-template compiler corpus manifest").
  *
  * The corpus is copied rather than referenced across repositories on purpose:
- * PLAN.md 18 rules out cross-repository source links, and a pinned copy is what
+ * investigation.md 18 rules out cross-repository source links, and a pinned copy is what
  * makes an engine comparison reproducible after desktop moves on.
  *
  * Usage: pnpm spike:corpus [pathToDesktopRepo]

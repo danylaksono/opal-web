@@ -4,7 +4,7 @@ import { expect, test } from "@playwright/test";
 
 /**
  * Phase 2's exit criteria, through the product rather than a spike
- * (PLAN.md 14).
+ * (investigation.md 14).
  *
  * Everything below was verified by hand during the work that produced it, by a
  * throwaway script that lived outside the repository — which protected nothing.
@@ -158,6 +158,14 @@ test.describe("compile and preview", () => {
     // each time is the behaviour that makes a preview feel like it is fighting
     // you, and it is what this asserts against.
     await page.getByTestId("compile-button").click();
+    // Waited for in two steps, because the status still says "done" from the
+    // compile before: a waiter that looks only for "done" is reading the
+    // previous answer, and would pass without a second compile happening at
+    // all. Found by a sweep script that made exactly that mistake.
+    await expect(page.getByTestId("workspace-status")).toHaveAttribute(
+      "data-status",
+      "compiling",
+    );
     await expect(page.getByTestId("workspace-status")).toHaveAttribute(
       "data-status",
       "done",
@@ -227,7 +235,7 @@ test.describe("compile and preview", () => {
     // Typed a key at a time rather than filled: each keystroke needs its own
     // turn of the main thread, so this fails by timing out if the engine ever
     // moves off its worker — which is the only way "the UI stays responsive
-    // during compilation" (PLAN.md 14, Phase 2) can be observed from outside.
+    // during compilation" (investigation.md 14, Phase 2) can be observed from outside.
     const editor = page.getByTestId("editor-content");
     await editor.click();
     await editor.pressSequentially("% typed while compiling", { delay: 20 });
@@ -271,6 +279,12 @@ test.describe("compile and preview", () => {
       "\\documentclass{article}\n\\begin{document}\nRecovered\n\\end{document}\n",
     );
     await page.getByTestId("compile-button").click();
+    // As above: the failed compile left the status at "done", so this waits for
+    // the new one to start before waiting for it to finish.
+    await expect(page.getByTestId("workspace-status")).toHaveAttribute(
+      "data-status",
+      "compiling",
+    );
     await expect(page.getByTestId("preview")).toHaveAttribute(
       "data-status",
       "ready",

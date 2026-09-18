@@ -1,5 +1,5 @@
 /**
- * ZIP import and export for projects (PLAN.md 5.4, 14 Phase 1).
+ * ZIP import and export for projects (investigation.md 5.4, 14 Phase 1).
  *
  * Export is the backup story. OPFS is origin-private and evictable, so a ZIP a
  * user can put somewhere else is the only thing standing between a cleared site

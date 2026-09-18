@@ -66,7 +66,9 @@ they are no longer between the engine and a person using it.
 | Path | Purpose |
 |---|---|
 | [docs/handover.md](docs/handover.md) | Picking this up on another machine: what is gitignored and how to rebuild it, and the environment traps that have cost time. |
-| [PLAN.md](PLAN.md) | The full architecture investigation. Written 2026-07-23 against desktop v1.4.8; see *Plan drift* below. |
+| [PLAN.md](PLAN.md) | What the product is, where it stands, and what is next — read against the desktop editor it adapts. |
+| [docs/investigation.md](docs/investigation.md) | The original architecture investigation, written 2026-07-23 against desktop v1.4.8. Its numbered sections are what the code's comments cite. |
+| [docs/progress-archive.md](docs/progress-archive.md) | The dated measurements the engine and delivery decisions were made from. |
 | [docs/adr/](docs/adr/) | Architecture decision records. 001, 002 and 004 accepted; 003 open; 011 proposed. |
 | [docs/licence-inventory.md](docs/licence-inventory.md) | Every third-party artifact with its exact version and terms. |
 | [docs/evidence/](docs/evidence/) | Third-party manifests kept verbatim so the ADR analyses are reproducible without re-fetching hundreds of megabytes. |
@@ -133,21 +135,22 @@ Local and deployed behaviour have now disagreed twice, both times on
 prevented streaming and compression. `vite.config.ts` is the reference for what
 `netlify.toml` should say.
 
-## Plan drift
+## How the desktop editor is tracked
 
-PLAN.md audits desktop `main` at v1.4.8. Desktop has since moved to
-`features-1.5`. The architecture in the plan holds, but two figures and one
-sequencing assumption have changed:
+[docs/investigation.md](docs/investigation.md) audits desktop `main` at v1.4.8,
+in July 2026. Desktop has since moved to `features-1.5`, and the desktop source
+was read again in September against a working browser product — which is what
+[PLAN.md](PLAN.md) is now written from. Three things have moved since the
+audit, and the plan already accounts for them:
 
-- The audit's file counts are stale: 227 → 293 TypeScript/TSX files, and 44 →
-  65 files importing Tauri APIs directly.
+- Its file counts are stale: 227 → 293 TypeScript/TSX files, and 44 → 65 files
+  importing Tauri APIs directly.
 - The review subsystem grew substantially — drawing, gutter, re-anchoring,
-  reporting, tags, search. PLAN.md 9 places review in Phase 4, but its
-  dependence on structured-text geometry makes the renderer's text fidelity a
-  Phase 0 deciding measurement rather than a later concern. ADR-004 records
-  this.
-- The desktop skills/Python architecture landed after the plan was written. It
-  stays out of scope, as PLAN.md 3.4 already specified.
+  reporting, tags, search. `investigation.md` 9 places review in Phase 4, but
+  its dependence on structured-text geometry made the renderer's text fidelity
+  a Phase 0 deciding measurement instead. ADR-004 records this.
+- The desktop skills/Python architecture landed after the audit was written. It
+  stays out of scope, as `investigation.md` 3.4 already specified.
 
 ## Author
 

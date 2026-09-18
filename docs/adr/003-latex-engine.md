@@ -18,9 +18,9 @@ The corpus in `tests/fixtures/compiler-corpus` is the measurement instrument:
 13 projects, 6 document classes, 32 distinct packages, 4 needing bibliography
 passes across `natbib`, `cite` and `acmart` styles.
 
-## The candidate set in PLAN.md is out of date
+## The candidate set in the investigation is out of date
 
-PLAN.md 7.1 treats SwiftLaTeX as the primary candidate, with
+investigation.md 7.1 treats SwiftLaTeX as the primary candidate, with
 "TeXlyre/BusyTeX variants" as a research candidate. Surveying what is actually
 distributable today changes that picture in two ways.
 
@@ -40,8 +40,8 @@ distribution found on npm wraps **BusyTeX**, a TeX Live→WASM build:
 
 So the real decision is **not which TeX engine** — it is package delivery,
 offline policy and API shape. All three provide `xetex` as well as `pdftex`,
-which removes the pdfTeX-versus-XeTeX compatibility worry PLAN.md 7.1 raised
-and makes open question 2 in PLAN.md 17 moot.
+which removes the pdfTeX-versus-XeTeX compatibility worry investigation.md 7.1 raised
+and makes open question 2 in investigation.md 17 moot.
 
 ## Measured: corpus package coverage
 
@@ -71,7 +71,7 @@ packages can be added at all**, not raw compile fidelity.
   unavailable unless we rebuild the bundle ourselves.
 - `@siglum/engine` fetches unbundled packages from CTAN on demand and caches
   them, which is exactly the "baseline plus versioned on-demand packages"
-  strategy PLAN.md 7.3 recommends, and would cover `acmart` and `IEEEtran`.
+  strategy investigation.md 7.3 recommends, and would cover `acmart` and `IEEEtran`.
 
 That advantage carries an ADR-001 obligation: on-demand fetching reveals which
 packages a document uses to whoever serves them. ADR-001 permits fetching
@@ -84,7 +84,7 @@ third-party CTAN mirror would not be acceptable.
 `wasmtex` publishes a machine-checked audit alongside its assets
 (`docs/evidence/wasmtex-0.1.1/licenses.json`): 2545 shipped TeX Live packages
 checked against an explicit allowlist, 0 failures. Combined with `SHA256SUMS`
-and a pinned `tlpdbRevision`, that satisfies most of the PLAN.md 15 spike item
+and a pinned `tlpdbRevision`, that satisfies most of the investigation.md 15 spike item
 on engine and package licensing for that candidate. No equivalent audit has
 been located for the other two.
 
@@ -100,7 +100,7 @@ unpacked), xelatex, CTAN **off**, Chromium, production build. Reproduce with
 **The engine works.** `blank` compiles in 747 ms and `book-standard` in 1740 ms
 to 8 pages, both verified by opening the result through the `PdfRenderer` port —
 producing bytes is not the same as producing a readable PDF. **SyncTeX is
-emitted**, which answers PLAN.md open question 6 for this candidate.
+emitted**, which answers investigation.md open question 6 for this candidate.
 
 **2 of 13 projects compile without CTAN.** Every remaining failure is a
 genuinely unbundled package: `booktabs` (4 projects), `enumitem` (3),
@@ -169,7 +169,7 @@ claim.
 satisfies ADR-001 by construction:
 
 - **Pinned.** Packages come from TeX Live 2025's `tlnet-final` archive, which is
-  frozen, not `tlnet`, which tracks the current release. PLAN.md 7.3 requires
+  frozen, not `tlnet`, which tracks the current release. investigation.md 7.3 requires
   this — a mutable package URL makes builds unreproducible and can poison an
   offline cache.
 - **Cached.** After the first fetch the upstream is never contacted again for
@@ -327,7 +327,7 @@ Two things also close off the obvious workaround:
   sequences, and it walks *backwards* (2025 → 2024 → 2023). Our problem needs a
   newer package, not an older one. And our proxy strips the `-20YY` suffix by
   design, so every year it is asked for returns the same frozen bytes — **the
-  pin required by PLAN.md 7.3 disables the engine's only built-in skew remedy.**
+  pin required by investigation.md 7.3 disables the engine's only built-in skew remedy.**
   That is a deliberate trade, and it is recorded here as one.
 
 ### Decision on version skew
@@ -461,7 +461,7 @@ typographic standard, whatever desktop did.
 
 ### Not measured: diagnostics
 
-PLAN.md 7.4 also asks for diagnostics to be compared. They cannot be, yet: the
+investigation.md 7.4 also asks for diagnostics to be compared. They cannot be, yet: the
 corpus commits desktop's reference *PDFs* but not its *logs*, so there is
 nothing to compare a parsed diagnostic against. Committing Tectonic's logs
 alongside the PDFs is what that needs.

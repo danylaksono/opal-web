@@ -3,7 +3,7 @@ import { scanBib, scanTex, type TexFacts, type TexSection } from "./scan";
 
 /**
  * A project's cross-file structure, and what is wrong with it
- * (PLAN.md 14, Phase 3: "semantic index and project health").
+ * (investigation.md 14, Phase 3: "semantic index and project health").
  *
  * `scan.ts` answers what one file says; this answers the questions that span
  * files, which are the ones a person cannot answer by looking at the screen: is

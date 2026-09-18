@@ -1,5 +1,5 @@
 /**
- * Branded project identifiers and path validation (PLAN.md 15, 5.4).
+ * Branded project identifiers and path validation (investigation.md 15, 5.4).
  *
  * Every path that reaches storage, a worker or an archive goes through
  * `projectPath()` first. Archive import is the hostile input here: a ZIP entry

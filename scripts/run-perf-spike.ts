@@ -1,6 +1,6 @@
 /**
  * Measure what a compile costs, and whether one can be stopped
- * (ADR-003 exit criteria, PLAN.md 13.3).
+ * (ADR-003 exit criteria, investigation.md 13.3).
  *
  * Drives the performance spike page in a real browser, for the same reason the
  * corpus runner does: the engine is a browser artifact, and a number obtained

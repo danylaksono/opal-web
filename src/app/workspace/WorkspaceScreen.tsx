@@ -24,6 +24,7 @@ import {
   newFigure,
   writeFigure,
 } from "@/core/latex/figure";
+import { bodyInsertionPoint } from "@/core/latex/insertion";
 import { type MathBlock, mathAt, newMath, writeMath } from "@/core/latex/math";
 import { buildProjectIndex } from "@/core/latex/project-index";
 import {
@@ -43,7 +44,7 @@ import type { ProjectRepository } from "@/core/project/repository";
 import { cn } from "@/ui/utils";
 
 /**
- * A project, open (PLAN.md 14, Phase 3).
+ * A project, open (investigation.md 14, Phase 3).
  *
  * The document state that used to live in `ProjectsPanel` — which file is
  * open, every text file's content, the autosave bound to a revision — with the
@@ -486,6 +487,19 @@ export function WorkspaceScreen({
     [open, repository, projectId],
   );
 
+  /**
+   * Where a newly inserted structure goes.
+   *
+   * The cursor, when there is one — and the end of the body when there is not.
+   * A file that has just been opened reports offset 0, which is in front of
+   * `\documentclass`: inserting there produced an equation above the class and
+   * a compile that failed complaining about something else entirely.
+   */
+  const insertAt = useMemo(
+    () => (open ? bodyInsertionPoint(open.content, cursor) : cursor),
+    [open, cursor],
+  );
+
   const closeStructured = useCallback(() => {
     setStructured(null);
     document
@@ -622,7 +636,7 @@ export function WorkspaceScreen({
                       path: open.path,
                       table: tableHere?.ok
                         ? tableHere.table
-                        : newTabular(open.content, cursor),
+                        : newTabular(open.content, insertAt),
                     })
                   }
                   onOpenCitation={() =>
@@ -631,7 +645,7 @@ export function WorkspaceScreen({
                       path: open.path,
                       citation: citationHere?.ok
                         ? citationHere.citation
-                        : newCitation(cursor),
+                        : newCitation(insertAt),
                       // Read now rather than kept in the index: fields cost
                       // more than keys, and only this needs them.
                       entries: readBibliography(
@@ -648,7 +662,7 @@ export function WorkspaceScreen({
                       path: open.path,
                       figure: figureHere?.ok
                         ? figureHere.figure
-                        : newFigure(open.content, cursor),
+                        : newFigure(open.content, insertAt),
                     })
                   }
                   onOpenMath={() =>
@@ -657,7 +671,7 @@ export function WorkspaceScreen({
                       path: open.path,
                       math: mathHere?.ok
                         ? mathHere.math
-                        : newMath(open.content, cursor),
+                        : newMath(open.content, insertAt),
                     })
                   }
                   onApplyTable={(table: Tabular) =>

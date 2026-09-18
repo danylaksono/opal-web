@@ -1,5 +1,5 @@
 /**
- * Transactional autosave over a `ProjectRepository` (PLAN.md 14, Phase 1).
+ * Transactional autosave over a `ProjectRepository` (investigation.md 14, Phase 1).
  *
  * Saving on every keystroke would publish a revision per character; saving on a
  * timer alone loses whatever was typed in the last interval. This coalesces

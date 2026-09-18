@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 
 /**
- * The offline shell (PLAN.md 9, Phase 4).
+ * The offline shell (investigation.md 9, Phase 4).
  *
  * The product's claim is that it compiles on the device with nothing sent
  * anywhere; the honest test of that is to take the network away and see

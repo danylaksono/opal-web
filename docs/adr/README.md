@@ -3,7 +3,7 @@
 One file per decision, numbered, never edited in place once accepted — a
 superseding ADR is written instead and the old one is marked `Superseded by`.
 
-PLAN.md section 16 lists the ten records that must exist before implementation
+investigation.md 16 lists the ten records that must exist before implementation
 crosses each boundary. Phase 0 opens the first four, because those are the ones
 whose answers change the architecture rather than the code. Numbers beyond that
 list are for decisions the plan did not anticipate; 005–010 stay reserved for

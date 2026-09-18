@@ -1,5 +1,5 @@
 /**
- * Renderer-neutral PDF model (PLAN.md 8).
+ * Renderer-neutral PDF model (investigation.md 8).
  *
  * Nothing here may expose a MuPDF or PDF.js object. The licence decision
  * (ADR-004) is still open, so the viewport, overlays, selection and review

@@ -3,7 +3,7 @@ import { expect, type Page, test } from "@playwright/test";
 
 /**
  * Keyboard and screen-reader parity for the core workflow
- * (PLAN.md 13.1 item 8, and Phase 3's exit criteria).
+ * (investigation.md 13.1 item 8, and Phase 3's exit criteria).
  *
  * Two kinds of test, because they fail in different ways:
  *
@@ -157,7 +157,7 @@ test.describe("accessibility", () => {
 
     // `role="status"` is what makes a change here reach a screen reader at all.
     // Without it the save status is a paragraph that silently changes, which
-    // is exactly the failure PLAN.md 13.1 names.
+    // is exactly the failure investigation.md 13.1 names.
     await expect(page.getByTestId("save-status")).toHaveAttribute(
       "role",
       "status",

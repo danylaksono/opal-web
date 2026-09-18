@@ -1,5 +1,5 @@
 /**
- * The project storage contract (PLAN.md 6, 14 Phase 1).
+ * The project storage contract (investigation.md 6, 14 Phase 1).
  *
  * Projects live on the user's device, which makes this port the product's
  * durability promise rather than a convenience over a database. Three rules
@@ -18,7 +18,7 @@
  *   produced, so a caller never has to re-read a project to know what it now
  *   holds.
  *
- * Nothing here touches a browser API. The storage split PLAN.md 6.1 specifies —
+ * Nothing here touches a browser API. The storage split investigation.md 6.1 specifies —
  * bytes in OPFS, metadata in IndexedDB — is one implementation of this port,
  * and an in-memory one exists so that the UI and its tests do not need either.
  */
@@ -51,7 +51,7 @@ export interface StoredProject extends ProjectSummary {
    *
    * The handle itself is stored separately by the adapter, because a
    * `FileSystemDirectoryHandle` is structured-cloneable but not JSON. Losing
-   * the directory must never lose the project: PLAN.md 6.3 makes the browser
+   * the directory must never lose the project: investigation.md 6.3 makes the browser
    * copy canonical, so this is a pointer to a mirror and not to the source.
    */
   directoryMirror?: {

@@ -4,7 +4,7 @@ import { MupdfRenderer } from "@/platform/browser/pdf/mupdf-renderer";
 
 /**
  * What a project's non-text files look like when you open one
- * (PLAN.md 14, Phase 3: "image/PDF asset views").
+ * (investigation.md 14, Phase 3: "image/PDF asset views").
  *
  * Before this, every file in the list opened in the text editor, including the
  * figures a ZIP import brings with it. That is not merely ugly: the bytes were

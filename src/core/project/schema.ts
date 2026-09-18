@@ -1,5 +1,5 @@
 /**
- * Stored-project schema and its migrations (PLAN.md 6.2).
+ * Stored-project schema and its migrations (investigation.md 6.2).
  *
  * Migrations are forward-only and run before a project opens, because a record
  * written by an older build is the normal case for a product that updates

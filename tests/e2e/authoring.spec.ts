@@ -56,7 +56,7 @@ async function importProjectWithAssets(page: Page) {
 }
 
 /**
- * The authoring surface over the semantic index (PLAN.md 14, Phase 3).
+ * The authoring surface over the semantic index (investigation.md 14, Phase 3).
  *
  * Separate from `workspace.spec.ts` because none of this needs the engine: the
  * index is the part of the product that answers questions *without* compiling,
@@ -355,7 +355,7 @@ test.describe("outline and project health", () => {
 });
 
 /**
- * The first structured editor (PLAN.md 14, Phase 3).
+ * The first structured editor (investigation.md 14, Phase 3).
  *
  * Driven through the source it edits, because that is the only thing that
  * matters about it: what lands in the document, whether undo takes it back in
@@ -714,7 +714,7 @@ test.describe("citation editor", () => {
 });
 
 /**
- * The figure form (PLAN.md 14, Phase 3: structured editors).
+ * The figure form (investigation.md 14, Phase 3: structured editors).
  *
  * No engine here on purpose: whether `\includegraphics` of a PNG survives
  * xelatex and xdvipdfmx is a separate claim from whether the form writes the
@@ -883,7 +883,7 @@ test.describe("figure editor", () => {
 });
 
 /**
- * The maths form (PLAN.md 14, Phase 3: structured editors).
+ * The maths form (investigation.md 14, Phase 3: structured editors).
  *
  * The preview is the reason this form exists — TeX reports a mistake in a
  * formula somewhere later, often in another paragraph — so these drive it as
@@ -1020,6 +1020,74 @@ test.describe("math editor", () => {
 
     await expect(page.getByTestId("math-delimiters")).toContainText(
       "} is missing",
+    );
+  });
+});
+
+/**
+ * Where an insertion lands when nobody has put the cursor anywhere.
+ *
+ * A file that has just been opened reports its cursor at offset 0, and offset
+ * 0 is in front of `\documentclass`. Reaching straight for the toolbar — which
+ * is exactly what someone does when the toolbar is new — put an equation above
+ * the class and produced a compile error that talked about `\begin{document}`,
+ * naming nothing the person had touched.
+ */
+test.describe("inserting without a cursor", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto("/");
+    await page.evaluate(async () => {
+      const root = await navigator.storage.getDirectory();
+      for await (const [name] of (
+        root as unknown as AsyncIterable<[string, FileSystemHandle]>
+      )[Symbol.asyncIterator]()) {
+        await root.removeEntry(name, { recursive: true });
+      }
+      await new Promise<void>((resolve) => {
+        const deleting = indexedDB.deleteDatabase("opal-projects");
+        deleting.onsuccess = () => resolve();
+        deleting.onerror = () => resolve();
+        deleting.onblocked = () => resolve();
+      });
+    });
+    await page.goto("/");
+    await page.getByTestId("project-title").fill("Untouched");
+    await page.getByTestId("create-project").click();
+    await page.getByTestId("open-project").first().click();
+    await expect(page.getByTestId("editor")).toBeVisible();
+  });
+
+  async function sourceOf(page: Page): Promise<string> {
+    return (await page.locator(".cm-line").allInnerTexts())
+      .map((line) => line.replace(/\n$/, ""))
+      .join("\n");
+  }
+
+  test("maths goes into the body, not above the class", async ({ page }) => {
+    // No click in the editor first: straight from opening the project to the
+    // toolbar.
+    await page.getByTestId("math-open").click();
+    await page.getByTestId("math-body").fill("E = mc^2");
+    await page.getByTestId("math-apply").click();
+
+    const source = await sourceOf(page);
+    expect(source.startsWith("\\documentclass")).toBe(true);
+    expect(source.indexOf("\\begin{equation}")).toBeGreaterThan(
+      source.indexOf("\\begin{document}"),
+    );
+    expect(source.indexOf("\\begin{equation}")).toBeLessThan(
+      source.indexOf("\\end{document}"),
+    );
+  });
+
+  test("a table does the same", async ({ page }) => {
+    await page.getByTestId("table-open").click();
+    await page.getByTestId("table-apply").click();
+
+    const source = await sourceOf(page);
+    expect(source.startsWith("\\documentclass")).toBe(true);
+    expect(source.indexOf("\\begin{tabular}")).toBeGreaterThan(
+      source.indexOf("\\begin{document}"),
     );
   });
 });
