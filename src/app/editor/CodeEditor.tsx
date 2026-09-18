@@ -105,6 +105,21 @@ interface CodeEditorProps {
    * the second time.
    */
   reveal?: { line: number; nonce: number } | null;
+  /**
+   * Where the cursor is, as a character offset, whenever it moves.
+   *
+   * An offset rather than a line: a structured editor needs to know which
+   * `tabular` the cursor is inside, and two tables can share a line.
+   */
+  onCursor?: (offset: number) => void;
+  /**
+   * Replace one span of the document, as a single undoable change.
+   *
+   * An event with a nonce, like `reveal`. The alternative — changing `value` —
+   * replaces the whole document, which moves the cursor to the end and turns
+   * "undo the table edit" into "undo everything since the file was opened".
+   */
+  edit?: { from: number; to: number; insert: string; nonce: number } | null;
 }
 
 export function CodeEditor({
@@ -115,6 +130,8 @@ export function CodeEditor({
   problems,
   onSubmit,
   reveal,
+  onCursor,
+  edit,
 }: CodeEditorProps) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
@@ -143,6 +160,8 @@ export function CodeEditor({
   const marked = useRef<string | null>(null);
   const submit = useRef(onSubmit);
   submit.current = onSubmit;
+  const cursor = useRef(onCursor);
+  cursor.current = onCursor;
 
   /**
    * Offer the project's own keys, and only where one is being written.
@@ -211,15 +230,54 @@ export function CodeEditor({
           ]),
           StreamLanguage.define(stex),
           EditorView.lineWrapping,
+          // The editor fills its pane and scrolls with CodeMirror's own
+          // scroller. A cap on the host wrapped a second scroll region around
+          // the first — one axe reports as unreachable by keyboard
+          // (`scrollable-region-focusable`), and one that also defeats
+          // CodeMirror's scroll-into-view, which measures its own scroller.
+          //
+          // Colours come from the workspace theme rather than CodeMirror's, so
+          // the editor follows the palette and the dark mode the rest of the
+          // app follows.
+          EditorView.theme({
+            "&": { height: "100%", backgroundColor: "transparent" },
+            "&.cm-focused": { outline: "none" },
+            ".cm-scroller": {
+              overflow: "auto",
+              fontFamily: "var(--font-mono)",
+              lineHeight: "1.6",
+            },
+            ".cm-content": { caretColor: "var(--foreground)" },
+            ".cm-gutters": {
+              backgroundColor: "transparent",
+              color: "var(--muted-foreground)",
+              border: "none",
+            },
+            ".cm-activeLine": { backgroundColor: "var(--accent)" },
+            ".cm-activeLineGutter": { backgroundColor: "transparent" },
+            ".cm-cursor": { borderLeftColor: "var(--foreground)" },
+            ".cm-selectionBackground, ::selection": {
+              backgroundColor:
+                "color-mix(in oklab, var(--primary) 25%, transparent)",
+            },
+          }),
           // On the content element rather than the host: a test — and a screen
           // reader — wants the thing that actually holds the text and takes the
           // typing, not the box around it.
           EditorView.contentAttributes.of({
             "data-testid": "editor-content",
             "aria-label": label,
+            // Already focusable as a contenteditable, so this adds no tab stop.
+            // It is said explicitly because axe does not count contenteditable
+            // as focusable, and reports the scroller around it as a region a
+            // keyboard cannot reach once a document outgrows the editor.
+            tabindex: "0",
           }),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) notify.current(update.state.doc.toString());
+            if (update.docChanged || update.selectionSet) {
+              cursor.current?.(update.state.selection.main.head);
+            }
           }),
         ],
       }),
@@ -308,16 +366,36 @@ export function CodeEditor({
     instance.focus();
   }, [reveal]);
 
+  useEffect(() => {
+    const instance = view.current;
+    if (!instance || !edit) return;
+    const length = instance.state.doc.length;
+    // Clamped for the same reason `reveal` is: the span was read from an
+    // earlier document, and the caller checks it still holds what it expects.
+    const from = Math.min(Math.max(edit.from, 0), length);
+    const to = Math.min(Math.max(edit.to, from), length);
+    // Focused first. A view without focus does not write its selection to the
+    // DOM, so focusing afterwards let the browser put the caret at the start
+    // of the content, and CodeMirror adopted it: the cursor jumped to offset 0
+    // and "Edit citation" read "Insert citation" straight after inserting one.
+    instance.focus();
+    instance.dispatch({
+      changes: { from, to, insert: edit.insert },
+      // On the first character written rather than before a leading line
+      // break, so the cursor ends up inside what was just inserted.
+      selection: {
+        anchor: from + edit.insert.length - edit.insert.trimStart().length,
+      },
+      scrollIntoView: true,
+      userEvent: "input.structured",
+    });
+  }, [edit]);
+
   return (
     <div
       ref={host}
       data-testid="editor-host"
-      style={{
-        border: "1px solid var(--line, #ccc)",
-        maxHeight: "24rem",
-        overflow: "auto",
-        fontSize: "0.9rem",
-      }}
+      className="h-full min-h-0 overflow-hidden bg-background text-[13px]"
     />
   );
 }

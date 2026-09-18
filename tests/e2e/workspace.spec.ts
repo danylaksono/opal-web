@@ -36,6 +36,20 @@ const BOOT_PACKAGE = resolve(
 );
 const hasEngine = existsSync(BOOT_PACKAGE);
 
+/**
+ * Pick a starting point.
+ *
+ * The template control is a listbox rather than a native `<select>`, as on
+ * desktop, so it is opened and an option is chosen.
+ */
+async function chooseTemplate(
+  page: import("@playwright/test").Page,
+  name: string,
+) {
+  await page.getByTestId("project-template").click();
+  await page.getByRole("option", { name, exact: true }).click();
+}
+
 test.describe("compile and preview", () => {
   test.skip(
     !hasEngine,
@@ -135,10 +149,10 @@ test.describe("compile and preview", () => {
       "ready",
       { timeout: 280_000 },
     );
-    await expect(page.getByTestId("preview")).toContainText("Page 1 of 3");
+    await expect(page.getByTestId("page-indicator")).toHaveText("1 / 3");
 
     await page.getByTestId("next-page").click();
-    await expect(page.getByTestId("preview")).toContainText("Page 2 of 3");
+    await expect(page.getByTestId("page-indicator")).toHaveText("2 / 3");
 
     // Recompiling is what a user does after every edit. Landing back on page 1
     // each time is the behaviour that makes a preview feel like it is fighting
@@ -149,7 +163,7 @@ test.describe("compile and preview", () => {
       "done",
       { timeout: 280_000 },
     );
-    await expect(page.getByTestId("preview")).toContainText("Page 2 of 3");
+    await expect(page.getByTestId("page-indicator")).toHaveText("2 / 3");
   });
 
   test("zoom re-renders the page rather than stretching it", async ({
@@ -174,7 +188,7 @@ test.describe("compile and preview", () => {
       );
     const before = await width();
     await page.getByTestId("zoom-in").click();
-    await expect(page.getByTestId("zoom-level")).toHaveText("Zoom 150%");
+    await expect(page.getByTestId("zoom-level")).toHaveText("150%");
 
     // The canvas itself is larger, which is the difference between rendering
     // at a scale and scaling a bitmap: only one of them stays sharp.
@@ -221,9 +235,12 @@ test.describe("compile and preview", () => {
 
     // And the edit is not merely on screen: autosave runs on the same thread
     // and has to have got its turn too, or the keystrokes are lost on reload.
-    await expect(page.getByTestId("save-status")).toContainText("Saved at", {
-      timeout: 15_000,
-    });
+    await expect(page.getByTestId("save-status")).toContainText(
+      "Saved · revision",
+      {
+        timeout: 15_000,
+      },
+    );
     await expect(page.getByTestId("workspace-status")).toHaveAttribute(
       "data-status",
       "done",
@@ -307,7 +324,7 @@ test.describe("compile and preview", () => {
     );
     // Two pages only if `chapter.tex` arrived: the main file's own body is one
     // \input and nothing else.
-    await expect(page.getByTestId("preview")).toContainText("Page 1 of 2");
+    await expect(page.getByTestId("page-indicator")).toHaveText("1 / 2");
   });
 
   test("the main file cannot be deleted, and another can", async ({ page }) => {
@@ -378,22 +395,113 @@ test.describe("compile and preview", () => {
     await expect(editor).toContainText("documentclass");
   });
 
+  test("a table written by the grid compiles", async ({ page }) => {
+    await openWorkspace(page);
+    const editor = page.getByTestId("editor-content");
+    await editor.fill(
+      "\\documentclass{article}\n\\begin{document}\nResults:\n\\end{document}\n",
+    );
+    await page.locator(".cm-line", { hasText: "Results:" }).click();
+    await page.keyboard.press("End");
+
+    // Through the grid rather than typed, so what TeX reads is exactly what
+    // the formatter wrote: the alignment padding, the rules on their own
+    // lines, an escaped ampersand and a spanning cell.
+    await page.getByTestId("table-open").click();
+    await page.getByRole("textbox", { name: "Row 1, column 1" }).fill("R\\&D");
+    await page.getByRole("textbox", { name: "Row 2, column 2" }).fill("$x^2$");
+    await page
+      .getByRole("textbox", { name: "Row 3, column 1" })
+      .fill("\\multicolumn{2}{c}{Both}");
+    await page.getByTestId("table-add-row").click();
+    await page.keyboard.type("last");
+    await page.getByTestId("table-apply").click();
+    await expect(editor).toContainText("\\multicolumn{2}{c}{Both}");
+
+    await page.getByTestId("compile-button").click();
+    await expect(page.getByTestId("workspace-status")).toHaveAttribute(
+      "data-status",
+      "done",
+      { timeout: 280_000 },
+    );
+    await expect(page.getByTestId("workspace-status")).toContainText(
+      "Compiled",
+    );
+    await expect(page.getByTestId("preview")).toHaveAttribute(
+      "data-status",
+      "ready",
+      { timeout: 60_000 },
+    );
+  });
+
+  test("a citation picked from the bibliography compiles into it", async ({
+    page,
+  }) => {
+    await page.getByTestId("project-title").fill("Cited");
+    await chooseTemplate(page, "Paper with references");
+    await page.getByTestId("create-project").click();
+    await expect(page.getByTestId("project-row")).toBeVisible();
+    await page.getByTestId("open-project").first().click();
+    await expect(page.getByTestId("workspace")).toBeVisible();
+
+    // Add Lamport to a citation through the picker; the bibliography that
+    // compiles must then list both works. The template's own two citations
+    // share a wrapped line and the second already cites Lamport, so this puts
+    // one citation on a line of its own: the same wiring, and no ambiguity
+    // about where a click in a wrapped line lands.
+    await page
+      .getByTestId("editor-content")
+      .fill(
+        [
+          "\\documentclass{article}",
+          "\\begin{document}",
+          "As shown \\cite{knuth1984}",
+          "\\bibliographystyle{plain}",
+          "\\bibliography{references}",
+          "\\end{document}",
+        ].join("\n"),
+      );
+    await page.locator(".cm-line", { hasText: "As shown" }).click();
+    await page.keyboard.press("End");
+    await page.keyboard.press("ArrowLeft");
+    await expect(page.getByTestId("citation-open")).toHaveText("Edit citation");
+    await page.getByTestId("citation-open").click();
+    await page.keyboard.type("lamport");
+    await page.keyboard.press("Enter");
+    await page.getByTestId("citation-apply").click();
+    await expect(page.getByTestId("editor-content")).toContainText(
+      "\\cite{knuth1984,lamport1994}",
+    );
+
+    await page.getByTestId("compile-button").click();
+    await expect(page.getByTestId("workspace-status")).toHaveAttribute(
+      "data-status",
+      "done",
+      { timeout: 280_000 },
+    );
+    await expect(page.getByTestId("workspace-status")).toContainText(
+      "Compiled",
+    );
+    await expect(page.getByTestId("preview")).toHaveAttribute(
+      "data-status",
+      "ready",
+      { timeout: 60_000 },
+    );
+  });
+
   test("every template compiles", async ({ page }) => {
     // A template is the first LaTeX a user sees and the first they copy, so one
     // that does not compile is worse than no template at all. The unit tests
     // check them against the semantic index, which knows nothing about whether
     // TeX will accept a document class — only this does.
-    const ids = await page
-      .getByTestId("project-template")
-      .locator("option")
-      .evaluateAll((options) =>
-        options.map((option) => (option as HTMLOptionElement).value),
-      );
-    expect(ids.length).toBeGreaterThan(3);
+    await page.getByTestId("project-template").click();
+    const names = await page.getByRole("option").allInnerTexts();
+    await page.keyboard.press("Escape");
+    expect(names.length).toBeGreaterThan(3);
 
-    for (const id of ids) {
+    for (const id of names) {
       await page.getByTestId("project-title").fill(`Template ${id}`);
-      await page.getByTestId("project-template").selectOption(id);
+      await chooseTemplate(page, id);
       await page.getByTestId("create-project").click();
       await page
         .getByTestId("project-row")
@@ -420,7 +528,7 @@ test.describe("compile and preview", () => {
 
       // Back to the list for the next one: a new project cannot be created
       // while the editor is open on the previous one.
-      await page.getByRole("button", { name: "Close" }).click();
+      await page.getByTestId("close-project").click();
     }
   });
 
@@ -429,7 +537,7 @@ test.describe("compile and preview", () => {
     // bibtex, so the bibliography path shipped untested end to end. This
     // template is the first document in the repository to reach it.
     await page.getByTestId("project-title").fill("Paper");
-    await page.getByTestId("project-template").selectOption("paper");
+    await chooseTemplate(page, "Paper with references");
     await page.getByTestId("create-project").click();
     await page
       .getByTestId("project-row")

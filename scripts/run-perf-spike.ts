@@ -116,7 +116,8 @@ async function main(): Promise<void> {
       if (text.startsWith("[mem] after soak")) soakBreakdowns.push(text);
     });
     try {
-      await page.goto(PREVIEW_URL);
+      // `?harness=1` opens the measurement section the panels live in.
+      await page.goto(`${PREVIEW_URL}/?harness=1`);
       if (useTexlyre) {
         await page.selectOption(
           '[data-testid="perf-backend-select"]',

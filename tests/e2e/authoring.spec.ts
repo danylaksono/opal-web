@@ -17,6 +17,11 @@ const PIXEL_PNG = Buffer.from(
 );
 
 async function importProjectWithAssets(page: Page) {
+  // Back to the picker: importing is a thing you do to the collection, and
+  // the workspace fills the window while a project is open.
+  const home = page.getByTestId("close-project");
+  if (await home.isVisible()) await home.click();
+
   const archive = zipSync(
     {
       "main.tex": new TextEncoder().encode(
@@ -101,18 +106,19 @@ test.describe("outline and project health", () => {
     // Reading order, not file order: the chapter's sections appear where the
     // `\input` puts them, which is the only thing that makes an outline of a
     // split-up document worth showing.
-    await page.getByTestId("outline").click();
+    await page.getByTestId("panel-outline").click();
     await expect(page.getByTestId("outline-entry")).toHaveText([
       "First",
       "Second",
       "Detail",
     ]);
 
-    // Clicking an entry in another file opens that file.
+    // Clicking an entry in another file opens that file. The outline is the
+    // panel on screen, so the editor's own header is what says which.
     await page.getByTestId("outline-entry").nth(2).click();
-    await expect(
-      page.locator('[data-testid="file-open"][data-path="chapter.tex"]'),
-    ).toHaveAttribute("aria-current", "true");
+    await expect(page.getByTestId("open-file-name")).toContainText(
+      "chapter.tex",
+    );
   });
 
   test("completing a reference offers the project's own labels", async ({
@@ -169,13 +175,16 @@ test.describe("outline and project health", () => {
 
     // No compile: this is the half of "is my document right" that does not
     // need TeX, and the half a user meets first.
+    await page.getByTestId("panel-health").click();
     await expect(page.getByTestId("project-health")).toContainText("1 problem");
     await expect(page.getByTestId("project-health")).toContainText(
       "No \\label{sec:one}",
     );
 
     await editor.fill("\\section{One}\\label{sec:one}\nSee \\ref{sec:one}.\n");
-    await expect(page.getByTestId("project-health")).toHaveCount(0);
+    await expect(page.getByTestId("project-health")).toContainText(
+      "Nothing to report",
+    );
   });
 
   test("a problem is marked in the gutter of the line it is on", async ({
@@ -209,7 +218,7 @@ test.describe("outline and project health", () => {
     await expect(page.getByTestId("file-open")).toHaveCount(1);
     // The star marks the compile target, and the record's root file follows a
     // rename — otherwise the button would point at a name nothing has.
-    await expect(page.getByTestId("file-open")).toHaveText("paper.tex ★");
+    await expect(page.getByTestId("file-open")).toHaveText("paper.tex");
     await expect(page.getByTestId("compile-target")).toHaveText("paper.tex");
     await expect(editor).toContainText("section{One}");
 
@@ -218,7 +227,7 @@ test.describe("outline and project health", () => {
     // file count above is the assertion that matters.
     await page.reload();
     await page.getByTestId("open-project").first().click();
-    await expect(page.getByTestId("file-open")).toHaveText("paper.tex ★");
+    await expect(page.getByTestId("file-open")).toHaveText("paper.tex");
   });
 
   test("an image opens as a picture, not as text", async ({ page }) => {
@@ -325,10 +334,12 @@ test.describe("outline and project health", () => {
     // Two, not one: the `\input` names a file the project does not have yet,
     // which is the same mistake as a misspelled filename and is reported the
     // same way. Creating the file below fixes both at once.
+    await page.getByTestId("panel-health").click();
     await expect(page.getByTestId("project-health")).toContainText(
       "2 problems",
     );
 
+    await page.getByTestId("panel-files").click();
     await page.getByTestId("new-file-name").fill("chapter.tex");
     await page.getByTestId("create-file").click();
     await expect(
@@ -336,6 +347,679 @@ test.describe("outline and project health", () => {
     ).toHaveAttribute("aria-current", "true");
     await editor.fill("\\section{Elsewhere}\\label{sec:elsewhere}\n");
 
-    await expect(page.getByTestId("project-health")).toHaveCount(0);
+    await page.getByTestId("panel-health").click();
+    await expect(page.getByTestId("project-health")).toContainText(
+      "Nothing to report",
+    );
+  });
+});
+
+/**
+ * The first structured editor (PLAN.md 14, Phase 3).
+ *
+ * Driven through the source it edits, because that is the only thing that
+ * matters about it: what lands in the document, whether undo takes it back in
+ * one step, and whether it refuses rather than guesses when the document has
+ * moved underneath it.
+ */
+test.describe("table editor", () => {
+  const TABLE = [
+    "Before.",
+    "\\begin{tabular}{lr}",
+    "\\toprule",
+    "Name & Count \\\\",
+    "\\midrule",
+    "apples & 3 \\\\",
+    "\\bottomrule",
+    "\\end{tabular}",
+    "",
+  ].join("\n");
+
+  test.beforeEach(async ({ page }) => {
+    await page.goto("/");
+    await page.evaluate(async () => {
+      const root = await navigator.storage.getDirectory();
+      for await (const [name] of (
+        root as unknown as AsyncIterable<[string, FileSystemHandle]>
+      )[Symbol.asyncIterator]()) {
+        await root.removeEntry(name, { recursive: true });
+      }
+      await new Promise<void>((resolve) => {
+        const deleting = indexedDB.deleteDatabase("opal-projects");
+        deleting.onsuccess = () => resolve();
+        deleting.onerror = () => resolve();
+        deleting.onblocked = () => resolve();
+      });
+    });
+    await page.goto("/");
+    await page.getByTestId("project-title").fill("Tables");
+    await page.getByTestId("create-project").click();
+    await page.getByTestId("open-project").first().click();
+    await expect(page.getByTestId("editor")).toBeVisible();
+  });
+
+  /** The document as the editor holds it, one line per CodeMirror line. */
+  async function sourceOf(page: Page): Promise<string> {
+    // An empty line is rendered as a `<br>`, whose inner text is a newline.
+    return (await page.locator(".cm-line").allInnerTexts())
+      .map((line) => line.replace(/\n$/, ""))
+      .join("\n");
+  }
+
+  test("edits a cell, adds a row, and undoes it in one step", async ({
+    page,
+  }) => {
+    const editor = page.getByTestId("editor-content");
+    await editor.fill(TABLE);
+    await page.locator(".cm-line", { hasText: "apples" }).click();
+
+    await expect(page.getByTestId("table-open")).toHaveText("Edit table");
+    await page.getByTestId("table-open").click();
+    const grid = page.getByTestId("table-editor");
+    await expect(grid.getByTestId("table-cell")).toHaveCount(4);
+    // Focus goes into the grid, not back to the button that opened it.
+    await expect(grid.getByTestId("table-cell").first()).toBeFocused();
+    // Every rule the table has, each where it sits — including the one above
+    // the first row, which the grid keeps and therefore has to show.
+    await expect(grid.locator(".table-rule")).toHaveText([
+      "\\toprule",
+      "\\midrule",
+      "\\bottomrule",
+    ]);
+
+    await page.getByRole("textbox", { name: "Row 2, column 2" }).fill("30");
+    await page.getByTestId("table-add-row").click();
+    // Onto the new row, which is what adding one means.
+    await expect(
+      page.getByRole("textbox", { name: "Row 3, column 1" }),
+    ).toBeFocused();
+    await page.keyboard.type("pears");
+    await page.getByTestId("table-apply").click();
+
+    await expect(grid).toHaveCount(0);
+    await expect
+      .poll(() => sourceOf(page))
+      .toBe(
+        [
+          "Before.",
+          "\\begin{tabular}{lr}",
+          "  \\toprule",
+          "  Name   & Count \\\\",
+          "  \\midrule",
+          "  apples & 30 \\\\",
+          "  pears  &  \\\\",
+          "  \\bottomrule",
+          "\\end{tabular}",
+          "",
+        ].join("\n"),
+      );
+
+    // One change, so one undo: a grid edit that took a dozen presses of
+    // Ctrl+Z to reverse would be one nobody dared make.
+    await page.keyboard.press("Control+z");
+    await expect.poll(() => sourceOf(page)).toBe(TABLE);
+  });
+
+  test("inserts a table where there is none", async ({ page }) => {
+    const editor = page.getByTestId("editor-content");
+    await editor.fill("Results:");
+    await editor.click();
+    await page.keyboard.press("Control+End");
+
+    await expect(page.getByTestId("table-open")).toHaveText("Insert table");
+    await page.getByTestId("table-open").click();
+    await page.getByRole("textbox", { name: "Row 1, column 1" }).fill("x");
+    await page.keyboard.press("Control+Enter");
+
+    await expect
+      .poll(() => sourceOf(page))
+      .toContain("Results:\n\\begin{tabular}{lll}\n  \\hline\n  x &  &  \\\\");
+    // The cursor is left inside what was inserted, so it can be edited again.
+    await expect(page.getByTestId("table-open")).toHaveText("Edit table");
+  });
+
+  test("Escape leaves the document alone and returns to it", async ({
+    page,
+  }) => {
+    const editor = page.getByTestId("editor-content");
+    await editor.fill(TABLE);
+    await page.locator(".cm-line", { hasText: "apples" }).click();
+    await page.getByTestId("table-open").click();
+    await page.getByRole("textbox", { name: "Row 1, column 1" }).fill("Fruit");
+    await page.keyboard.press("Escape");
+
+    await expect(page.getByTestId("table-editor")).toHaveCount(0);
+    await expect(editor).toBeFocused();
+    expect(await sourceOf(page)).toBe(TABLE);
+  });
+
+  test("refuses to write over a table that moved while the grid was open", async ({
+    page,
+  }) => {
+    const editor = page.getByTestId("editor-content");
+    await editor.fill(TABLE);
+    await page.locator(".cm-line", { hasText: "apples" }).click();
+    await page.getByTestId("table-open").click();
+    await page.getByRole("textbox", { name: "Row 2, column 1" }).fill("figs");
+
+    // The source is still editable. Typing above the table shifts it, and a
+    // grid that wrote back to the old offsets would cut through its first line.
+    await page.locator(".cm-line", { hasText: "Before." }).click();
+    await page.keyboard.press("Home");
+    await page.keyboard.type("Much ");
+    await page.getByTestId("table-apply").click();
+
+    await expect(page.getByTestId("projects-error")).toContainText(
+      "changed in the source",
+    );
+    expect(await sourceOf(page)).toBe(`Much ${TABLE}`);
+  });
+
+  test("says why a table cannot be edited as a grid", async ({ page }) => {
+    const editor = page.getByTestId("editor-content");
+    await editor.fill(TABLE.replace("apples & 3", "apples & 3 % recount"));
+    await page.locator(".cm-line", { hasText: "apples" }).click();
+
+    await expect(page.getByTestId("table-open")).toBeDisabled();
+    await expect(page.getByTestId("table-refused")).toContainText("comments");
+  });
+});
+
+/**
+ * The citation picker, driven the way a writer uses it: by what they remember
+ * about a work rather than by its key.
+ */
+test.describe("citation editor", () => {
+  const BIB = [
+    "@book{knuth1984, author = {Knuth, Donald E.}, title = {The {\\TeX}book}, year = {1984}}",
+    '@article{godel1931, author = {G{\\"o}del, Kurt}, title = {On Formally Undecidable Propositions}, year = {1931}}',
+    "@book{lamport1994, author = {Lamport, Leslie}, title = {{\\LaTeX}: A Document Preparation System}, year = {1994}}",
+    "",
+  ].join("\n");
+
+  test.beforeEach(async ({ page }) => {
+    await page.goto("/");
+    await page.evaluate(async () => {
+      const root = await navigator.storage.getDirectory();
+      for await (const [name] of (
+        root as unknown as AsyncIterable<[string, FileSystemHandle]>
+      )[Symbol.asyncIterator]()) {
+        await root.removeEntry(name, { recursive: true });
+      }
+      await new Promise<void>((resolve) => {
+        const deleting = indexedDB.deleteDatabase("opal-projects");
+        deleting.onsuccess = () => resolve();
+        deleting.onerror = () => resolve();
+        deleting.onblocked = () => resolve();
+      });
+    });
+    await page.goto("/");
+    await page.getByTestId("project-title").fill("Citations");
+    await page.getByTestId("create-project").click();
+    await page.getByTestId("open-project").first().click();
+    await expect(page.getByTestId("editor")).toBeVisible();
+
+    await page.getByTestId("new-file-name").fill("refs.bib");
+    await page.getByTestId("create-file").click();
+    await expect(
+      page.locator('[data-testid="file-open"][data-path="refs.bib"]'),
+    ).toHaveAttribute("aria-current", "true");
+    await page.getByTestId("editor-content").fill(BIB);
+    await page
+      .locator('[data-testid="file-open"][data-path="main.tex"]')
+      .click();
+    // Waited for: the switch reads storage first, and filling before it lands
+    // writes the test's "main.tex" into the bibliography's editor instead.
+    await expect(
+      page.locator('[data-testid="file-open"][data-path="main.tex"]'),
+    ).toHaveAttribute("aria-current", "true");
+  });
+
+  /**
+   * Put the cursor inside the citation at the end of a line.
+   *
+   * A click lands in the middle of the line's box, which spans the editor's
+   * width — past the end of a short line, and so outside its `\cite`.
+   */
+  async function intoCitation(page: Page, text: string) {
+    await page.locator(".cm-line", { hasText: text }).click();
+    await page.keyboard.press("End");
+    await page.keyboard.press("ArrowLeft");
+    await page.keyboard.press("ArrowLeft");
+  }
+
+  /** The document as the editor holds it, one line per CodeMirror line. */
+  async function sourceOf(page: Page): Promise<string> {
+    return (await page.locator(".cm-line").allInnerTexts())
+      .map((line) => line.replace(/\n$/, ""))
+      .join("\n");
+  }
+
+  test("finds a work by author, adds it, and undoes in one step", async ({
+    page,
+  }) => {
+    const editor = page.getByTestId("editor-content");
+    await editor.fill("As shown by \\cite{knuth1984}.");
+    await intoCitation(page, "knuth");
+
+    await expect(page.getByTestId("citation-open")).toHaveText("Edit citation");
+    await page.getByTestId("citation-open").click();
+    const picker = page.getByTestId("citation-editor");
+    // Straight into the search, which is what the picker is for.
+    await expect(page.getByTestId("citation-search")).toBeFocused();
+    await expect(picker.getByTestId("citation-selected")).toContainText(
+      "Knuth (1984). The TeXbook",
+    );
+
+    // Accents folded: nobody types the umlaut to find Gödel.
+    await page.keyboard.type("godel");
+    await expect(page.getByTestId("citation-count")).toHaveText("1 match");
+    await page
+      .locator('[data-testid="citation-result"][data-key="godel1931"]')
+      .check();
+    await page.getByTestId("citation-apply").click();
+
+    await expect(picker).toHaveCount(0);
+    await expect
+      .poll(() => sourceOf(page))
+      .toBe("As shown by \\cite{knuth1984,godel1931}.");
+
+    await page.keyboard.press("Control+z");
+    await expect
+      .poll(() => sourceOf(page))
+      .toBe("As shown by \\cite{knuth1984}.");
+  });
+
+  test("Enter adds the top match, or a key the bibliography lacks", async ({
+    page,
+  }) => {
+    const editor = page.getByTestId("editor-content");
+    await editor.fill("See ");
+    await editor.click();
+    await page.keyboard.press("Control+End");
+
+    await expect(page.getByTestId("citation-open")).toHaveText(
+      "Insert citation",
+    );
+    await page.getByTestId("citation-open").click();
+    await page.keyboard.type("1994 lamport");
+    await page.keyboard.press("Enter");
+    // A key from a `.bib` outside the project: kept, and said to be missing.
+    await page.keyboard.type("external2020");
+    await expect(page.getByTestId("citation-count")).toContainText(
+      "Enter adds it as a key",
+    );
+    await page.keyboard.press("Enter");
+    await expect(page.getByTestId("citation-selected")).toContainText(
+      "not in this project's bibliography",
+    );
+    await page.keyboard.press("Control+Enter");
+
+    await expect
+      .poll(() => sourceOf(page))
+      .toBe("See \\cite{lamport1994,external2020}");
+    // Left on the citation it wrote, so it can be reopened at once.
+    await expect(page.getByTestId("citation-open")).toHaveText("Edit citation");
+  });
+
+  test("keeps both notes, and Escape leaves the document alone", async ({
+    page,
+  }) => {
+    const editor = page.getByTestId("editor-content");
+    const source = "\\usepackage{natbib}\nSee \\citep[see][p.~4]{knuth1984}.";
+    await editor.fill(source);
+    await intoCitation(page, "p.~4");
+    await page.getByTestId("citation-open").click();
+
+    await expect(page.getByTestId("citation-prenote")).toHaveValue("see");
+    await expect(page.getByTestId("citation-postnote")).toHaveValue("p.~4");
+    // natbib is loaded, so its commands are offered alongside the one in use.
+    // A listbox rather than a native select, as on desktop: the options exist
+    // once it is open.
+    await page.getByTestId("citation-command").click();
+    await expect(page.getByRole("option")).toContainText([
+      "\\cite",
+      "\\citep",
+      "\\citet",
+    ]);
+    await page.keyboard.press("Escape");
+
+    await page.getByTestId("citation-postnote").fill("ch.~2");
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("citation-editor")).toHaveCount(0);
+    await expect(editor).toBeFocused();
+    expect(await sourceOf(page)).toBe(source);
+  });
+
+  test("refuses to write over a citation that moved while open", async ({
+    page,
+  }) => {
+    const editor = page.getByTestId("editor-content");
+    await editor.fill("First.\nSee \\cite{knuth1984}.");
+    await intoCitation(page, "knuth");
+    await page.getByTestId("citation-open").click();
+    await page.keyboard.type("lamport");
+    await page.keyboard.press("Enter");
+
+    await page.locator(".cm-line", { hasText: "First." }).click();
+    await page.keyboard.press("Home");
+    await page.keyboard.type("Very ");
+    await page.getByTestId("citation-apply").click();
+
+    await expect(page.getByTestId("projects-error")).toContainText(
+      "citation changed in the source",
+    );
+    expect(await sourceOf(page)).toBe("Very First.\nSee \\cite{knuth1984}.");
+  });
+});
+
+/**
+ * The figure form (PLAN.md 14, Phase 3: structured editors).
+ *
+ * No engine here on purpose: whether `\includegraphics` of a PNG survives
+ * xelatex and xdvipdfmx is a separate claim from whether the form writes the
+ * figure a person asked for, and only the second one is this form's to keep.
+ */
+test.describe("figure editor", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto("/");
+    await page.evaluate(async () => {
+      const root = await navigator.storage.getDirectory();
+      for await (const [name] of (
+        root as unknown as AsyncIterable<[string, FileSystemHandle]>
+      )[Symbol.asyncIterator]()) {
+        await root.removeEntry(name, { recursive: true });
+      }
+      await new Promise<void>((resolve) => {
+        const deleting = indexedDB.deleteDatabase("opal-projects");
+        deleting.onsuccess = () => resolve();
+        deleting.onerror = () => resolve();
+        deleting.onblocked = () => resolve();
+      });
+    });
+    await page.goto("/");
+    await page.getByTestId("project-title").fill("Figures");
+    await page.getByTestId("create-project").click();
+    await page.getByTestId("open-project").first().click();
+    await expect(page.getByTestId("editor")).toBeVisible();
+  });
+
+  /** The document as the editor holds it, one line per CodeMirror line. */
+  async function sourceOf(page: Page): Promise<string> {
+    return (await page.locator(".cm-line").allInnerTexts())
+      .map((line) => line.replace(/\n$/, ""))
+      .join("\n");
+  }
+
+  test("imports an image and writes a figure that resolves", async ({
+    page,
+  }) => {
+    const editor = page.getByTestId("editor-content");
+    await editor.fill("Results below.\n");
+    await editor.click();
+    await page.keyboard.press("Control+End");
+
+    await expect(page.getByTestId("figure-open")).toHaveText("Insert figure");
+    await page.getByTestId("figure-open").click();
+
+    // A new project has no images at all, which is the ordinary case: the form
+    // has to be able to get one in, or its main control is permanently empty.
+    await page.getByTestId("figure-file").setInputFiles({
+      name: "plot.png",
+      mimeType: "image/png",
+      buffer: Buffer.from(PIXEL_PNG),
+    });
+    await expect(page.getByTestId("figure-image")).toContainText(
+      "figures/plot.png",
+    );
+
+    await page.getByTestId("figure-caption").fill("Throughput over time");
+    await page.getByTestId("figure-label").fill("fig:throughput");
+    await page.getByTestId("figure-apply").click();
+
+    await expect
+      .poll(() => sourceOf(page))
+      .toBe(
+        [
+          "Results below.",
+          // No blank line inserted: the cursor was already on an empty one,
+          // and a figure only breaks the line when it would land mid-sentence.
+          "\\begin{figure}[htbp]",
+          "  \\centering",
+          "  \\includegraphics[width=0.8\\linewidth]{figures/plot.png}",
+          "  \\caption{Throughput over time}",
+          "  \\label{fig:throughput}",
+          "\\end{figure}",
+        ].join("\n"),
+      );
+
+    // The path written is the path the file list uses, so the health check
+    // agrees with what compiles rather than reporting a missing graphic.
+    await page.getByTestId("panel-health").click();
+    await expect(page.getByTestId("project-health")).toContainText(
+      "Nothing to report",
+    );
+    await page.getByTestId("panel-files").click();
+    await expect(
+      page.locator('[data-testid="file-open"][data-path="figures/plot.png"]'),
+    ).toBeVisible();
+  });
+
+  test("edits a figure without disturbing what it does not model", async ({
+    page,
+  }) => {
+    const editor = page.getByTestId("editor-content");
+    await editor.fill(
+      [
+        "\\begin{figure}",
+        "  \\vspace{-2pt}",
+        "  \\includegraphics[width=0.4\\textwidth]{figures/old.pdf}",
+        "  \\caption{Old caption}",
+        "\\end{figure}",
+      ].join("\n"),
+    );
+    await page.locator(".cm-line", { hasText: "Old caption" }).click();
+
+    await expect(page.getByTestId("figure-open")).toHaveText("Edit figure");
+    await page.getByTestId("figure-open").click();
+    await expect(page.getByTestId("figure-caption")).toHaveValue("Old caption");
+    // The unit the author wrote, not the one the form would have chosen.
+    await expect(page.getByTestId("figure-editor")).toContainText(
+      "% of textwidth",
+    );
+
+    await page.getByTestId("figure-caption").fill("New caption");
+    await page.getByTestId("figure-label").fill("fig:new");
+    await page.getByTestId("figure-apply").click();
+
+    await expect
+      .poll(() => sourceOf(page))
+      .toBe(
+        [
+          "\\begin{figure}",
+          "  \\vspace{-2pt}",
+          "  \\includegraphics[width=0.4\\textwidth]{figures/old.pdf}",
+          "  \\caption{New caption}",
+          "  \\label{fig:new}",
+          "\\end{figure}",
+        ].join("\n"),
+      );
+  });
+
+  test("says why a figure cannot be edited as a form", async ({ page }) => {
+    const editor = page.getByTestId("editor-content");
+    await editor.fill(
+      [
+        "\\begin{figure}",
+        "  \\includegraphics{a.png}",
+        "  \\includegraphics{b.png}",
+        "  \\caption{Two panels}",
+        "\\end{figure}",
+      ].join("\n"),
+    );
+    await page.locator(".cm-line", { hasText: "Two panels" }).click();
+
+    await expect(page.getByTestId("figure-open")).toBeDisabled();
+    await expect(page.getByTestId("figure-refused")).toContainText("2 images");
+  });
+
+  test("Escape leaves the document alone", async ({ page }) => {
+    const source = [
+      "\\begin{figure}",
+      "  \\includegraphics{a.png}",
+      "  \\caption{Untouched}",
+      "\\end{figure}",
+    ].join("\n");
+    const editor = page.getByTestId("editor-content");
+    await editor.fill(source);
+    await page.locator(".cm-line", { hasText: "Untouched" }).click();
+    await page.getByTestId("figure-open").click();
+    await page.getByTestId("figure-caption").fill("Changed");
+    await page.keyboard.press("Escape");
+
+    await expect(page.getByTestId("figure-editor")).toHaveCount(0);
+    expect(await sourceOf(page)).toBe(source);
+  });
+});
+
+/**
+ * The maths form (PLAN.md 14, Phase 3: structured editors).
+ *
+ * The preview is the reason this form exists — TeX reports a mistake in a
+ * formula somewhere later, often in another paragraph — so these drive it as
+ * well as the source it writes. KaTeX arrives when the form first opens, not
+ * with the application.
+ */
+test.describe("math editor", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto("/");
+    await page.evaluate(async () => {
+      const root = await navigator.storage.getDirectory();
+      for await (const [name] of (
+        root as unknown as AsyncIterable<[string, FileSystemHandle]>
+      )[Symbol.asyncIterator]()) {
+        await root.removeEntry(name, { recursive: true });
+      }
+      await new Promise<void>((resolve) => {
+        const deleting = indexedDB.deleteDatabase("opal-projects");
+        deleting.onsuccess = () => resolve();
+        deleting.onerror = () => resolve();
+        deleting.onblocked = () => resolve();
+      });
+    });
+    await page.goto("/");
+    await page.getByTestId("project-title").fill("Maths");
+    await page.getByTestId("create-project").click();
+    await page.getByTestId("open-project").first().click();
+    await expect(page.getByTestId("editor")).toBeVisible();
+  });
+
+  /** The document as the editor holds it, one line per CodeMirror line. */
+  async function sourceOf(page: Page): Promise<string> {
+    return (await page.locator(".cm-line").allInnerTexts())
+      .map((line) => line.replace(/\n$/, ""))
+      .join("\n");
+  }
+
+  test("writes an equation, previews it, and labels it", async ({ page }) => {
+    const editor = page.getByTestId("editor-content");
+    await editor.fill("Einstein said:\n");
+    await editor.click();
+    await page.keyboard.press("Control+End");
+
+    await expect(page.getByTestId("math-open")).toHaveText("Insert maths");
+    await page.getByTestId("math-open").click();
+    await page.getByTestId("math-body").fill("E = mc^2");
+
+    // KaTeX renders the body into the preview: the picture of the formula is
+    // the thing a person checks before compiling.
+    await expect(
+      page.getByTestId("math-preview").locator(".katex"),
+    ).toBeVisible();
+    await page.getByTestId("math-label").fill("eq:einstein");
+    await page.getByTestId("math-apply").click();
+
+    await expect
+      .poll(() => sourceOf(page))
+      .toBe(
+        [
+          "Einstein said:",
+          "\\begin{equation}",
+          "  E = mc^2",
+          "  \\label{eq:einstein}",
+          "\\end{equation}",
+        ].join("\n"),
+      );
+
+    // And the label is a `\ref` target the moment it exists.
+    await page.keyboard.press("Control+End");
+    await editor.pressSequentially("\nSee \\ref{eq", { delay: 20 });
+    await expect(
+      page.locator(".cm-tooltip-autocomplete li").first(),
+    ).toHaveText("eq:einstein");
+  });
+
+  test("reads an equation back, and drops the label when unnumbered", async ({
+    page,
+  }) => {
+    const editor = page.getByTestId("editor-content");
+    await editor.fill(
+      [
+        "\\begin{equation}",
+        "  a^2 + b^2 = c^2",
+        "  \\label{eq:pythagoras}",
+        "\\end{equation}",
+      ].join("\n"),
+    );
+    await page.locator(".cm-line", { hasText: "a^2" }).click();
+
+    await expect(page.getByTestId("math-open")).toHaveText("Edit maths");
+    await page.getByTestId("math-open").click();
+    await expect(page.getByTestId("math-body")).toHaveValue("a^2 + b^2 = c^2");
+    await expect(page.getByTestId("math-label")).toHaveValue("eq:pythagoras");
+
+    // Unnumbered: a `\label` would name a number the reader never sees, so the
+    // field goes away and the label is not written.
+    await page.getByTestId("math-numbered").uncheck();
+    await expect(page.getByTestId("math-label")).toHaveCount(0);
+    await page.getByTestId("math-apply").click();
+
+    await expect
+      .poll(() => sourceOf(page))
+      .toBe(
+        ["\\begin{equation*}", "  a^2 + b^2 = c^2", "\\end{equation*}"].join(
+          "\n",
+        ),
+      );
+  });
+
+  test("says what it cannot draw without refusing to write it", async ({
+    page,
+  }) => {
+    const editor = page.getByTestId("editor-content");
+    await editor.click();
+    await page.getByTestId("math-open").click();
+    // Valid LaTeX that KaTeX has no idea about: a macro the preamble defines.
+    await page.getByTestId("math-body").fill("\\mycommand{x}");
+
+    await expect(page.getByTestId("math-preview-error")).toBeVisible();
+    // The preview is information, not a gate: it refuses plenty of correct
+    // LaTeX, and deciding what compiles is the engine's job.
+    await expect(page.getByTestId("math-apply")).toBeEnabled();
+    await page.getByTestId("math-apply").click();
+    await expect.poll(() => sourceOf(page)).toContain("\\mycommand{x}");
+  });
+
+  test("warns about a delimiter TeX would report much later", async ({
+    page,
+  }) => {
+    const editor = page.getByTestId("editor-content");
+    await editor.click();
+    await page.getByTestId("math-open").click();
+    await page.getByTestId("math-body").fill("\\frac{a}{b");
+
+    await expect(page.getByTestId("math-delimiters")).toContainText(
+      "} is missing",
+    );
   });
 });

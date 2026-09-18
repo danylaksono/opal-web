@@ -1,36 +1,36 @@
-import { useMemo } from "react";
+import { ThemeProvider } from "next-themes";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ErrorBoundary } from "@/app/ErrorBoundary";
-import { ProjectsPanel } from "@/app/projects/ProjectsPanel";
+import { HarnessPage } from "@/app/harness/HarnessPage";
 import {
-  buildCapabilityReport,
-  type Capability,
-} from "@/platform/browser/capabilities/detect";
+  ProjectPicker,
+  type StorageStatus,
+} from "@/app/projects/ProjectPicker";
+import { WorkspaceScreen } from "@/app/workspace/WorkspaceScreen";
+import {
+  ArchiveRejectedError,
+  packProject,
+  unpackProject,
+} from "@/core/project/archive";
+import type { ProjectId } from "@/core/project/ids";
+import type {
+  ProjectRepository,
+  ProjectSummary,
+} from "@/core/project/repository";
+import { templateById } from "@/core/project/templates";
 import { OpfsProjectRepository } from "@/platform/browser/storage/opfs-project-repository";
-import { CompilerSpike } from "@/spikes/compiler/CompilerSpike";
-import { PerformanceSpike } from "@/spikes/performance/PerformanceSpike";
-import { RendererSpike } from "@/spikes/renderer/RendererSpike";
-import corpus from "../../tests/fixtures/compiler-corpus/manifest.json";
 
-interface CorpusEntry {
-  id: string;
-  documentClass: string;
-  heavyDocumentClass: boolean;
-  packages: string[];
-  heavyPackages: string[];
-  bibliographyEngine: string;
-  needsBibliography: boolean;
-  notes: string[];
-}
-
-function statusClass(capability: Capability): string {
-  if (capability.status === "available") return "available";
-  return capability.optional ? "optional-missing" : "unavailable";
-}
-
-function statusLabel(capability: Capability): string {
-  if (capability.status === "available") return "Available";
-  return capability.optional ? "Missing (optional)" : "Missing (required)";
-}
+/**
+ * The application: a project picker, or a project open in the workspace.
+ *
+ * Opal Web is an adaptation of the Opal desktop editor, so the shell is the
+ * desktop's — activity rail, side panel, editor, preview, status bar — rather
+ * than a page of panels. What differs is what the browser makes different:
+ * storage is OPFS instead of a directory, and there is no window chrome to
+ * account for.
+ *
+ * The Phase 0 harness that used to be this page now lives at `?harness=1`.
+ */
 
 /**
  * One repository for the app's lifetime.
@@ -39,141 +39,179 @@ function statusLabel(capability: Capability): string {
  * one for no benefit. Constructed at module scope rather than in a hook so that
  * a re-render cannot quietly create another.
  */
-const repository = new OpfsProjectRepository();
+const repository: ProjectRepository = new OpfsProjectRepository();
+
+async function readStorageStatus(): Promise<StorageStatus> {
+  const storage = navigator.storage as StorageManager | undefined;
+  const persisted =
+    typeof storage?.persisted === "function" ? await storage.persisted() : null;
+  const estimate =
+    typeof storage?.estimate === "function" ? await storage.estimate() : null;
+  return {
+    persisted,
+    usageBytes: estimate?.usage ?? null,
+    quotaBytes: estimate?.quota ?? null,
+  };
+}
+
+function harnessRequested(): boolean {
+  if (typeof window === "undefined") return false;
+  return new URLSearchParams(window.location.search).has("harness");
+}
 
 export function App() {
-  const report = useMemo(() => buildCapabilityReport(), []);
-  const entries = corpus.entries as CorpusEntry[];
+  const harness = useMemo(harnessRequested, []);
+  const [projects, setProjects] = useState<ProjectSummary[] | null>(null);
+  const [status, setStatus] = useState<StorageStatus | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<ProjectId | null>(null);
 
-  // The corpus is a static import, so nothing here needs memoising.
-  const packageCount = new Set(entries.flatMap((entry) => entry.packages)).size;
-  const classCount = new Set(entries.map((entry) => entry.documentClass)).size;
-  const bibliographyCount = entries.filter(
-    (entry) => entry.needsBibliography,
-  ).length;
+  /**
+   * Re-read the list.
+   *
+   * Reports its own failure but never clears someone else's: `act` runs this
+   * after every action, and a `setError(null)` here would wipe the message the
+   * action had just set.
+   */
+  const refresh = useCallback(async () => {
+    try {
+      setProjects(await repository.list());
+      setStatus(await readStorageStatus());
+    } catch (cause) {
+      // A storage layer that cannot list is the one failure this must not
+      // hide: everything else the app offers would silently do nothing.
+      setError(cause instanceof Error ? cause.message : "Storage unavailable");
+      setProjects([]);
+    }
+  }, []);
+
+  /** A stable callback, so the workspace is not rebuilt on every render. */
+  const refreshList = useCallback(() => {
+    void refresh();
+  }, [refresh]);
+
+  useEffect(() => {
+    if (harness) return;
+    void refresh();
+  }, [refresh, harness]);
+
+  const act = useCallback(
+    async (work: () => Promise<unknown>) => {
+      // Cleared before, not after: what follows may set one.
+      setError(null);
+      try {
+        await work();
+      } catch (cause) {
+        // An archive rejection is the user's problem to fix, so it names the
+        // entry rather than reporting a generic storage failure.
+        setError(
+          cause instanceof ArchiveRejectedError
+            ? `Archive rejected (${cause.reason}): ${cause.message}`
+            : cause instanceof Error
+              ? cause.message
+              : "Storage refused",
+        );
+      }
+      await refresh();
+    },
+    [refresh],
+  );
+
+  /**
+   * Download a project as a ZIP.
+   *
+   * The object URL is revoked on the next frame rather than immediately: the
+   * click has to reach the browser's download machinery first, and revoking in
+   * the same tick cancels the download in some browsers.
+   */
+  const exportProject = useCallback(
+    async (id: ProjectId, projectTitle: string) => {
+      const paths = await repository.listFiles(id);
+      const files = await Promise.all(
+        paths.map(async (path) => ({
+          path,
+          bytes: await repository.readFile(id, path),
+        })),
+      );
+      const zip = packProject(files);
+      const url = URL.createObjectURL(
+        new Blob([zip as BlobPart], { type: "application/zip" }),
+      );
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${projectTitle.replace(/[^\w.-]+/g, "-") || "project"}.zip`;
+      anchor.click();
+      setTimeout(() => {
+        URL.revokeObjectURL(url);
+      }, 0);
+    },
+    [],
+  );
+
+  const importArchive = useCallback(async (file: File) => {
+    const archive = new Uint8Array(await file.arrayBuffer());
+    // Unpacked before the project is created, so a rejected archive leaves
+    // nothing behind to clean up.
+    const files = unpackProject(archive);
+    const main = files.find((entry) => entry.path.endsWith("main.tex"));
+    await repository.create({
+      title: file.name.replace(/\.zip$/i, "") || "Imported project",
+      files,
+      ...(main ? { rootTexPath: main.path } : {}),
+    });
+  }, []);
+
+  const openProject = projects?.find((project) => project.id === openId);
 
   return (
-    <main>
-      <h1>Opal Web — Phase 0 harness</h1>
-      <p className="lede">
-        Feasibility instrumentation only. This build has no editor, no storage
-        and no compiler: it exists to measure whether a browser LaTeX engine and
-        a permissively licensed PDF renderer can carry the product, before any
-        of it is built. See <code>PLAN.md</code> section 14 and{" "}
-        <code>docs/adr/</code>.
-      </p>
-
-      <div className={report.supported ? "banner" : "banner bad"}>
-        {report.supported ? (
-          <>
-            This browser has every capability Opal Web needs. Optional gaps
-            below change which features degrade, not whether the app can run.
-          </>
-        ) : (
-          <>
-            This browser is missing required capabilities:{" "}
-            <strong>{report.missingRequired.join(", ")}</strong>. Opal Web
-            cannot run here.
-          </>
-        )}
-      </div>
-
-      <section>
-        <h2>Browser capabilities</h2>
-        <table>
-          <thead>
-            <tr>
-              <th>Capability</th>
-              <th>Status</th>
-              <th>Why it matters</th>
-            </tr>
-          </thead>
-          <tbody>
-            {report.capabilities.map((capability) => (
-              <tr key={capability.id}>
-                <td>{capability.label}</td>
-                <td className={`status ${statusClass(capability)}`}>
-                  {statusLabel(capability)}
-                </td>
-                <td className="note">{capability.note}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
-
-      <section>
-        <h2>Compiler acceptance corpus</h2>
-        <p className="lede">
-          {entries.length} projects pinned from the desktop examples,{" "}
-          {classCount} document classes, {packageCount} distinct packages,{" "}
-          {bibliographyCount} needing bibliography passes. An engine is not a
-          candidate until every row here has a recorded outcome — a documented
-          exception counts, a silent failure does not.
-        </p>
-        <table>
-          <thead>
-            <tr>
-              <th>Project</th>
-              <th>Class</th>
-              <th>Bibliography</th>
-              <th>Known-hard packages</th>
-            </tr>
-          </thead>
-          <tbody>
-            {entries.map((entry) => (
-              <tr key={entry.id}>
-                <td>
-                  <code>{entry.id}</code>
-                </td>
-                <td>
-                  {entry.documentClass}
-                  {entry.heavyDocumentClass ? " (non-baseline)" : ""}
-                </td>
-                <td className="note">
-                  {entry.needsBibliography ? entry.bibliographyEngine : "—"}
-                </td>
-                <td className="note">
-                  {entry.heavyPackages.join(", ") || "—"}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
-
-      <ErrorBoundary label="Projects">
-        <ProjectsPanel repository={repository} />
-      </ErrorBoundary>
-
-      <CompilerSpike />
-
-      <PerformanceSpike />
-
-      <RendererSpike />
-
-      <section>
-        <h2>Build configuration</h2>
-        <table>
-          <tbody>
-            <tr>
-              <td>Cross-origin isolation expected</td>
-              <td className="note">
-                {__OPAL_CROSS_ORIGIN_ISOLATED__ ? "yes" : "no"} — set{" "}
-                <code>OPAL_COI=1</code> and uncomment the header block in{" "}
-                <code>netlify.toml</code> together, or the build and the host
-                will disagree.
-              </td>
-            </tr>
-            <tr>
-              <td>Corpus generated from</td>
-              <td className="note">
-                <code>{corpus.generatedFrom}</code> on {corpus.generatedAt}
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </section>
-    </main>
+    <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+      {harness ? (
+        <HarnessPage />
+      ) : openId && openProject ? (
+        <ErrorBoundary label="Workspace">
+          <WorkspaceScreen
+            key={openId}
+            repository={repository}
+            projectId={openId}
+            title={openProject.title}
+            onClose={() => setOpenId(null)}
+            onExport={() =>
+              void act(() => exportProject(openId, openProject.title))
+            }
+            onChanged={refreshList}
+          />
+        </ErrorBoundary>
+      ) : (
+        <ErrorBoundary label="Projects">
+          <ProjectPicker
+            projects={projects}
+            status={status}
+            error={error}
+            onCreate={(title, templateId) => {
+              const template = templateById(templateId);
+              void act(() =>
+                repository.create({
+                  title,
+                  files: template.files,
+                  rootTexPath: template.rootTexPath,
+                }),
+              );
+            }}
+            onImport={(file) => void act(() => importArchive(file))}
+            onOpen={(id) => {
+              setOpenId(id);
+              void act(() => repository.open(id));
+            }}
+            onExport={(id, title) => void act(() => exportProject(id, title))}
+            onDelete={(id) => void act(() => repository.delete(id))}
+            onRequestPersistence={() =>
+              void act(async () => {
+                await navigator.storage.persist();
+              })
+            }
+          />
+        </ErrorBoundary>
+      )}
+    </ThemeProvider>
   );
 }

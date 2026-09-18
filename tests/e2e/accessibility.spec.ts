@@ -61,6 +61,17 @@ async function clearStorage(page: Page) {
   });
 }
 
+/**
+ * Pick a starting point.
+ *
+ * The template control is a listbox rather than a native `<select>`, as on
+ * desktop, so it is opened and an option is chosen.
+ */
+async function chooseTemplate(page: Page, name: string) {
+  await page.getByTestId("project-template").click();
+  await page.getByRole("option", { name, exact: true }).click();
+}
+
 test.describe("accessibility", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
@@ -88,8 +99,52 @@ test.describe("accessibility", () => {
     await page.getByTestId("new-file-name").fill("chapter.tex");
     await page.getByTestId("create-file").click();
     await expect(page.getByTestId("file-open")).toHaveCount(2);
-    await page.getByTestId("outline").click();
+    await page.getByTestId("panel-outline").click();
 
+    expect(await seriousViolations(page)).toEqual([]);
+  });
+
+  test("the table editor has no serious violations", async ({ page }) => {
+    await page.getByTestId("project-title").fill("Accessible table");
+    await page.getByTestId("create-project").click();
+    await page.getByTestId("open-project").first().click();
+    await page
+      .getByTestId("editor-content")
+      .fill(
+        "\\begin{tabular}{lll}\n\\multicolumn{2}{c}{Head} & x \\\\\\hline\na & b & c \\\\\n\\end{tabular}\n",
+      );
+    await page.locator(".cm-line", { hasText: "a & b" }).click();
+    await page.getByTestId("table-open").click();
+    await expect(page.getByTestId("table-editor")).toBeVisible();
+
+    // A spanning cell is named by the columns it covers, not by its position
+    // in the row, which is what a screen reader user would otherwise hear.
+    await expect(
+      page.getByRole("textbox", { name: "Row 1, columns 1 to 2" }),
+    ).toBeVisible();
+    expect(await seriousViolations(page)).toEqual([]);
+  });
+
+  test("the citation editor has no serious violations", async ({ page }) => {
+    await page.getByTestId("project-title").fill("Accessible citation");
+    await chooseTemplate(page, "Paper with references");
+    await page.getByTestId("create-project").click();
+    await page.getByTestId("open-project").first().click();
+    // The line holds two citations, and the second already cites Lamport:
+    // go to its start and step into the first.
+    await page.locator(".cm-line", { hasText: "this~" }).click();
+    await page.keyboard.press("Home");
+    for (let step = 0; step < 7; step += 1) {
+      await page.keyboard.press("ArrowRight");
+    }
+    await expect(page.getByTestId("citation-open")).toHaveText("Edit citation");
+    await page.getByTestId("citation-open").click();
+    await expect(page.getByTestId("citation-editor")).toBeVisible();
+
+    // Every result is a checkbox named by its entry, not a bare tick box.
+    await expect(
+      page.getByRole("checkbox", { name: /lamport1994.*Lamport \(1994\)/ }),
+    ).toBeVisible();
     expect(await seriousViolations(page)).toEqual([]);
   });
 
@@ -113,7 +168,9 @@ test.describe("accessibility", () => {
     );
 
     await page.getByTestId("editor-content").fill("typed");
-    await expect(page.getByTestId("save-status")).toContainText("Saved at");
+    await expect(page.getByTestId("save-status")).toContainText(
+      "Saved · revision",
+    );
   });
 
   test("focus lands somewhere after the file it was on is deleted", async ({

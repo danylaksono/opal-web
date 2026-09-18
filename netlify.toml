@@ -64,6 +64,15 @@
   [headers.values]
     Cache-Control = "public, max-age=0, must-revalidate"
 
+# The service worker decides what every visit is served, so a stale copy of it
+# outlives a deploy and keeps serving the previous application. Browsers already
+# cap how long they will trust a worker script, but saying it here means the
+# host and the worker agree rather than nearly agree.
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
 # [[headers]]
 #   for = "/*"
 #   [headers.values]

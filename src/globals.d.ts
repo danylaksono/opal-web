@@ -3,6 +3,9 @@
 /** Injected by vite.config.ts `define`. */
 declare const __OPAL_CROSS_ORIGIN_ISOLATED__: boolean;
 declare const __MUPDF_VERSION__: string;
+/** The build's own id, and the engine's version: the two cache keys. */
+declare const __OPAL_BUILD_ID__: string;
+declare const __OPAL_ENGINE_VERSION__: string;
 
 /** Aliased in vite.config.ts to mupdf's WASM binary, which its exports map hides. */
 declare module "mupdf-wasm-binary?url" {

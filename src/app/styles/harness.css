@@ -1,0 +1,350 @@
+/*
+ * The Phase 0 measurement panels, and only those.
+ *
+ * This was the whole application's stylesheet while the application was a
+ * measurement harness. The product is now built on the desktop editor's theme
+ * (`globals.css`), so these rules — which style bare elements: `section`,
+ * `table`, `button` — are nested under `.harness-page` rather than deleted.
+ * The panels they dress are still how ADR-003 and ADR-011 are reproduced, and
+ * restyling them would be work nobody is asking for.
+ */
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #0e1a1d;
+    --paper-raised: #142428;
+    --ink: #e4ecea;
+    --ink-soft: #94a8a9;
+    --rule: #24393d;
+
+    --fire: #4fbcae;
+    --fire-quiet: #16302f;
+    --flare: #e8829f;
+    --amber: #d9a942;
+  }
+}
+
+.harness-page {
+  /* Nested, so it stops applying to the product's own sections. */
+  @media (max-width: 60rem) {
+    section {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    section > *,
+    section > h2 {
+      grid-column: 1;
+    }
+    section > h2 {
+      grid-row: auto;
+      margin-bottom: 0.75rem;
+    }
+  }
+
+  /*
+   * Design tokens and the application shell (PLAN.md 14, Phase 1).
+   *
+   * Two things specific to this product decide how it looks, rather than a
+   * general-purpose style:
+   *
+   * The name. An opal is a pale, cool, translucent body with blue-green fire in
+   * it, so the ground is porcelain rather than the warm cream a document tool
+   * reaches for by default, and the single accent is that peacock. Opal's pink
+   * flare is held back for failure, where a colour nobody else uses is worth
+   * having.
+   *
+   * The craft. This is a typesetting workspace, and the page is almost entirely
+   * measured numbers, so it is set like a page rather than assembled like a
+   * dashboard: a fixed measure for prose, tabular figures everywhere numbers are
+   * compared down a column, and section headings in the left margin so they read
+   * as an index of the page instead of interrupting it.
+   */
+
+  :root {
+    color-scheme: light dark;
+
+    --paper: #f4f6f5;
+    --paper-raised: #ffffff;
+    --ink: #16262b;
+    --ink-soft: #56696d;
+    --rule: #d9e1df;
+
+    /* Peacock carries every interactive thing; nothing else does. */
+    --fire: #0e7c74;
+    --fire-quiet: #e2efed;
+    /* Opal's pink flare, reserved for what has actually gone wrong. */
+    --flare: #a83a67;
+    --amber: #8a6410;
+
+    --measure: 68ch;
+    --gutter: 11rem;
+
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    /* A book face, because the subject is books: whichever of these the reader
+       has, all of them are text faces with typographic pedigree. */
+    --serif:
+      "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Charter,
+      Georgia, serif;
+    --mono: ui-monospace, "Cascadia Code", "SF Mono", Menlo, monospace;
+
+    font-family: var(--sans);
+    /* The page is a table of measurements; digits should line up in a column. */
+    font-variant-numeric: tabular-nums;
+  }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    line-height: 1.55;
+  }
+
+  main {
+    max-width: 74rem;
+    margin: 0 auto;
+    padding: 3rem 1.5rem 6rem;
+  }
+
+  h1 {
+    font-family: var(--serif);
+    font-size: clamp(1.6rem, 1.2rem + 1.6vw, 2.3rem);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin: 0 0 0.5rem;
+  }
+
+  .lede {
+    color: var(--ink-soft);
+    margin: 0 0 3rem;
+    max-width: var(--measure);
+  }
+
+  /* Inside a section the lede introduces the controls below it, so it sits
+     closer to them than the page lede does to the page. */
+  section .lede {
+    margin-bottom: 1.25rem;
+  }
+
+  /*
+   * A file input styled as what it does.
+   *
+   * The native control announces "Choose File / No file chosen", which says
+   * nothing about importing a project and renders as a grey slab that ignores
+   * the palette. The input still exists and is still focusable — it is the
+   * label that is visible.
+   */
+  .file-button input[type="file"] {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .file-button {
+    display: inline-flex;
+    align-items: center;
+    font-size: 0.875rem;
+    color: var(--fire);
+    background: var(--paper-raised);
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    padding: 0.3rem 0.7rem;
+    cursor: pointer;
+  }
+
+  .file-button:hover {
+    border-color: var(--fire);
+    background: var(--fire-quiet);
+  }
+
+  .file-button:focus-within {
+    outline: 2px solid var(--fire);
+    outline-offset: 1px;
+  }
+
+  /*
+   * A section is a heading in the margin and its content in the measure. Below
+   * the point where a margin would squeeze the content, the two stack.
+   */
+  section {
+    display: grid;
+    grid-template-columns: var(--gutter) minmax(0, 1fr);
+    gap: 0 2.5rem;
+    margin-bottom: 3.5rem;
+    border-top: 1px solid var(--rule);
+    padding-top: 1.25rem;
+  }
+
+  section > * {
+    grid-column: 2;
+    min-width: 0;
+  }
+
+  section > h2 {
+    grid-column: 1;
+    grid-row: 1 / span 99;
+    font-family: var(--serif);
+    font-size: 1.05rem;
+    font-weight: 600;
+    margin: 0;
+    color: var(--ink);
+    align-self: start;
+    /* Optically level with the first line of body text beside it. */
+    padding-top: 0.1rem;
+  }
+
+  section h3 {
+    font-family: var(--serif);
+    font-size: 1rem;
+    font-weight: 600;
+    margin: 1.5rem 0 0.5rem;
+  }
+
+  section p {
+    max-width: var(--measure);
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+  }
+
+  th {
+    text-align: left;
+    font-weight: 600;
+    color: var(--ink-soft);
+    padding: 0.4rem 0.75rem 0.4rem 0;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  td {
+    padding: 0.55rem 0.75rem 0.55rem 0;
+    border-top: 1px solid var(--rule);
+    vertical-align: baseline;
+  }
+
+  tbody tr:first-child td {
+    border-top: none;
+  }
+
+  td.note {
+    color: var(--ink-soft);
+  }
+
+  .status {
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  /* Colour never carries the meaning alone: every status is also a word. */
+  .status.available {
+    color: var(--fire);
+  }
+
+  .status.unavailable {
+    color: var(--flare);
+  }
+
+  .status.optional-missing {
+    color: var(--amber);
+  }
+
+  /*
+   * A hairline box, coloured by state rather than tabbed.
+   *
+   * The first version put a 3px accent bar down one side, which was the only
+   * heavy element on a page otherwise built entirely from hairlines — and a
+   * decoration standing in for the word that already says what the state is.
+   * Everything else here distinguishes states with a rule weight the page
+   * already uses, so this does too.
+   */
+  .banner {
+    border: 1px solid var(--rule);
+    padding: 0.9rem 1.1rem;
+    background: var(--paper-raised);
+    margin-bottom: 1.5rem;
+    max-width: var(--measure);
+  }
+
+  .banner.bad {
+    border-color: var(--flare);
+  }
+
+  code {
+    font-family: var(--mono);
+    font-size: 0.875em;
+    color: var(--ink-soft);
+  }
+
+  button {
+    font: inherit;
+    font-size: 0.875rem;
+    color: var(--fire);
+    background: var(--paper-raised);
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    padding: 0.3rem 0.7rem;
+    cursor: pointer;
+  }
+
+  button:hover {
+    border-color: var(--fire);
+    background: var(--fire-quiet);
+  }
+
+  button:disabled {
+    color: var(--ink-soft);
+    cursor: not-allowed;
+  }
+
+  input[type="text"],
+  input:not([type]),
+  textarea,
+  select {
+    font: inherit;
+    font-size: 0.875rem;
+    color: var(--ink);
+    background: var(--paper-raised);
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    padding: 0.3rem 0.5rem;
+  }
+
+  textarea {
+    font-family: var(--mono);
+    line-height: 1.6;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--fire);
+    outline-offset: 1px;
+  }
+
+  /*
+   * The structured editors: forms in the same hairlines as everything else.
+   *
+   * The table's cells are monospaced because what is typed into them is LaTeX
+   * source, not the rendered text, and `\textbf{a}
+
+  /*
+   * The one place !important is right: a reduced-motion preference has to beat
+   * every animation, including ones added later by code that did not think about
+   * it. Kept to duration rather than `animation: none`, so a transition that
+   * signals a state change still completes and still lands.
+   */
+  @media (prefers-reduced-motion: reduce) {
+    /* biome-ignore-start lint/complexity/noImportantStyles: a stated preference outranks any rule */
+    /* biome-ignore-start lint/style/noDescendingSpecificity: the universal selector is the point */
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+    /* biome-ignore-end lint/style/noDescendingSpecificity: restored */
+    /* biome-ignore-end lint/complexity/noImportantStyles: restored */
+  }
+}

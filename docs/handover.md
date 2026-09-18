@@ -18,10 +18,10 @@ pnpm dev            # Vite's default http://localhost:5173, or the next free por
 
 **That is already the whole product except compiling.** Creating and opening
 projects, the editor, the file list, rename, the outline, project health,
-completion, gutter marks from the index, asset views and the ZIP round trip all
-work without the engine, because none of them needs it. `pnpm test` runs 247
-unit tests; `pnpm test:e2e` runs 31 and **skips 13**, each naming what is
-missing rather than failing.
+completion, gutter marks from the index, asset views, the table, citation,
+figure and maths editors and the ZIP round trip all work without the engine, because none
+of them needs it. `pnpm test` runs 351 unit tests; `pnpm test:e2e` runs 55 and
+**skips 15**, each naming what is missing rather than failing.
 
 `OPAL_CHROMIUM_PATH` is for containers that cannot reach Playwright's browser
 CDN. Leave it unset locally — unset means "let Playwright decide", which is what
@@ -39,13 +39,13 @@ pnpm spike:brotli --write                # optional: pre-compresses engine, boot
 
 The second step is the one that matters: the first only unpacks the TeX Live
 tree, and nothing compiles until the boot set exists. After it, `pnpm test:e2e`
-runs all 44.
+runs all 71.
 
 ### Everyday
 
 | Command | What it does |
 | --- | --- |
-| `pnpm dev` | The app, plus the Phase 0 spike panels below it |
+| `pnpm dev` | The app. The Phase 0 spike panels are on their own route at `?harness=1`, which is how the spike scripts reach them |
 | `pnpm test` | Unit tests, ~3 s |
 | `pnpm test:e2e` | Builds, serves on 4173, drives Chromium |
 | `pnpm lint` / `pnpm lint:fix` | Biome, which also formats |
@@ -79,10 +79,17 @@ transactional autosave, ZIP import and export, an error boundary and design
 tokens. Every exit criterion has a test that runs against real storage rather
 than a stand-in; `PLAN.md` 14 names which test shows which criterion.
 
-**Phase 3 — authoring: begun.** CodeMirror 6 replaced the textarea (line
+**Phase 3 — authoring: begun.** The app is laid out as the desktop editor is:
+`src/app/workspace/` holds the activity rail, the side panel (files, outline,
+project health), the editor pane, the PDF preview pane and the status bar, in
+`react-resizable-panels` splits, with `src/app/projects/ProjectPicker.tsx` as
+the screen when nothing is open. It is built on desktop's theme
+(`src/app/styles/globals.css`) and its shadcn/Radix primitives (`src/ui/`),
+both copied from `opal-editor` under MIT and recorded in the licence inventory;
+`src/app/styles/harness.css` is what the old page-styled spike panels still
+use, scoped to `.harness-page`. CodeMirror 6 is the editing surface (line
 numbers, undo, `stex` highlighting, one instance per document so undo stops at
-the file), and a flat file list does add, switch and delete — which is what
-makes the compile path's multi-file support reachable at all.
+the file).
 
 On top of that, `src/core/latex/` holds a semantic index: a character scanner
 per file, then the cross-file questions. It feeds an outline, a project-health
@@ -95,9 +102,13 @@ diagnostics are marked in the editor's gutter; `renameFile` is on the port so a
 rename is one revision rather than a write and a delete. Images and PDFs open as
 assets rather than as mangled text — which is also what stops autosave writing a
 UTF-8-decoded PNG back over the original. `tests/e2e/accessibility.spec.ts` runs
-axe over the product and drives the keyboard paths it cannot see. Outstanding:
-structured editors, and a screen-reader session, which no automated check
-substitutes for.
+axe over the product and drives the keyboard paths it cannot see. The structured
+editors are a pure reader/writer in `src/core/latex/` (`tabular.ts`,
+`citation.ts`, `figure.ts`, `math.ts`, sharing `comments.ts`) and a form in
+`src/app/editor/`, written back through one conditional span replacement in
+`WorkspaceScreen`. The table and citation editors regenerate what they write
+and refuse what they cannot represent; the figure editor edits in place,
+because a figure body holds things no form models. Outstanding: a screen-reader session, which no automated check substitutes for.
 
 `src/core/project/templates.ts` holds the five starting points a new project can
 take. They are data rather than files so they work offline and so the tests can
@@ -209,6 +220,25 @@ cover for this path.
   rebuild before rerunning, or the tests drive the previous build and the result
   means nothing. `reuseExistingServer` is deliberate — it keeps the suite fast —
   but it does not rebuild.
+- **The service worker runs in built output only.** `registerOfflineShell`
+  returns early unless `import.meta.env.PROD`, because a cache in front of a
+  dev server fights hot reloading. So `pnpm dev` never exercises the offline
+  path and `tests/e2e/offline.spec.ts` is the only thing that does. If a cache
+  seems stale while testing a build locally, it is: clear it from the browser's
+  Application panel, or run
+  `caches.keys().then((k) => k.forEach((n) => caches.delete(n)))`.
+- **A green e2e suite does not prove `pnpm dev` works.** Playwright starts
+  `vite preview`, and the two servers do not install middlewares at the same
+  point: what a `configureServer` *returns* runs after Vite's own middlewares,
+  and in dev Vite's HTML fallback answers anything still unhandled. That is how
+  `/texlive/26/article.cls` came back as `index.html` with a 200 — every
+  compile under `pnpm dev` failed with `Missing \begin{document}` naming a
+  class file, while every compile test passed. The endpoint has been behind
+  that hook since it was added (424041f, 2026-09-12), and the CTAN proxy since
+  5537917, so neither has ever answered in dev.
+  `tests/scripts/dev-server-endpoints.test.ts` now asserts the endpoint against
+  both servers; anything else that must answer before Vite does needs the same
+  treatment and the same test.
 - **The contract page is behind a flag.** `tests/browser/contract.html` runs the
   storage contract against real OPFS and is only built when `OPAL_TEST_PAGES=1`,
   which `playwright.config.ts` sets. An ordinary `vite build` emits no contract

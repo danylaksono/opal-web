@@ -151,7 +151,117 @@ hundred compiles rather than every one, at 0.9 s each.
   template is also the first document in this repository to reach a
   bibliography — no corpus project ever did — so it is where the bibtex path
   finally got tested.
-- 247 unit tests and 44 Playwright e2e tests. The e2e suite is the part that
+- **A table editor**, the first structured editor. With the cursor in a
+  `tabular`, `tabularx`, `tabular*` or `array`, the source opens as a grid:
+  edit cells, add and remove rows and columns, and Apply writes it back as one
+  undoable change with the `&`s aligned. Rules (`\hline`, booktabs) and
+  `\multicolumn` spans are kept. It refuses what it cannot write back without
+  losing something, such as a comment inside the table, and says why. Apply is
+  conditional: if the table's source changed while the grid was open, the write
+  is refused, not made at the old offsets. Every table in the corpus is read and
+  written back cell for cell in the unit suite.
+- **A citation editor.** With the cursor in any of the fourteen citation
+  commands the index counts, the keys open as a list with a search over the
+  bibliography: author, a title word, a year or part of a key, accents folded,
+  so "godel" finds `G{\"o}del`. It reads `.bib` fields and hand-written
+  `\bibitem` text alike, offers only the commands the loaded packages define,
+  and keeps prenotes and postnotes, writing `[see][]` when natbib needs the
+  empty one. A key the project's bibliography lacks is kept and labelled, not
+  dropped. Apply is conditional in the same way as the table's. In the unit
+  suite it has to agree with the index on every corpus project's keys, and
+  every corpus citation has to come back from it unchanged.
+- **Two editor defects the pickers found.** A cap on the editor's height sat on
+  the box around CodeMirror, making a second scroll region that axe reports as
+  unreachable by keyboard; nothing had tested a document taller than the box.
+  And a structured edit focused the editor after changing it, which let the
+  browser reset the cursor to the start of the file.
+- **The page opens on the product.** It had opened as the Phase 0 harness
+  for two phases after it stopped being one: capability table, corpus table
+  and three measurement panels first, the workspace below them, under a lede
+  that still read "no editor, no storage and no compiler". The instruments are
+  not deleted — the ADR-003 and ADR-011 measurements are reproduced by driving
+  them — but they are in a closed section under the workspace, which
+  `?harness=1` opens for the spike scripts.
+- **The product is the desktop editor, adapted.** Until now the app was the
+  Phase 0 harness with a project panel added to it: a page of measurement
+  tables that a person scrolled past to reach their work. Opal Web is an
+  adaptation of the Opal desktop editor, so the shell is now desktop's —
+  activity rail, side panel (files, outline, health), editor pane, PDF preview
+  pane, status bar, draggable splits — built on desktop's own theme and
+  shadcn/Radix primitives, copied across under MIT (see the licence
+  inventory). What differs is what the browser makes different: storage is
+  OPFS rather than a directory, and there is no window chrome. The
+  instruments did not go: they are at `?harness=1`, which is how
+  `spike:corpus-run`, `spike:perf` and `spike:firstload` still drive them.
+- **A defect the shell found.** The workspace re-opened its project on every
+  render of its parent, because a callback prop was rebuilt each time and an
+  effect depended on it. That reset the open file and replaced the autosave
+  before its debounce could fire — so an edit was never saved. It is a
+  stale-identity bug rather than a stale-closure one, and the e2e suite caught
+  it as "No unsaved changes" where a save was expected.
+- **A figure editor**, and with it a way to get an image into a project at
+  all. With the cursor in a `figure`, its five decisions open as a form —
+  which image, how wide, what it says, what to call it, where it may float —
+  and Apply writes the environment back **in place**: a body holding a
+  `\vspace` or a `\footnotesize` keeps them, because a figure legitimately
+  contains what no form models. It writes the caption before the label, since
+  a `\label` above its `\caption` numbers the section instead and the
+  reference then points somewhere else. It refuses a figure with two images
+  rather than editing the first of them. The image list is the project's own
+  files, and "Import image" writes one into `figures/` — until now nothing in
+  the product could create a binary file, so every new project's figure form
+  would have opened with an empty list and no way to fill it.
+- **Two defects the figure work found.** The path the form writes is the path
+  the file list gives, because the index resolves `\includegraphics` against
+  the project's own paths and a basename would have it report a missing
+  graphic on a document that compiles. And an imported image was added to the
+  file list but not to the sources the index is built from, so project health
+  called it missing the moment it arrived; both are now asserted in tests.
+- **A maths editor, and Phase 3's structured editors are done.** Source on the
+  left, KaTeX's picture of it on the right, the kind of display as a choice
+  (inline, `\[…\]`, `equation`, `align`, `gather`, `multline`, numbered or
+  starred), and a `\label` field that appears only where a number will be
+  printed — a label on an unnumbered environment names something the reader
+  never sees. The preview **informs and never gates**: KaTeX refuses plenty of
+  correct LaTeX — a macro from the preamble, anything from a package — and a
+  preview that could block Apply would be a preview deciding what compiles. It
+  also names an unbalanced delimiter, which is the mistake TeX reports
+  somewhere else entirely. KaTeX is loaded when the form first opens, so a
+  first compile does not carry it (ADR-011's budget is unchanged); its fonts
+  are emitted as assets of this origin, because a CDN would break both ADR-001
+  and the offline claim.
+- **Inline `$…$` is written but never read.** Pairing dollars in a real
+  document means deciding whether the `$` closing one expression opens the
+  next — across lines, through `\$`, inside verbatim — and getting it wrong
+  replaces a span that was never maths. The form offers inline maths for
+  insertion and declines to claim an existing `$x$`, which is the same refusal
+  discipline the other three readers use.
+- **Phase 4 has started: the offline shell is built and measured.** A service
+  worker keeps two caches apart on purpose — the application's, keyed by the
+  build, and the engine's, keyed by the `texlyre-busytex` version — so a deploy
+  replaces the app and leaves 22.7 MB of engine alone. It pre-caches nothing:
+  someone who opens Opal Web to read a document should not pay for an engine
+  they never run, so what is used is kept and the rest is never fetched. The
+  policy is a pure function with its own tests (`offline/strategy.ts`), because
+  a service worker decides what *everyone* is served and stays wrong until a
+  cache is cleared.
+- **Measured, rather than assumed.** A service worker does intercept the
+  engine's requests, including the synchronous XHR its worker makes to
+  `/texlive/…` — that was checked with a throwaway worker before any of this
+  was designed, because the fallback (caching in the page, through the
+  adapter) would have been a different design. After one compile the engine
+  cache holds **71.05 MB across 10 entries**, and the origin is using 94.4 MB
+  of a 3,166 MB quota. The 71 MB is not a contradiction of ADR-011's 22.7 MB:
+  that figure is the compressed transfer, and Cache Storage keeps decoded
+  bodies. Whether an origin this size survives storage pressure is the next
+  thing to measure, and the persistence control the picker already offers is
+  what it hangs on.
+- **The claim, taken literally.** `tests/e2e/offline.spec.ts` compiles a
+  document, switches the network off, reloads, and compiles again: TeX runs in
+  the browser with nothing available to fetch. A 404 from the TeX endpoint is
+  never cached — the engine reads one as "no such file" and stops asking, so
+  caching it would make a transient answer permanent.
+- 351 unit tests and 71 Playwright e2e tests. The e2e suite is the part that
   matters here: four defects found during Phase 2 — the default font path, a
   boot package with no `ls-R`, a stale pre-compressed asset, and cancellation
   returning after 180 s — would each have passed every test that existed before
@@ -182,7 +292,7 @@ hundred compiles rather than every one, at 0.9 s each.
    to bite a 32 MB engine. **Needs a different machine**: the container this was
    built in cannot reach the Playwright browser CDN, so Chromium is the only
    engine installable on it.
-2. What Phase 3 still owes: structured editors, and an accessibility check a
+2. What Phase 3 still owes: an accessibility check a
    machine cannot do — axe and the keyboard tests say the mechanics are right,
    but nobody has driven this with a screen reader, and that is a different kind
    of evidence.
@@ -192,6 +302,112 @@ hundred compiles rather than every one, at 0.9 s each.
 5. Commit desktop Tectonic's logs beside the reference PDFs, so diagnostics can
    be compared as well as output.
 6. The AGPL section 13 source offer, before any public deployment.
+7. Then Phase 4, in the order and for the reasons in "Phase 4, read against the
+   desktop editor" below: offline shell and engine caching first, review
+   annotations second, history third, SyncTeX fourth, folder sync last.
+
+## Phase 4, read against the desktop editor (2026-09-18)
+
+Phase 4 was written in July 2026 from an audit of desktop `main`, before this
+repository could compile anything. Now that the desktop source has been read
+alongside a working browser product — its 40-odd Tauri commands, its stores,
+its review and history subsystems — the phase can be stated in terms of what
+the browser actually changes, rather than in terms of a feature list. Section
+9's deliverables still stand; what follows is the order they should be taken
+in and why, and it supersedes the ordering there.
+
+**What was verified in the desktop source**, so the rest can be read as
+grounded rather than guessed: history is libgit2 commits (`git2`) in a
+`.tectonic-editor/` folder *inside the project*; review annotations are JSON
+files in the project's `review/<reviewer>.json`, with anchors carrying a page
+and a rectangle in PDF coordinates, an optional source location (file, line,
+column), the selected text, replies, freehand drawings, and a per-anchor
+status of `ok`, `shifted`, `drifted` or `unverified`; the PDF viewer draws a
+text layer and a link layer over each page, from the same MuPDF this product
+uses; SyncTeX is two native commands over Tectonic's output; and LanguageTool,
+Zotero, reference lookup and the Python/`uv` skills are network or native
+services behind their own commands.
+
+### 1. Offline shell and engine caching — built (2026-09-18)
+
+The desktop has an updater; a browser has a service worker, and the thing it
+caches is the fixed cost ADR-011 measured — engine, boot set, renderer. This is
+now built and tested offline end to end (see the progress section above), which
+answers the part the desktop could teach us nothing about. What it does **not**
+yet answer, and what the rest of Phase 4 should carry:
+
+- what eviction does to a 71 MB origin under storage pressure, and whether the
+  persistence grant the picker offers is enough to prevent it;
+- what an engine update looks like once a version is cached — the cache is
+  keyed by the engine's version, so a new one is a new cache and the old one is
+  dropped on the next activation, but nobody has watched that happen;
+- the "prepare for offline" control section 9 asks for, which is only worth
+  building now that there is a cache behind it to promise something about.
+
+### 2. Review annotations — the largest subsystem to port, and the one already paid for
+
+ADR-004 chose MuPDF over the alternatives partly on per-line text geometry,
+*for this*. The desktop's model ports as data: the same JSON in the same
+`review/` folder means a project exported here opens there, which is what
+section 9's exit criterion asks for — and the criterion becomes testable the
+day both sides read the same fixture. Three parts are browser work rather than
+a port: a selectable text layer over a canvas that currently shows only a
+bitmap, a re-anchoring pass after each compile (desktop's four anchor statuses
+are the specification), and drawing.
+
+### 3. History snapshots — where the browser forces a different answer
+
+Desktop keeps history in a git repository inside the project folder, so it
+travels with the project. There is no libgit2 in a browser, and section 6.1
+already chose IndexedDB for snapshots — which means our history does **not**
+travel with a ZIP unless we decide it should. That is the decision to take
+deliberately rather than by default: a project exported from the web and
+opened on the desktop would arrive with no history at all, and the reverse
+would arrive with a `.tectonic-editor/` folder the web app ignores. Worth an
+ADR, because it is a compatibility claim either way.
+
+### 4. SyncTeX — no longer an open engine question
+
+Section 15 lists SyncTeX as "investigate; engine-dependent". It is not
+dependent any more: the engine's pipeline runs every TeX with `-synctex=1` and
+reads `.synctex.gz` back, `LatexCompiler` already carries the bytes, and a
+compile driven through the harness on 2026-09-18 reported **SyncTeX emitted**
+for a two-line document. What is unmeasured is whether the offsets are
+*correct* after the pipeline's `xdvipdfmx` step, and whether they agree with
+MuPDF's geometry. Parsing is ours to write — desktop calls a native command —
+but `DecompressionStream` is in the capability probe and already reported
+available, so the gzip half is free. Cheap to try, and it pays twice: forward
+and reverse sync for a writer, and a source location for every review anchor.
+
+### 5. Connected folder sync — last, because it is the least portable
+
+`showDirectoryPicker` is Chromium-only; the capability probe already reports
+it, and Firefox and Safari will report it missing. It is therefore a
+progressive enhancement over a ZIP round trip that has to keep working, not a
+replacement for it — and permissions have to be re-granted per session, which
+is a conflict-detection problem the desktop never has because a path is a
+path.
+
+### Not ported, and not re-derived
+
+The AI provider registry, the skills gallery and the Python/`uv` runtime are
+out of scope by section 3.4, and nothing in the desktop source changes that:
+they are native processes. LanguageTool, Zotero's OAuth and DOI lookup are
+network services behind ADR-001's boundary and belong in Phase 5 behind their
+own decisions — the desktop implements each as a Tauri command precisely
+because a browser cannot call them without either a proxy of ours or a CORS
+grant of theirs. `detect_texlive` has no meaning here at all.
+
+### What to measure before committing to the order
+
+1. Whether SyncTeX's offsets survive `xdvipdfmx` — one document, one known
+   line, one click.
+2. What a text layer costs per page on a thesis-sized document, since it is
+   drawn on every page of every compile.
+3. Whether Cache Storage will hold 22.7 MB on the browsers that matter, and
+   what eviction does to it under pressure.
+4. How much OPFS a project with review data actually uses, against the quota
+   the picker already reports.
 
 ## Progress as of 2026-09-03 (superseded, kept as the evidence)
 
@@ -1149,7 +1365,7 @@ object may enter Zustand state or component props.
 | Tectonic compile | Replace | MVP | WASM engine behind `LatexCompiler` |
 | Installed TeX Live | Drop | — | Native-only feature |
 | PDF preview | Port behind adapter | MVP | Renderer licence gate |
-| SyncTeX forward/reverse sync | Investigate | Next | Engine/output dependent |
+| SyncTeX forward/reverse sync | Build | Phase 4 | **No longer engine-dependent**: the pipeline runs `-synctex=1` and a harness compile on 2026-09-18 reported SyncTeX emitted. Parsing and accuracy are ours; see "Phase 4, read against the desktop editor". |
 | Review comments/highlights | Port | Next | Preserve `review/*.json` format where possible |
 | History timeline | Rebuild | Next | IndexedDB snapshots/deltas; no libgit2 requirement for MVP |
 | AI chat/tools | Adapt | Later | BYOK only, explicit data boundary, browser-CORS spike |
@@ -1416,8 +1632,9 @@ Exit criteria:
 > outline, project health, completion for labels and citation keys, and gutter
 > marks from both the index and the engine's log; images and PDFs open as
 > themselves; five templates start a project as something other than blank; and
-> the accessibility pass has a gate in the e2e suite. Not done: structured
-> editors, and a real screen-reader session, which no automated check
+> the accessibility pass has a gate in the e2e suite; and tables and
+> citations, figures and mathematics have structured editors. Not done: a
+> real screen-reader session, which no automated check
 > substitutes for. The editor is
 > CodeMirror configured fresh rather than ported — desktop Opal's configuration
 > is in a repository this one cannot see.

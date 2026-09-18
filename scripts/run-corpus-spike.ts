@@ -241,7 +241,9 @@ async function main(): Promise<void> {
     });
 
     try {
-      await page.goto(PREVIEW_URL);
+      // The spike panels live in a closed section under the product; this
+      // opens it, so the controls below are reachable.
+      await page.goto(`${PREVIEW_URL}/?harness=1`);
       // Asked for explicitly: the page keeps the compiled bytes on `window`
       // only when this is set, so an ordinary run does not retain a number
       // array per compile.

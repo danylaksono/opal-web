@@ -27,7 +27,8 @@ async function openPdf(page: import("@playwright/test").Page, project: string) {
     `Missing fixture for ${project}; run pnpm spike:corpus`,
   );
 
-  await page.goto("/");
+  // The spike panels are under the product, in a section `?harness=1` opens.
+  await page.goto("/?harness=1");
   await page.getByTestId("pdf-input").setInputFiles(path as string);
   await expect(page.getByTestId("spike-status")).toHaveAttribute(
     "data-status",

@@ -180,10 +180,11 @@ async function main(): Promise<void> {
       }
 
       const started = Date.now();
+      // `harness=1` opens the measurement section the panels live in.
       await page.goto(
         archiveUrl
-          ? `${PREVIEW_URL}/?archive=${encodeURIComponent(archiveUrl)}`
-          : PREVIEW_URL,
+          ? `${PREVIEW_URL}/?harness=1&archive=${encodeURIComponent(archiveUrl)}`
+          : `${PREVIEW_URL}/?harness=1`,
       );
       if (useTexlyre) {
         await page.selectOption('[data-testid="backend-select"]', "texlyre");

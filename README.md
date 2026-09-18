@@ -70,12 +70,15 @@ they are no longer between the engine and a person using it.
 | [docs/adr/](docs/adr/) | Architecture decision records. 001, 002 and 004 accepted; 003 open; 011 proposed. |
 | [docs/licence-inventory.md](docs/licence-inventory.md) | Every third-party artifact with its exact version and terms. |
 | [docs/evidence/](docs/evidence/) | Third-party manifests kept verbatim so the ADR analyses are reproducible without re-fetching hundreds of megabytes. |
-| [src/core/](src/core/) | The ports: `LatexCompiler`, `PdfRenderer`, `ProjectRepository`, autosave, the ZIP policy, branded project ids and path validation. No browser API touches these. |
+| [src/app/workspace/](src/app/workspace/) | The workspace, laid out as the desktop editor is: activity rail, side panel (files, outline, project health), editor pane, PDF preview pane, status bar. |
+| [src/app/editor/](src/app/editor/) | The editing surface: CodeMirror, the asset views, and the structured editors for tables and citations. |
+| [src/ui/](src/ui/) | shadcn/Radix primitives copied from the desktop editor under MIT, with its theme in [src/app/styles/globals.css](src/app/styles/globals.css). Recorded in the licence inventory. |
+| [src/core/](src/core/) | The ports: `LatexCompiler`, `PdfRenderer`, `ProjectRepository`, autosave, the ZIP policy, branded project ids and path validation. No browser API touches these. Also the LaTeX readers: the semantic index, and the table and citation readers the structured editors write back through. |
 | [src/platform/browser/storage/](src/platform/browser/storage/) | Projects on OPFS with metadata in IndexedDB: conditional writes, atomic file replacement, per-project locks. |
 | [tests/support/repository-contract.ts](tests/support/repository-contract.ts) | What every `ProjectRepository` must do. Run under vitest against the in-memory implementation and in a real browser against OPFS, so the two cannot drift. |
 | [src/platform/browser/](src/platform/browser/) | Capability probes and the MuPDF renderer adapter behind those ports. |
 | [src/workers/pdf/](src/workers/pdf/) | Versioned PDF worker protocol and the MuPDF worker. |
-| [src/spikes/](src/spikes/) | Measurement surfaces. The renderer spike loads a PDF through the port; the compiler spike builds a project, opens the result through the renderer, and compares it against desktop's reference on words, ink and pixels; the performance spike times init, cold, warm and cancellation, and samples memory. |
+| [src/spikes/](src/spikes/) | Measurement surfaces, at `?harness=1` rather than on the product's page. The renderer spike loads a PDF through the port; the compiler spike builds a project, opens the result through the renderer, and compares it against desktop's reference on words, ink and pixels; the performance spike times init, cold, warm and cancellation, and samples memory. |
 | [tests/fixtures/compiler-corpus/](tests/fixtures/compiler-corpus/) | 13 projects pinned from the desktop examples, with a generated manifest and desktop Tectonic's reference output, plus one written here. The instrument both spikes are measured against. |
 
 ## Getting started
