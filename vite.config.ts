@@ -145,10 +145,30 @@ function serveEngineAssets(): Plugin {
     // "pre" so this runs ahead of Vite's static middleware, which is what sets
     // the Content-Encoding header we need absent.
     enforce: "pre",
-    configureServer: (server) => () => {
-      server.middlewares.use(middleware);
+    /**
+     * Two groups, because they need opposite insertion points.
+     *
+     * `/texlive/` and `/ctan/` are API routes, and in dev Vite's HTML fallback
+     * answers anything still unhandled — so installed *after* Vite's own
+     * middlewares, as a returned hook installs them, the engine asked for
+     * `article.cls` and was handed `index.html` with a 200. TeX then read the
+     * page as a class file and stopped at "Missing \begin{document}", naming a
+     * file that looked fine. They are registered directly, which puts them
+     * ahead of Vite's internals, and nothing of Vite's should ever answer them.
+     *
+     * The asset middleware is the other way round: it exists to serve a
+     * pre-compressed sibling *instead of* Vite's static handler, but only where
+     * that is what the engine wants. It stays in the returned hook, where it
+     * has always been — `busytex.wasm` delivery is the one axis this repository
+     * has already seen diverge between local and deployed twice, and no test
+     * watches it in dev.
+     */
+    configureServer: (server) => {
       server.middlewares.use(ctanProxyMiddleware(console.log));
       server.middlewares.use(texliveEndpointMiddleware(console.log));
+      return () => {
+        server.middlewares.use(middleware);
+      };
     },
     configurePreviewServer: (server) => {
       server.middlewares.use(middleware);

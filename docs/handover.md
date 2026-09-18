@@ -221,6 +221,18 @@ cover for this path.
   rebuild before rerunning, or the tests drive the previous build and the result
   means nothing. `reuseExistingServer` is deliberate — it keeps the suite fast —
   but it does not rebuild.
+- **A green e2e suite does not prove `pnpm dev` works.** Playwright starts
+  `vite preview`, and the two servers do not install middlewares at the same
+  point: what a `configureServer` *returns* runs after Vite's own middlewares,
+  and in dev Vite's HTML fallback answers anything still unhandled. That is how
+  `/texlive/26/article.cls` came back as `index.html` with a 200 — every
+  compile under `pnpm dev` failed with `Missing \begin{document}` naming a
+  class file, while every compile test passed. The endpoint has been behind
+  that hook since it was added (424041f, 2026-09-12), and the CTAN proxy since
+  5537917, so neither has ever answered in dev.
+  `tests/scripts/dev-server-endpoints.test.ts` now asserts the endpoint against
+  both servers; anything else that must answer before Vite does needs the same
+  treatment and the same test.
 - **The contract page is behind a flag.** `tests/browser/contract.html` runs the
   storage contract against real OPFS and is only built when `OPAL_TEST_PAGES=1`,
   which `playwright.config.ts` sets. An ordinary `vite build` emits no contract
