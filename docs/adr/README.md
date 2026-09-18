@@ -20,5 +20,6 @@ the records it named, so a plan reference keeps meaning what it said.
 | 007 | Worker protocols, resource limits, cancellation | Not opened (Phase 2) |
 | 008 | PWA cache and update strategy | Not opened (Phase 4) |
 | 009 | API key and connected-service policy | Not opened (Phase 5) |
-| [010](010-review-interoperability.md) | Desktop/web project and review interoperability | Proposed — data model and re-anchoring ported; renderer/SyncTeX binding open |
+| [010](010-review-interoperability.md) | Desktop/web project and review interoperability | Proposed — data model, re-anchoring, `searchPage` and SyncTeX forward search in; UI open |
 | [011](011-tex-file-delivery.md) | How TeX support files reach the browser | Proposed — indexed archive, per-file range requests |
+| [012](012-synctex.md) | SyncTeX forward search | Accepted — offsets usable, checked against a real compile |

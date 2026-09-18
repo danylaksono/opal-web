@@ -2,6 +2,7 @@ import type {
   PageGeometry,
   PageLink,
   PageText,
+  Rect,
   RendererIdentity,
 } from "@/core/pdf/types";
 
@@ -30,7 +31,15 @@ export type PdfWorkerRequest =
       pixelScale: number;
     }
   | { id: number; type: "pageText"; docId: number; pageIndex: number }
-  | { id: number; type: "pageLinks"; docId: number; pageIndex: number };
+  | { id: number; type: "pageLinks"; docId: number; pageIndex: number }
+  | {
+      id: number;
+      type: "searchPage";
+      docId: number;
+      pageIndex: number;
+      needle: string;
+      maxHits: number;
+    };
 
 export type PdfWorkerResponse =
   | {
@@ -62,6 +71,7 @@ export type PdfWorkerResponse =
     }
   | { id: number; ok: true; type: "pageText"; text: PageText }
   | { id: number; ok: true; type: "pageLinks"; links: PageLink[] }
+  | { id: number; ok: true; type: "searchPage"; hits: Rect[][] }
   | { id: number; ok: false; error: string; stack?: string };
 
 /**

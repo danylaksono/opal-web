@@ -1,6 +1,6 @@
 # ADR-010: Desktop/web project and review interoperability
 
-- **Status:** Proposed — data model and re-anchoring logic ported; renderer and SyncTeX binding, and all UI, still open
+- **Status:** Proposed — data model, re-anchoring logic, the renderer's `searchPage`, and SyncTeX forward search (ADR-012) are in and tested; all UI still open
 - **Date:** 2026-09-18
 - **Deciders:** danylaksono
 
@@ -51,16 +51,33 @@ migration. Opal Web has never written that shape, so there is nothing to
 migrate from — porting the migration would be dead code for a state that
 cannot exist here.
 
-**Not wired up in this change:** `ReanchorContext.searchPage` and
-`forwardSearch` have no implementation bound to them yet.
-`src/workers/pdf/protocol.ts` has a `pageText` message but no `searchPage`
-one, and `forwardSearch` needs SyncTeX, which PLAN.md's own "next, in order"
-marks unproven pending a dedicated item (a harness compile on 2026-09-18
-reported SyncTeX emitted; whether the offsets survive `xdvipdfmx` is
-unmeasured). Neither `WorkspaceScreen` nor `PreviewPane` was touched. The next
-increment is: add a `searchPage` worker message, verify SyncTeX forward
-search, and only then build the comments panel, gutter marks, drawing
-overlay, and PDF-side selection UI against real data.
+**Also landed, in a second increment the same day:** `searchPage` on the PDF
+worker protocol (`src/workers/pdf/protocol.ts`), backed by MuPDF's own
+`page.search()` in `mupdf.worker.ts`, exposed on `PdfDocumentHandle`
+(`src/core/pdf/types.ts`) and `MupdfRenderer`
+(`src/platform/browser/pdf/mupdf-renderer.ts`). `quadToRect`
+(`src/platform/browser/pdf/quad.ts`) converts MuPDF's four-corner `Quad` to
+this repo's axis-aligned `Rect`, kept out of the worker module — same
+reasoning as `structured-text.ts` — so it stays unit-testable without booting
+WASM. `ReanchorContext.searchPage` now has a real implementation it can be
+bound to; `tests/e2e/renderer-spike.spec.ts` proves it against the actual
+worker and a committed reference PDF, not a mock: every page's own first line
+of extracted text is searched for on that same page and must be found.
+
+**Also landed, in a third increment the same week:** `ReanchorContext.forwardSearch`
+now has a real implementation — `synctexForwardSearch` in
+`src/platform/browser/compiler/synctex.ts`, backed by a from-scratch SyncTeX
+parser (ADR-012). PLAN.md's "next, in order" item 4 asked whether the offsets
+survive `xdvipdfmx`; ADR-012 answers that empirically (yes, within the
+tolerance `reanchor.ts` needs) against a real compile and a fixture, not an
+assumption.
+
+**Still not wired up:** neither `WorkspaceScreen` nor `PreviewPane` was
+touched — `reanchorAnnotations` is not called from application code yet. Both
+of `ReanchorContext`'s routes (`searchPage`, `forwardSearch`) now have real
+implementations to bind; the next increment is the UI itself — comments
+panel, gutter marks, drawing overlay, PDF-side selection — built against
+them.
 
 ## Consequences
 
@@ -99,7 +116,14 @@ overlay, and PDF-side selection UI against real data.
 
 ## Evidence
 
-- `pnpm test`: 392 passed, including 35 new (`review-model.test.ts`,
-  `review-tags.test.ts`, `review-reanchor.test.ts`).
+- `pnpm test`: 401 passed, including 44 new across three increments
+  (`review-model.test.ts`, `review-tags.test.ts`, `review-reanchor.test.ts`,
+  `pdf-quad.test.ts`, `synctex-parse.test.ts`).
 - `pnpm typecheck` and `pnpm lint`: clean.
+- `pnpm build` + `pnpm exec playwright test`: 74 passed, including the
+  `searchPage` test in `renderer-spike.spec.ts` and every previously-existing
+  test (compile, offline, storage, accessibility) — no regression across any
+  increment.
+- SyncTeX forward search checked against a real compile and real
+  `searchPage` ground truth: see ADR-012.
 - Desktop source read at `opal-editor@8f95519e63aeccd2341c23060fdad1f0413cd50b`.

@@ -57,7 +57,7 @@ browser make impossible, expensive, or merely different?**
 |---|---|
 | Review: JSON per reviewer inside the project, anchors in PDF coordinates, four re-anchoring states | **Ports as data.** Keep the same files and a project moves between the two products. ADR-004 chose MuPDF partly for the text geometry this needs. The browser work is a text layer over a canvas, re-anchoring after each compile, and drawing. |
 | History: libgit2 commits in a folder inside the project | **Different by force.** There is no libgit2 here, so snapshots go in IndexedDB — which means history does *not* travel inside a ZIP. That is a compatibility claim either way, and wants an ADR before it is built. |
-| SyncTeX: two native commands over Tectonic | **Available, unproven.** The engine runs `-synctex=1`, the port already carries the bytes, and a harness compile on 2026-09-18 reported SyncTeX emitted. Whether the offsets survive `xdvipdfmx` is unmeasured. Parsing is ours; `DecompressionStream` is already probed. |
+| SyncTeX: two native commands over Tectonic | **Available, proven (ADR-012).** The engine runs `-synctex=1`, the port carries the bytes, and forward search — parsed from scratch, since desktop shells out to the native binary rather than carrying portable code — was checked against a real compile: the offsets survive `xdvipdfmx` within the tolerance review re-anchoring needs. |
 | An updater | **No analogue.** A service worker instead — built, and the one Phase 4 item the desktop could teach us nothing about. |
 | Folder access, where a path is a path | **Chromium only.** `showDirectoryPicker` is a progressive enhancement over a ZIP round trip that has to keep working, and its permission is re-granted per session. |
 | LanguageTool, Zotero, DOI lookup | **Phase 5, behind ADR-001.** Each is a native command on the desktop precisely because a browser cannot call it without a proxy of ours or a CORS grant of theirs. |
@@ -76,13 +76,21 @@ browser make impossible, expensive, or merely different?**
    shared fixture rather than asserted. **Begun** (ADR-010): the data model,
    the per-author `review/*.json` shape, and the four-state re-anchoring
    check are ported and tested against a fixture matching desktop's exact
-   bytes. Still open: a `searchPage` message on the PDF worker protocol,
-   SyncTeX forward search bound to `forwardSearch`, and every UI piece —
-   comments panel, gutter marks, drawing overlay, PDF-side selection.
+   bytes; the PDF worker now answers `searchPage`; SyncTeX forward search
+   (item 4, ADR-012) is done and bound to `forwardSearch`. Both routes
+   `ReanchorContext` needs now have real implementations. Still open: every
+   UI piece — comments panel, gutter marks, drawing overlay, PDF-side
+   selection — built against them.
 3. **History snapshots**, after an ADR on whether they travel with a ZIP.
-4. **SyncTeX**: one document, one known line, one click tells us whether the
-   offsets are usable. It pays twice, because a review anchor carries a source
-   location.
+4. ~~**SyncTeX**: one document, one known line, one click tells us whether
+   the offsets are usable.~~ **Done** (ADR-012): yes, within the tolerance
+   review re-anchoring needs. `src/core/synctex/parse.ts` parses the text
+   format from scratch (desktop has no portable code here — it shells out to
+   the native `synctex` binary) and was calibrated against a real compile,
+   not the spec's happy path: reading only box headers, the obvious minimal
+   parse, silently finds nothing for a paragraph's first line, because the
+   *enclosing box* is tagged with the *next* source line by the time it
+   closes.
 5. **Connected folder sync**, last, because it is the least portable.
 
 Carried from Phase 3, none of it blocking the above:
