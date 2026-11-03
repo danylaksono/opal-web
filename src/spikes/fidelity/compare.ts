@@ -1,6 +1,6 @@
 /**
  * Comparing a compiled PDF against desktop Tectonic's, beyond page count
- * (ADR-003 exit criteria, PLAN.md 7.4).
+ * (ADR-003 exit criteria, investigation.md 7.4).
  *
  * Page count says only that the document did not fall apart. What matters is
  * whether the same words are in the same places, and these are the metrics that

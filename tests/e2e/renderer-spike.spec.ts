@@ -98,6 +98,23 @@ test("text extraction yields lines with usable geometry", async ({ page }) => {
   await expect(rows.first()).toBeVisible();
 });
 
+test("search finds the same text the page's own extraction reported", async ({
+  page,
+}) => {
+  // ADR-010: review re-anchoring relocates an annotation by searching for the
+  // text it was placed over. If a page's first line cannot be found on that
+  // same page, re-anchoring has nothing to search against at all.
+  await openPdf(page, "paper-standard");
+
+  const hitCounts = await page
+    .getByTestId("search-hit-count")
+    .allTextContents();
+  expect(hitCounts.length).toBeGreaterThan(0);
+  for (const count of hitCounts) {
+    expect(Number(count)).toBeGreaterThan(0);
+  }
+});
+
 test("a large-format page renders without exhausting memory", async ({
   page,
 }) => {

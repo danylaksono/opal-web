@@ -17,7 +17,7 @@ import {
 } from "@/ui/select";
 
 /**
- * Pick what a citation cites (PLAN.md 14, Phase 3: structured editors).
+ * Pick what a citation cites (investigation.md 14, Phase 3: structured editors).
  *
  * Desktop's citation picker, adapted: search by anything remembered — author,
  * a title word, a year, part of the key — and tick entries. Inline and applied

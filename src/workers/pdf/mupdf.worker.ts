@@ -2,7 +2,8 @@
 
 import wasmUrl from "mupdf-wasm-binary?url";
 import type { Link, PDFDocument } from "mupdf";
-import type { PageGeometry, PageLink, PageText } from "@/core/pdf/types";
+import type { PageGeometry, PageLink, PageText, Rect } from "@/core/pdf/types";
+import { quadToRect } from "@/platform/browser/pdf/quad";
 import { normalizeStructuredText } from "@/platform/browser/pdf/structured-text";
 import {
   PDF_PROTOCOL_VERSION,
@@ -144,6 +145,22 @@ function linkTarget(doc: PDFDocument, link: Link): PageLink["target"] {
   };
 }
 
+function searchPage(
+  docId: number,
+  pageIndex: number,
+  needle: string,
+  maxHits: number,
+): Rect[][] {
+  const page = requireDocument(docId).loadPage(pageIndex);
+  try {
+    return page
+      .search(needle, maxHits)
+      .map((quads) => quads.map((quad) => quadToRect(quad)));
+  } finally {
+    page.destroy();
+  }
+}
+
 function pageLinks(docId: number, pageIndex: number): PageLink[] {
   const doc = requireDocument(docId);
   const page = doc.loadPage(pageIndex);
@@ -279,6 +296,22 @@ async function handle(
           ok: true,
           type: "pageLinks",
           links: pageLinks(request.docId, request.pageIndex),
+        },
+        transfer: [],
+      };
+
+    case "searchPage":
+      return {
+        response: {
+          id,
+          ok: true,
+          type: "searchPage",
+          hits: searchPage(
+            request.docId,
+            request.pageIndex,
+            request.needle,
+            request.maxHits,
+          ),
         },
         transfer: [],
       };

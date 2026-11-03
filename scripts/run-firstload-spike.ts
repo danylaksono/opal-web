@@ -1,5 +1,5 @@
 /**
- * What a first compile actually costs to download (PLAN.md 11, 13.3).
+ * What a first compile actually costs to download (investigation.md 11, 13.3).
  *
  * Every other measurement in this repo has been taken on localhost with a warm
  * disk, which says nothing about the number a user meets first. This opens a

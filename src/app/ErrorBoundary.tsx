@@ -1,5 +1,5 @@
 /**
- * Catches a render crash so it takes a section down, not the app (PLAN.md 14).
+ * Catches a render crash so it takes a section down, not the app (investigation.md 14).
  *
  * The reason this matters here more than in most apps: projects live on the
  * user's device and nowhere else. A component that throws while drawing a list

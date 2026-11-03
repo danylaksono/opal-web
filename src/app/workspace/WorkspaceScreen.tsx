@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import type { EditorProblem } from "@/app/editor/CodeEditor";
 import { useLayoutStore } from "@/app/store/layout-store";
+import { useReviewerStore } from "@/app/store/reviewer-store";
 import { ActivityRail } from "@/app/workspace/ActivityRail";
 import type { CompileState } from "@/app/workspace/compile-session";
 import { EditorPane, type StructuredEdit } from "@/app/workspace/EditorPane";
@@ -24,6 +25,7 @@ import {
   newFigure,
   writeFigure,
 } from "@/core/latex/figure";
+import { bodyInsertionPoint } from "@/core/latex/insertion";
 import { type MathBlock, mathAt, newMath, writeMath } from "@/core/latex/math";
 import { buildProjectIndex } from "@/core/latex/project-index";
 import {
@@ -40,10 +42,23 @@ import {
 import type { ProjectId, ProjectPath } from "@/core/project/ids";
 import { projectPath } from "@/core/project/ids";
 import type { ProjectRepository } from "@/core/project/repository";
+import type { ReviewAnchor, ReviewAnchorUpdate } from "@/core/review/model";
+import type { AnchorChecker } from "@/core/review/reanchor";
+import {
+  addReviewComment,
+  applyReviewChange,
+  isReviewPath,
+  openAnnotationCount,
+  type ReviewChange,
+  type ReviewFileState,
+  type ReviewIntent,
+  readReviewFile,
+  serializeReviewState,
+} from "@/core/review/session";
 import { cn } from "@/ui/utils";
 
 /**
- * A project, open (PLAN.md 14, Phase 3).
+ * A project, open (investigation.md 14, Phase 3).
  *
  * The document state that used to live in `ProjectsPanel` — which file is
  * open, every text file's content, the autosave bound to a revision — with the
@@ -141,6 +156,29 @@ export function WorkspaceScreen({
   } | null>(null);
   const [focusFile, setFocusFile] = useState<ProjectPath | null>(null);
   const autosaveRef = useRef<Autosave | null>(null);
+  const [reviews, setReviews] = useState<readonly ReviewFileState[]>([]);
+  /**
+   * How each annotation fared against the PDF on screen. Never persisted: it
+   * is a fact about one build, and writing it into the file would show up as a
+   * diff in a reviewer's file that they did not make.
+   */
+  const [anchors, setAnchors] = useState<Record<string, ReviewAnchorUpdate>>(
+    {},
+  );
+  const [selectedAnnotation, setSelectedAnnotation] = useState<string | null>(
+    null,
+  );
+  const [showPage, setShowPage] = useState<{
+    page: number;
+    nonce: number;
+  } | null>(null);
+  const [checker, setChecker] = useState<AnchorChecker | null>(null);
+  const checked = useRef<{ checker: AnchorChecker | null; ids: Set<string> }>({
+    checker: null,
+    ids: new Set(),
+  });
+  const reviewer = useReviewerStore((state) => state.name);
+  const setReviewer = useReviewerStore((state) => state.setName);
 
   const sidePanelOpen = useLayoutStore((state) => state.sidePanelOpen);
   const activeSidePanel = useLayoutStore((state) => state.activeSidePanel);
@@ -198,7 +236,19 @@ export function WorkspaceScreen({
       const path = record.rootTexPath ?? files[0];
       if (!path || cancelled) return;
       const sources = await readSources(repository, projectId, files);
+      const decoder = new TextDecoder();
+      const loaded = await Promise.all(
+        files
+          .filter(isReviewPath)
+          .map(async (reviewPath) =>
+            readReviewFile(
+              reviewPath,
+              decoder.decode(await repository.readFile(projectId, reviewPath)),
+            ),
+          ),
+      );
       if (cancelled) return;
+      setReviews(loaded);
       setOpen({
         path,
         mainFile: path,
@@ -339,6 +389,105 @@ export function WorkspaceScreen({
       autosaveRef.current?.adopt(revision);
     },
     [open, repository, projectId],
+  );
+
+  // Check each annotation once per build: a new document starts over, and a
+  // reply or a resolve on the same build does not re-search the PDF.
+  useEffect(() => {
+    if (!checker) return;
+    if (checked.current.checker !== checker) {
+      checked.current = { checker, ids: new Set() };
+      setAnchors({});
+    }
+    const { ids } = checked.current;
+    const todo = reviews
+      .flatMap((file) => file.annotations)
+      .filter((comment) => !ids.has(comment.id));
+    if (todo.length === 0) return;
+    for (const comment of todo) ids.add(comment.id);
+    void checker(todo).then((updates) => {
+      // A newer document arrived while this was searching the old one.
+      if (checked.current.checker !== checker) return;
+      setAnchors((previous) => ({
+        ...previous,
+        ...Object.fromEntries(updates.map((update) => [update.id, update])),
+      }));
+    });
+  }, [checker, reviews]);
+
+  /**
+   * Apply a change to the review files and queue only what it rewrote.
+   *
+   * Through the autosave rather than a write of its own: it already carries the
+   * conditional revision, so a change made in another tab is a conflict instead
+   * of an overwrite, and it flushes when the tab closes.
+   */
+  const changeReview = useCallback(
+    (change: ReviewIntent) => {
+      const full = { ...change, now: new Date().toISOString() } as ReviewChange;
+      const { files, changed } = applyReviewChange(reviews, full);
+      if (changed.length === 0) return;
+      setReviews(files);
+      for (const file of changed) {
+        autosaveRef.current?.queue(
+          file.path,
+          new TextEncoder().encode(serializeReviewState(file)),
+        );
+      }
+    },
+    [reviews],
+  );
+
+  /** Pin a new comment to the PDF, in the current reviewer's own file. */
+  const addComment = useCallback(
+    (input: { anchor: ReviewAnchor; body: string }) => {
+      if (!open) return;
+      if (!reviewer) {
+        // The name is the file's identity, so it cannot be guessed.
+        setActiveSidePanel("review");
+        setError("Set your name in the Review panel before commenting.");
+        return;
+      }
+      const now = new Date().toISOString();
+      const { files, changed } = addReviewComment(reviews, {
+        id: crypto.randomUUID(),
+        kind: "comment",
+        documentRoot: open.mainFile,
+        author: reviewer,
+        body: input.body,
+        status: "open",
+        anchor: input.anchor,
+        replies: [],
+        createdAt: now,
+        updatedAt: now,
+      });
+      setReviews(files);
+      for (const file of changed) {
+        autosaveRef.current?.queue(
+          file.path,
+          new TextEncoder().encode(serializeReviewState(file)),
+        );
+      }
+      // A first comment creates the reviewer's file, which the file list and
+      // the in-memory sources should know about before the next reload does.
+      setOpen((previous) => {
+        if (!previous) return previous;
+        const fresh = changed.filter(
+          (file) => !previous.files.includes(file.path),
+        );
+        if (fresh.length === 0) return previous;
+        return {
+          ...previous,
+          files: [...previous.files, ...fresh.map((file) => file.path)].sort(),
+          sources: {
+            ...previous.sources,
+            ...Object.fromEntries(fresh.map((file) => [file.path, ""])),
+          },
+        };
+      });
+      setActiveSidePanel("review");
+    },
+    [open, reviewer, reviews, setActiveSidePanel],
   );
 
   /** The project's cross-file structure, recomputed as it is typed (~1 ms). */
@@ -486,6 +635,19 @@ export function WorkspaceScreen({
     [open, repository, projectId],
   );
 
+  /**
+   * Where a newly inserted structure goes.
+   *
+   * The cursor, when there is one — and the end of the body when there is not.
+   * A file that has just been opened reports offset 0, which is in front of
+   * `\documentclass`: inserting there produced an equation above the class and
+   * a compile that failed complaining about something else entirely.
+   */
+  const insertAt = useMemo(
+    () => (open ? bodyInsertionPoint(open.content, cursor) : cursor),
+    [open, cursor],
+  );
+
   const closeStructured = useCallback(() => {
     setStructured(null);
     document
@@ -524,6 +686,7 @@ export function WorkspaceScreen({
           onClose={onClose}
           onExport={onExport}
           problemCount={index?.problems.length ?? 0}
+          reviewCount={openAnnotationCount(reviews)}
         />
 
         <div className="flex min-w-0 flex-1 flex-col">
@@ -562,6 +725,22 @@ export function WorkspaceScreen({
                     }
                     onDeleteFile={(path) => void act(() => deleteFile(path))}
                     onGoTo={(path, line) => void act(() => goTo(path, line))}
+                    review={{
+                      files: reviews,
+                      anchors,
+                      selected: selectedAnnotation,
+                      onSelect: (comment) => {
+                        setSelectedAnnotation(comment.id);
+                        setShowPage((previous) => ({
+                          page: comment.anchor.page,
+                          nonce: (previous?.nonce ?? 0) + 1,
+                        }));
+                      },
+                      reviewer,
+                      onSetReviewer: setReviewer,
+                      onChange: changeReview,
+                      onGoTo: (path, line) => void act(() => goTo(path, line)),
+                    }}
                   />
                 </Panel>
                 <PanelResizeHandle className="w-px bg-border transition-colors hover:bg-ring" />
@@ -622,7 +801,7 @@ export function WorkspaceScreen({
                       path: open.path,
                       table: tableHere?.ok
                         ? tableHere.table
-                        : newTabular(open.content, cursor),
+                        : newTabular(open.content, insertAt),
                     })
                   }
                   onOpenCitation={() =>
@@ -631,7 +810,7 @@ export function WorkspaceScreen({
                       path: open.path,
                       citation: citationHere?.ok
                         ? citationHere.citation
-                        : newCitation(cursor),
+                        : newCitation(insertAt),
                       // Read now rather than kept in the index: fields cost
                       // more than keys, and only this needs them.
                       entries: readBibliography(
@@ -648,7 +827,7 @@ export function WorkspaceScreen({
                       path: open.path,
                       figure: figureHere?.ok
                         ? figureHere.figure
-                        : newFigure(open.content, cursor),
+                        : newFigure(open.content, insertAt),
                     })
                   }
                   onOpenMath={() =>
@@ -657,7 +836,7 @@ export function WorkspaceScreen({
                       path: open.path,
                       math: mathHere?.ok
                         ? mathHere.math
-                        : newMath(open.content, cursor),
+                        : newMath(open.content, insertAt),
                     })
                   }
                   onApplyTable={(table: Tabular) =>
@@ -710,6 +889,18 @@ export function WorkspaceScreen({
                     content={open.content}
                     onDiagnostics={setCompiled}
                     onState={setCompileState}
+                    // Wrapped: a bare function would be taken by `setState` as
+                    // an updater and called.
+                    onDocument={(next) => setChecker(() => next)}
+                    annotations={reviews.flatMap((file) => file.annotations)}
+                    anchorStatus={anchors}
+                    selectedAnnotation={selectedAnnotation}
+                    onSelectAnnotation={(id) => {
+                      setSelectedAnnotation(id);
+                      setActiveSidePanel("review");
+                    }}
+                    showPage={showPage}
+                    onAddComment={(input) => void act(() => addComment(input))}
                     compileSignal={compileSignal}
                   />
                 </Panel>

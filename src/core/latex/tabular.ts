@@ -1,5 +1,5 @@
 /**
- * A `tabular` as rows and cells (PLAN.md 14, Phase 3: structured editors).
+ * A `tabular` as rows and cells (investigation.md 14, Phase 3: structured editors).
  *
  * The first structured editor is the table, because a table is where LaTeX
  * source stops resembling the thing it describes: a grid written as one long

@@ -43,6 +43,6 @@ integrations are network features by definition.
 
 ## Evidence
 
-PLAN.md sections 2.1, 5.1 and 12. Carried into the harness as the
+investigation.md 2.1, 5.1 and 12. Carried into the harness as the
 `isolationHeaders` switch in vite.config.ts and the absence of any HTTP client
 in `src/core`.

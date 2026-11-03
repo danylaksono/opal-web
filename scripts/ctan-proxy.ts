@@ -13,7 +13,7 @@ import type { Connect } from "vite";
  * request time. Two properties make it acceptable:
  *
  * - **Pinned.** Packages come from TeX Live 2025's `tlnet-final` archive, which
- *   is frozen, rather than `tlnet`, which tracks the current release. PLAN.md
+ *   is frozen, rather than `tlnet`, which tracks the current release. investigation.md
  *   7.3 requires this: a mutable package URL makes builds unreproducible and
  *   can poison an offline cache.
  * - **Cached on disk.** After the first fetch the upstream is never contacted

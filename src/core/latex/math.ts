@@ -1,6 +1,6 @@
 /**
  * Displayed mathematics as a body and a kind
- * (PLAN.md 14, Phase 3: structured editors).
+ * (investigation.md 14, Phase 3: structured editors).
  *
  * The form's job is small and specific: choose how the maths is displayed,
  * write the body with a preview beside it, and name it so `\eqref` can reach

@@ -7,7 +7,7 @@ import type { ProjectPath } from "@/core/project/ids";
 
 /**
  * The edit-compile-preview loop's control logic, kept out of React
- * (PLAN.md 14, Phase 2).
+ * (investigation.md 14, Phase 2).
  *
  * Three of Phase 2's exit criteria are decided here rather than in the view —
  * stale compiles never replacing newer output, cancellation returning control,

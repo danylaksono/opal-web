@@ -77,7 +77,7 @@ bytes are.
 device — bytes in OPFS, metadata in IndexedDB — with conditional writes,
 transactional autosave, ZIP import and export, an error boundary and design
 tokens. Every exit criterion has a test that runs against real storage rather
-than a stand-in; `PLAN.md` 14 names which test shows which criterion.
+than a stand-in; `docs/investigation.md` 14 names which test shows which criterion.
 
 **Phase 3 — authoring: begun.** The app is laid out as the desktop editor is:
 `src/app/workspace/` holds the activity rail, the side panel (files, outline,
@@ -284,8 +284,11 @@ changed — and the ADRs carry the conclusions:
   does and does not achieve, and the scoped tiers of the pinned tree. Revised: Tectonic's
   bundle repository was archived in October 2024, so the tree to index is a
   maintained one rather than its frozen 2022 vintage.
-- **PLAN.md** "Progress" and "Next, in order" — the state of the whole
-  investigation, kept current.
+- **PLAN.md** — what the product is, where it stands, and what is next, read
+  against the desktop editor it adapts. `docs/progress-archive.md` holds the
+  dated measurements those decisions were made from, and
+  `docs/investigation.md` the original July architecture investigation, whose
+  numbered sections the code's comments cite.
 
 Two findings worth knowing before touching that code, because both were
 counter-intuitive and are easy to undo by accident:

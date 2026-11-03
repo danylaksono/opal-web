@@ -1,5 +1,5 @@
 /**
- * What a single LaTeX source says about itself (PLAN.md 14, Phase 3).
+ * What a single LaTeX source says about itself (investigation.md 14, Phase 3).
  *
  * The semantic index everything else in Phase 3 needs — completion,
  * cross-references, an outline, project health — starts here: one file in,

@@ -1,5 +1,5 @@
 /**
- * Browser capability probes (PLAN.md 14 Phase 0, 5.1 principle 5).
+ * Browser capability probes (investigation.md 14 Phase 0, 5.1 principle 5).
  *
  * Phase 0 uses these to produce the support matrix; the product later uses the
  * same probes to degrade gracefully. Every probe is non-throwing and cheap, and
@@ -139,7 +139,7 @@ export function detectCapabilities(): Capability[] {
       id: "web-locks",
       label: "Web Locks",
       status: has(() => typeof navigator.locks?.request === "function"),
-      note: "Stops two tabs writing the same project (PLAN.md Phase 1 exit criteria).",
+      note: "Stops two tabs writing the same project (investigation.md 14, Phase 1).",
       optional: true,
     },
   ];

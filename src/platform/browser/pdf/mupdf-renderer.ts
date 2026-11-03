@@ -4,6 +4,7 @@ import type {
   PageText,
   PdfDocumentHandle,
   PdfRenderer,
+  Rect,
   RenderedPage,
   RendererIdentity,
   RenderPageRequest,
@@ -233,6 +234,18 @@ class MupdfDocumentHandle implements PdfDocumentHandle {
       Extract<PdfWorkerResponse, { type: "pageLinks"; ok: true }>
     >({ type: "pageLinks", docId: this.#docId, pageIndex });
     return response.links;
+  }
+
+  async searchPage(
+    pageIndex: number,
+    needle: string,
+    maxHits: number,
+  ): Promise<Rect[][]> {
+    this.#assertOpen();
+    const response = await this.#renderer.request<
+      Extract<PdfWorkerResponse, { type: "searchPage"; ok: true }>
+    >({ type: "searchPage", docId: this.#docId, pageIndex, needle, maxHits });
+    return response.hits;
   }
 
   async close(): Promise<void> {

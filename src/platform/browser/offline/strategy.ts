@@ -1,6 +1,6 @@
 /**
  * What to do with each request, and which cache it belongs in
- * (PLAN.md 9, Phase 4: offline startup and update).
+ * (investigation.md 9, Phase 4: offline startup and update).
  *
  * A pure function, so the policy can be read and tested without a browser:
  * the service worker around it is then thin enough to hold in the head, which

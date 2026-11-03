@@ -1,5 +1,5 @@
 /**
- * Renderer-neutral PDF model (PLAN.md 8).
+ * Renderer-neutral PDF model (investigation.md 8).
  *
  * Nothing here may expose a MuPDF or PDF.js object. The licence decision
  * (ADR-004) is still open, so the viewport, overlays, selection and review
@@ -96,6 +96,16 @@ export interface PdfDocumentHandle {
   renderPage(request: RenderPageRequest): Promise<RenderedPage>;
   getPageText(pageIndex: number): Promise<PageText>;
   getPageLinks(pageIndex: number): Promise<readonly PageLink[]>;
+  /**
+   * Every match of `needle` on the page, one `Rect[]` per hit (a match
+   * wrapping across lines reports one rect per line). What ADR-010's review
+   * re-anchoring binds `ReanchorContext.searchPage` to.
+   */
+  searchPage(
+    pageIndex: number,
+    needle: string,
+    maxHits: number,
+  ): Promise<Rect[][]>;
   close(): Promise<void>;
 }
 

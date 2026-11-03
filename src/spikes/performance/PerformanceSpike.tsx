@@ -9,7 +9,7 @@ import {
 
 /**
  * ADR-003 performance surface: what a compile costs, and whether one can be
- * stopped (PLAN.md 13.3).
+ * stopped (investigation.md 13.3).
  *
  * Four numbers the corpus runner cannot produce, because it measures one cold
  * compile per fresh page and reports only what `LatexCompiler` returns:

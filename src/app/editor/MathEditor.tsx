@@ -18,7 +18,7 @@ import {
 
 /**
  * Mathematics with a picture of it beside the source
- * (PLAN.md 14, Phase 3: structured editors).
+ * (investigation.md 14, Phase 3: structured editors).
  *
  * Desktop's math editor, adapted. What it adds over typing the environment by
  * hand is the preview — TeX reports a mistake in a formula as an error

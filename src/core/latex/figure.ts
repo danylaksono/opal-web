@@ -1,6 +1,6 @@
 /**
  * A `figure` as the few things a person fills in
- * (PLAN.md 14, Phase 3: structured editors).
+ * (investigation.md 14, Phase 3: structured editors).
  *
  * A figure is five decisions — which image, how wide, what it says, what to
  * call it, where it may float — wrapped in an environment whose syntax is easy

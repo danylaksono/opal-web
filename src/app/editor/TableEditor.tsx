@@ -17,7 +17,7 @@ import { Button } from "@/ui/button";
 import { Input } from "@/ui/input";
 
 /**
- * A `tabular` as a grid of fields (PLAN.md 14, Phase 3: structured editors).
+ * A `tabular` as a grid of fields (investigation.md 14, Phase 3: structured editors).
  *
  * Inline above the source rather than in a modal — desktop opens this in a
  * dialog, but the web workspace already shows the source beside it, and a

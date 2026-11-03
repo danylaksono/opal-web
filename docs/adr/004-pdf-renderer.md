@@ -9,7 +9,7 @@
 Desktop renders with MuPDF.js in a worker. The viewer builds canvas, text, link,
 selection, SyncTeX and review-overlay layers on top of MuPDF's structured text.
 
-Since PLAN.md was written, the review subsystem has grown substantially on the
+Since the investigation was written, the review subsystem has grown substantially on the
 desktop `features-1.5` branch — drawing, gutter, re-anchoring, reporting, tags,
 search. Re-anchoring in particular depends on structured-text geometry being
 good enough to find the same words again after a recompile, which makes text
@@ -70,7 +70,7 @@ Measured against `tests/fixtures/compiler-corpus`, Chromium, production build:
 
 ## Still open
 
-Exit criteria from PLAN.md 8.2 not yet covered: Firefox and Safari, link
+Exit criteria from investigation.md 8.2 not yet covered: Firefox and Safari, link
 resolution (the corpus reference PDFs carry no links to exercise), stable scroll
 and zoom across recompiles, worker crash recovery under a real crash, and
 confirming no PDF-embedded JavaScript executes.

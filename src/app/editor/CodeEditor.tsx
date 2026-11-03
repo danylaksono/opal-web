@@ -13,7 +13,7 @@ import { EditorView, keymap, lineNumbers } from "@codemirror/view";
 import { useEffect, useRef } from "react";
 
 /**
- * The editing surface (PLAN.md 14, Phase 3).
+ * The editing surface (investigation.md 14, Phase 3).
  *
  * Replaces a six-row textarea, which was honest scaffolding for Phase 1 —
  * storage was the thing being proved — and stopped being honest the moment a

@@ -24,6 +24,9 @@ interface PageReport {
   linkCount: number;
   sampleLines: TextLine[];
   links: PageLink[];
+  /** The first sample line's own text, found again by `searchPage` — proof
+   *  ADR-010's review re-anchoring has something real to search against. */
+  searchHitCount: number;
 }
 
 interface SpikeState {
@@ -80,6 +83,15 @@ export function RendererSpike() {
         const text = await doc.getPageText(pageIndex);
         const links = await doc.getPageLinks(pageIndex);
 
+        // Search for the page's own first line: whatever text.lines just
+        // extracted must be findable by the same page's search, or review
+        // re-anchoring (ADR-010) has no way to relocate an annotation at all.
+        const needle = text.lines[0]?.text.trim() ?? "";
+        const searchHitCount =
+          needle.length > 0
+            ? (await doc.searchPage(pageIndex, needle, 8)).length
+            : 0;
+
         if (pageIndex === 0 && canvasRef.current) {
           const canvas = canvasRef.current;
           canvas.width = rendered.widthPx;
@@ -101,6 +113,7 @@ export function RendererSpike() {
           linkCount: links.length,
           sampleLines: text.lines.slice(0, 3),
           links: links.slice(0, 3),
+          searchHitCount,
         });
       }
 
@@ -183,6 +196,7 @@ export function RendererSpike() {
                   <th>Render</th>
                   <th>Text lines</th>
                   <th>Links</th>
+                  <th>Search hits</th>
                 </tr>
               </thead>
               <tbody>
@@ -200,6 +214,9 @@ export function RendererSpike() {
                       {page.lineCount}
                     </td>
                     <td className="note">{page.linkCount}</td>
+                    <td className="note" data-testid="search-hit-count">
+                      {page.searchHitCount}
+                    </td>
                   </tr>
                 ))}
               </tbody>

@@ -14,6 +14,7 @@ import type { ProjectPath } from "@/core/project/ids";
 import { Button } from "@/ui/button";
 import { Input } from "@/ui/input";
 import { cn } from "@/ui/utils";
+import { ReviewPanel, type ReviewPanelProps } from "./ReviewPanel";
 
 /**
  * The panel beside the rail: the project's files, its outline, its health
@@ -35,6 +36,7 @@ interface SidePanelProps {
   onRenameFile: (name: string) => void;
   onDeleteFile: (path: ProjectPath) => void;
   onGoTo: (path: ProjectPath, line: number) => void;
+  review: ReviewPanelProps;
   /** Set on delete, so focus lands on a file that still exists. */
   focusFile: ProjectPath | null;
   onFocused: () => void;
@@ -69,11 +71,14 @@ export function SidePanel({
   onRenameFile,
   onDeleteFile,
   onGoTo,
+  review,
   focusFile,
   onFocused,
 }: SidePanelProps) {
   const [newFileName, setNewFileName] = useState("");
   const [renameTo, setRenameTo] = useState("");
+
+  if (panel === "review") return <ReviewPanel {...review} />;
 
   if (panel === "files") {
     return (

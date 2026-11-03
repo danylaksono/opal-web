@@ -13,7 +13,7 @@ import {
 } from "@/ui/select";
 
 /**
- * A figure as a form (PLAN.md 14, Phase 3: structured editors).
+ * A figure as a form (investigation.md 14, Phase 3: structured editors).
  *
  * Desktop's figure picker, adapted. The five fields are the ones a person
  * actually decides; everything else in the environment is left alone, because

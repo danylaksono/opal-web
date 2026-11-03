@@ -9,7 +9,8 @@
       "*.ts",
       "*.json",
       "!src/app/styles/globals.css",
-      "!src/ui"
+      "!src/ui",
+      "!tests/fixtures/review"
     ]
   },
   "formatter": {

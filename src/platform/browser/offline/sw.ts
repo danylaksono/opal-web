@@ -8,7 +8,7 @@ import {
 
 /**
  * The offline shell, and the engine cached beside it
- * (PLAN.md 9, Phase 4: "the app handles offline startup … without silent data
+ * (investigation.md 9, Phase 4: "the app handles offline startup … without silent data
  * loss").
  *
  * This is the first piece of Phase 4 and the one with no desktop counterpart:
