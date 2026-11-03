@@ -2,6 +2,7 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   Loader2Icon,
+  MessageSquarePlusIcon,
   MinusIcon,
   PlayIcon,
   PlusIcon,
@@ -15,12 +16,23 @@ import {
 import type { CompileDiagnostic } from "@/core/compiler/types";
 import type { ProjectId, ProjectPath } from "@/core/project/ids";
 import type { ProjectRepository } from "@/core/project/repository";
+import type {
+  ReviewAnchor,
+  ReviewAnchorUpdate,
+  ReviewComment,
+} from "@/core/review/model";
+import {
+  type AnchorChecker,
+  reanchorAnnotations,
+} from "@/core/review/reanchor";
+import { synctexForwardSearch } from "@/platform/browser/compiler/synctex";
 import {
   TEXLYRE_BOOT_TIER,
   TexlyreLatexCompiler,
 } from "@/platform/browser/compiler/texlyre-compiler";
 import { MupdfRenderer } from "@/platform/browser/pdf/mupdf-renderer";
 import { Button } from "@/ui/button";
+import { cn } from "@/ui/utils";
 
 /**
  * The compiled document (investigation.md 14, Phase 2), in the right-hand pane.
@@ -41,6 +53,17 @@ interface PreviewPaneProps {
   content: string;
   onDiagnostics?: (diagnostics: readonly CompileDiagnostic[]) => void;
   onState?: (state: CompileState) => void;
+  /** A freshly rendered document, for checking review anchors against. */
+  onDocument?: (checker: AnchorChecker) => void;
+  /** A comment pinned to a point on a page. Absent means commenting is off. */
+  onAddComment?: (input: { anchor: ReviewAnchor; body: string }) => void;
+  /** Everything reviewers said, drawn on the page it was anchored to. */
+  annotations?: readonly ReviewComment[];
+  anchorStatus?: Readonly<Record<string, ReviewAnchorUpdate>>;
+  selectedAnnotation?: string | null;
+  onSelectAnnotation?: (id: string) => void;
+  /** Ask the preview to show a page (1-based). The nonce makes a repeat count. */
+  showPage?: { page: number; nonce: number } | null;
   /** A compile asked for from outside — the editor's Ctrl/Cmd+Enter. */
   compileSignal?: number;
 }
@@ -74,6 +97,13 @@ export function PreviewPane({
   content,
   onDiagnostics,
   onState,
+  onDocument,
+  onAddComment,
+  annotations = [],
+  anchorStatus = {},
+  selectedAnnotation = null,
+  onSelectAnnotation,
+  showPage = null,
   compileSignal,
 }: PreviewPaneProps) {
   const [compile, setCompile] = useState<CompileState>({ status: "idle" });
@@ -94,12 +124,26 @@ export function PreviewPane({
     ReturnType<MupdfRenderer["openDocument"]>
   > | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  /** The page's width in PDF points as last drawn, to turn a click into one. */
+  const pageWidthPt = useRef(0);
+  const pageHeightPt = useRef(0);
+  const [commenting, setCommenting] = useState(false);
+  const [draft, setDraft] = useState<{
+    page: number;
+    x: number;
+    y: number;
+    left: number;
+    top: number;
+    body: string;
+  } | null>(null);
   /** Where the reader was, read at compile time rather than captured. */
   const viewRef = useRef({ pageIndex: 0 });
   const report = useRef(onDiagnostics);
   report.current = onDiagnostics;
   const publish = useRef(onState);
   publish.current = onState;
+  const announce = useRef(onDocument);
+  announce.current = onDocument;
 
   useEffect(() => {
     const renderer = new MupdfRenderer();
@@ -142,6 +186,12 @@ export function PreviewPane({
         scale,
         devicePixelRatio: window.devicePixelRatio,
       });
+      // Points, not pixels: the stored anchor must not depend on the zoom or
+      // the screen it was made on.
+      pageHeightPt.current =
+        rendered.heightPx / (scale * window.devicePixelRatio);
+      pageWidthPt.current =
+        rendered.widthPx / (scale * window.devicePixelRatio);
       canvas.width = rendered.widthPx;
       canvas.height = rendered.heightPx;
       canvas.getContext("2d")?.drawImage(rendered.bitmap, 0, 0);
@@ -149,6 +199,8 @@ export function PreviewPane({
       // copy by now.
       rendered.bitmap.close();
       viewRef.current.pageIndex = pageIndex;
+      // A draft belongs to the page it was placed on.
+      setDraft(null);
       setPreview({
         status: "ready",
         pageCount: handle.pageCount,
@@ -202,6 +254,30 @@ export function PreviewPane({
       await documentRef.current?.close();
       const handle = await renderer.openDocument(new Uint8Array(result.pdf));
       documentRef.current = handle;
+      const synctex = result.synctex;
+      announce.current?.((comments) =>
+        reanchorAnnotations(
+          // Without SyncTeX a source line cannot be resolved, and asking would
+          // report every text-less annotation as drifted: no evidence is not
+          // evidence of drift.
+          synctex
+            ? comments
+            : comments.map(({ anchor: { source: _, ...anchor }, ...rest }) => ({
+                ...rest,
+                anchor,
+              })),
+          {
+            pageCount: handle.pageCount,
+            searchPage: (index, needle, maxHits) =>
+              handle.searchPage(index, needle, maxHits),
+            forwardSearch: (sources) =>
+              synctex
+                ? synctexForwardSearch(synctex, sources)
+                : Promise.resolve(sources.map(() => null)),
+            isCancelled: () => documentRef.current !== handle,
+          },
+        ),
+      );
 
       // Clamped rather than assumed: an edit that deletes a chapter makes the
       // page the reader was on stop existing.
@@ -238,6 +314,18 @@ export function PreviewPane({
   }, [compileSignal, run]);
 
   const pageIndex = preview.pageIndex ?? 0;
+
+  // A request from the review panel to look at a page.
+  const lastShown = useRef(showPage?.nonce);
+  useEffect(() => {
+    if (!showPage || showPage.nonce === lastShown.current) return;
+    lastShown.current = showPage.nonce;
+    const handle = documentRef.current;
+    if (!handle) return;
+    void drawPage(
+      Math.min(Math.max(0, showPage.page - 1), handle.pageCount - 1),
+    );
+  }, [showPage, drawPage]);
 
   return (
     <div
@@ -283,6 +371,23 @@ export function PreviewPane({
 
         {preview.status === "ready" && preview.pageCount !== undefined && (
           <div className="ml-auto flex items-center gap-1">
+            {onAddComment && (
+              <Button
+                size="icon"
+                variant="ghost"
+                data-testid="comment-mode"
+                aria-label="Add a comment"
+                aria-pressed={commenting}
+                title="Add a comment: click the page"
+                className={cn("size-7", commenting && "bg-accent")}
+                onClick={() => {
+                  setCommenting(!commenting);
+                  setDraft(null);
+                }}
+              >
+                <MessageSquarePlusIcon className="size-4" />
+              </Button>
+            )}
             <Button
               size="icon"
               variant="ghost"
@@ -467,21 +572,150 @@ export function PreviewPane({
             A canvas is a rectangle of pixels with nothing to read. Naming it
             says what is on screen and, more usefully, which page.
           */}
-          <canvas
-            ref={canvasRef}
-            role="img"
-            aria-label={
-              preview.pageCount
-                ? `Page ${pageIndex + 1} of ${preview.pageCount} of the compiled document`
-                : "Compiled document preview"
-            }
-            data-testid="preview-canvas"
-            className={
-              preview.status === "ready"
-                ? "max-w-full shadow-md ring-1 ring-border"
-                : "hidden"
-            }
-          />
+          <div
+            className={cn("relative", preview.status !== "ready" && "hidden")}
+          >
+            <canvas
+              ref={canvasRef}
+              role="img"
+              aria-label={
+                preview.pageCount
+                  ? `Page ${pageIndex + 1} of ${preview.pageCount} of the compiled document`
+                  : "Compiled document preview"
+              }
+              data-testid="preview-canvas"
+              className={cn(
+                "max-w-full shadow-md ring-1 ring-border",
+                commenting && "cursor-crosshair",
+              )}
+              onClick={(event) => {
+                const canvas = event.currentTarget;
+                if (!commenting || !pageWidthPt.current) return;
+                const box = canvas.getBoundingClientRect();
+                // A fraction of what is displayed, so zoom, a canvas shrunk to
+                // fit and the device pixel ratio all drop out.
+                const scale = pageWidthPt.current / box.width;
+                setDraft({
+                  page: pageIndex + 1,
+                  x: (event.clientX - box.left) * scale,
+                  y: (event.clientY - box.top) * scale,
+                  left: event.clientX - box.left,
+                  top: event.clientY - box.top,
+                  body: "",
+                });
+              }}
+            />
+            {/*
+              Placed in percent of the page, so zoom and a canvas shrunk to fit
+              move them with it. A shifted or drifted mark stays where it was
+              put: the panel says its text moved, and the reader decides.
+            */}
+            {pageWidthPt.current > 0 &&
+              annotations
+                .filter((item) => item.anchor.page === pageIndex + 1)
+                .map((item) => {
+                  const { anchor } = item;
+                  const status = anchorStatus[item.id]?.status;
+                  const stale = status === "shifted" || status === "drifted";
+                  const left = (anchor.x / pageWidthPt.current) * 100;
+                  const top = (anchor.y / pageHeightPt.current) * 100;
+                  const pin = anchor.width === 0 && anchor.height === 0;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      data-testid="page-marker"
+                      data-id={item.id}
+                      data-status={item.status}
+                      aria-label={`Comment by ${item.author}${item.body ? `: ${item.body}` : ""}`}
+                      aria-pressed={selectedAnnotation === item.id}
+                      title={item.body || item.author}
+                      style={{
+                        left: `${left}%`,
+                        top: `${top}%`,
+                        ...(pin
+                          ? {}
+                          : {
+                              width: `${(anchor.width / pageWidthPt.current) * 100}%`,
+                              height: `${(anchor.height / pageHeightPt.current) * 100}%`,
+                            }),
+                      }}
+                      className={cn(
+                        "absolute z-[5]",
+                        pin
+                          ? "-translate-y-full size-5 rounded-full rounded-bl-none border bg-sky-500 text-white"
+                          : "border-2 border-sky-500 bg-sky-500/15",
+                        item.status === "resolved" && "opacity-40",
+                        stale && "border-amber-500 bg-amber-500",
+                        selectedAnnotation === item.id &&
+                          "outline outline-2 outline-offset-2 outline-ring",
+                        commenting && "pointer-events-none",
+                      )}
+                      onClick={() => onSelectAnnotation?.(item.id)}
+                    />
+                  );
+                })}
+            {draft && onAddComment && (
+              <form
+                data-testid="comment-draft"
+                style={{ left: draft.left, top: draft.top }}
+                className="absolute z-10 w-56 space-y-1 rounded-md border bg-background p-2 shadow-lg"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const body = draft.body.trim();
+                  if (!body) return;
+                  onAddComment({
+                    anchor: {
+                      kind: "point",
+                      page: draft.page,
+                      x: draft.x,
+                      y: draft.y,
+                      width: 0,
+                      height: 0,
+                    },
+                    body,
+                  });
+                  setDraft(null);
+                  setCommenting(false);
+                }}
+              >
+                <textarea
+                  // biome-ignore lint/a11y/noAutofocus: the person just clicked to write here
+                  autoFocus
+                  data-testid="comment-draft-body"
+                  aria-label="Comment"
+                  rows={3}
+                  value={draft.body}
+                  className="w-full rounded border bg-background p-1 text-xs"
+                  onChange={(event) =>
+                    setDraft({ ...draft, body: event.target.value })
+                  }
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") setDraft(null);
+                  }}
+                />
+                <div className="flex justify-end gap-1">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 px-2 text-xs"
+                    onClick={() => setDraft(null)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    size="sm"
+                    data-testid="comment-draft-add"
+                    className="h-6 px-2 text-xs"
+                  >
+                    Add
+                  </Button>
+                </div>
+              </form>
+            )}
+          </div>
         </div>
       </div>
     </div>

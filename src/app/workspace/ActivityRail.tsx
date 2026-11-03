@@ -2,6 +2,7 @@ import {
   FolderIcon,
   HomeIcon,
   ListIcon,
+  MessageSquareIcon,
   MoonIcon,
   PackageIcon,
   PanelLeftCloseIcon,
@@ -25,18 +26,22 @@ const PANELS: { id: SidePanel; label: string; icon: typeof FolderIcon }[] = [
   { id: "files", label: "Files", icon: FolderIcon },
   { id: "outline", label: "Outline", icon: ListIcon },
   { id: "health", label: "Project health", icon: StethoscopeIcon },
+  { id: "review", label: "Review", icon: MessageSquareIcon },
 ];
 
 interface ActivityRailProps {
   onClose: () => void;
   onExport: () => void;
   problemCount: number;
+  /** Open review annotations, counted on the icon like problems are. */
+  reviewCount: number;
 }
 
 export function ActivityRail({
   onClose,
   onExport,
   problemCount,
+  reviewCount,
 }: ActivityRailProps) {
   const sidePanelOpen = useLayoutStore((state) => state.sidePanelOpen);
   const activeSidePanel = useLayoutStore((state) => state.activeSidePanel);
@@ -104,6 +109,11 @@ export function ActivityRail({
               {panel.id === "health" && problemCount > 0 && (
                 <span className="-top-0.5 -right-0.5 absolute flex size-4 items-center justify-center rounded-full bg-amber-500 font-medium text-[9px] text-white">
                   {problemCount > 9 ? "9+" : problemCount}
+                </span>
+              )}
+              {panel.id === "review" && reviewCount > 0 && (
+                <span className="-top-0.5 -right-0.5 absolute flex size-4 items-center justify-center rounded-full bg-sky-500 font-medium text-[9px] text-white">
+                  {reviewCount > 9 ? "9+" : reviewCount}
                 </span>
               )}
             </Button>

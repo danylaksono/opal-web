@@ -9,7 +9,7 @@ import { persist } from "zustand/middleware";
  * they left it, which is why it persists and the rest does not.
  */
 
-export type SidePanel = "files" | "outline" | "health";
+export type SidePanel = "files" | "outline" | "health" | "review";
 
 interface LayoutState {
   sidePanelOpen: boolean;

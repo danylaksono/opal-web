@@ -79,8 +79,30 @@ browser make impossible, expensive, or merely different?**
    bytes; the PDF worker now answers `searchPage`; SyncTeX forward search
    (item 4, ADR-012) is done and bound to `forwardSearch`. Both routes
    `ReanchorContext` needs now have real implementations. Still open: every
-   UI piece — comments panel, gutter marks, drawing overlay, PDF-side
-   selection — built against them.
+   UI piece — gutter marks, drawing overlay, PDF-side selection — built
+   against them. **The comments panel is built**: it lists each reviewer's
+   file, resolves, reopens, replies and deletes, and writes through the
+   autosave so only the changed reviewer's file is rewritten. A file this
+   version cannot read in full (newer version, an entry it cannot represent,
+   unknown keys) is shown but never rewritten — `readReviewFile` in
+   `src/core/review/session.ts` decides, and `tests/unit/review-session.test.ts`
+   and `tests/e2e/review.spec.ts` hold the line. **Re-anchoring is wired**: each
+   render hands `WorkspaceScreen` a checker bound to that document, which
+   searches the PDF (and SyncTeX, when the compile produced it) once per
+   annotation per build and shows "text has moved" or "no longer in the
+   document" on the comment. Results live in memory only — nothing is written
+   to a reviewer's file. **Point comments are built**: a toolbar toggle, a click
+   on the page, a small form; the click becomes PDF points from the page's
+   width at draw time, so the stored anchor is the same at any zoom (an e2e
+   reads the saved file back to prove it). A first comment creates the
+   reviewer's `review/<slug>.json`; one whose slug collides with another
+   author's file is refused. **Markers are drawn** on the page they were
+   anchored to, in percent of the page so zoom moves them with it; a marker
+   selects its comment, and a comment's author name jumps the preview to its
+   page. Shifted and drifted marks stay put and turn amber. Next:
+   text-selection comments; 
+   from a click on the PDF (anchors are unscaled PDF points, so convert by
+   zoom, not device pixels); drawing last.
 3. **History snapshots**, after an ADR on whether they travel with a ZIP.
 4. ~~**SyncTeX**: one document, one known line, one click tells us whether
    the offsets are usable.~~ **Done** (ADR-012): yes, within the tolerance

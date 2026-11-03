@@ -91,6 +91,12 @@ export interface ReanchorContext {
   isCancelled?(): boolean;
 }
 
+/** `reanchorAnnotations` bound to one compiled document. Handed up by the
+ *  preview after each render; cancels itself once that document is replaced. */
+export type AnchorChecker = (
+  comments: readonly ReviewComment[],
+) => Promise<ReviewAnchorUpdate[]>;
+
 /** Collapse the whitespace a renderer reports between lines so the needle
  *  still matches text that has since been rewrapped. */
 function normalizeNeedle(text: string): string {
